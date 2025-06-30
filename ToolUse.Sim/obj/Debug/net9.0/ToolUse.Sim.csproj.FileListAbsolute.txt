@@ -24,3 +24,4 @@
 /Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Sim/obj/Debug/net9.0/ToolUse.Sim.genruntimeconfig.cache
 /Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Sim/obj/Debug/net9.0/ref/ToolUse.Sim.dll
 /Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Sim/bin/Debug/net9.0/Newtonsoft.Json.dll
+/Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Sim/obj/Debug/net9.0/ToolUse.Sim.sourcelink.json
