@@ -20,7 +20,7 @@ class Program
     const int screenW = fieldSize;
     const int screenH = fieldSize + padY + 40;
 
-    const float sessSec = 30f;
+    const float sessSec = 300f;
     const int FPS = 5;
     const int maxFrames = (int)(sessSec * FPS);
 
