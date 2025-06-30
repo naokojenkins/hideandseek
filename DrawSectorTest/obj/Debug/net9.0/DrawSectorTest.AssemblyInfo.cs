@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("DrawSectorTest")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+afb201fcaddd576613f52b6c98ee3cafe981ecd8")]
 [assembly: System.Reflection.AssemblyProductAttribute("DrawSectorTest")]
 [assembly: System.Reflection.AssemblyTitleAttribute("DrawSectorTest")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
