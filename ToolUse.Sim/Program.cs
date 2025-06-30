@@ -1,4 +1,6 @@
-﻿using System;
+﻿// Program.cs — 6 агентов каждого типа
+
+using System;
 using System.IO;
 using System.Numerics;
 using System.Collections.Generic;
@@ -13,13 +15,13 @@ class Program
 {
     const int cellSize = 16, gridSize = 40;
     const int fieldSize = cellSize * gridSize;
-    const int graphW = 280, graphH = 100;
-    const int padY = 50;
+    //const int graphW = 500, graphH = 80;
+    const int padY = 0;
     const int screenW = fieldSize;
-    const int screenH = fieldSize + padY + graphH + 20;
+    const int screenH = fieldSize + padY + 40;
 
     const float sessSec = 30f;
-    const int FPS = 60;
+    const int FPS = 5;
     const int maxFrames = (int)(sessSec * FPS);
 
     static JsonSerializerSettings jsonSettings = new()
@@ -40,8 +42,8 @@ class Program
     static bool caught = false;
 
     static List<float> rss = new(), rsh = new();
-    static float[] sumS = new float[2];
-    static float[] sumH = new float[2];
+    static float[] sumS = new float[6];
+    static float[] sumH = new float[6];
 
     enum Act { RotL, RotR, Fwd }
 
@@ -108,7 +110,7 @@ class Program
             DrawWorld();
             DrawAgents();
             DrawHUD();
-            DrawChart((screenW - graphW) / 2, fieldSize + 25);
+            //DrawChart((screenW - graphW) / 2, fieldSize + 25);
 
             Raylib.EndDrawing();
         }
@@ -131,15 +133,14 @@ class Program
         timer = 0f;
         caught = false;
         caughtFrames = 0;
-        sumS[0] = sumS[1] = 0;
-        sumH[0] = sumH[1] = 0;
+
+        for (int i = 0; i < 6; i++) { sumS[i] = 0; sumH[i] = 0; }
 
         world.GenerateStaticGrid();
-
         seekers.Clear();
         hiders.Clear();
 
-        for (int i = 0; i < 2; i++)
+        for (int i = 0; i < 6; i++)
         {
             Agent s;
             do s = new Agent(Raylib.GetRandomValue(0, gridSize - 1), Raylib.GetRandomValue(0, gridSize - 1), true, 0);
@@ -147,7 +148,7 @@ class Program
             seekers.Add(s);
         }
 
-        for (int i = 0; i < 2; i++)
+        for (int i = 0; i < 6; i++)
         {
             Agent h;
             do h = new Agent(Raylib.GetRandomValue(0, gridSize - 1), Raylib.GetRandomValue(0, gridSize - 1), false, 180);
@@ -217,42 +218,85 @@ class Program
         Raylib.DrawRectangle(0, 0, fieldSize, 12, RColor.WHITE);
         int x = 10, y = 2, fs = 8;
         Raylib.DrawText($"Session: {session}  Time: {timer:F0}s", x, y, fs, RColor.BLACK);
-        Raylib.DrawText($"Seeker1: {sumS[0]:F1}", x + 160, y, fs, RColor.BLUE);
-        Raylib.DrawText($"Seeker2: {sumS[1]:F1}", x + 240, y, fs, RColor.BLUE);
-        Raylib.DrawText($"Hider1: {sumH[0]:F1}", x + 360, y, fs, RColor.GREEN);
-        Raylib.DrawText($"Hider2: {sumH[1]:F1}", x + 440, y, fs, RColor.GREEN);
-    }
 
-    static void DrawChart(int x0, int y0)
-    {
-        Raylib.DrawRectangleLines(x0, y0, graphW, graphH, RColor.BLACK);
-        for (int i = 1; i < 5; i++)
-            Raylib.DrawLine(x0, y0 + i * graphH / 5, x0 + graphW, y0 + i * graphH / 5, RColor.LIGHTGRAY);
-        for (int i = 1; i < 10; i++)
-            Raylib.DrawLine(x0 + i * graphW / 10, y0, x0 + i * graphW / 10, y0 + graphH, RColor.LIGHTGRAY);
-
-        if (rss.Count > 0)
+        for (int i = 0; i < 6; i++)
         {
-            int bar = 2, maxPts = Math.Min(100, graphW / bar);
-            int n = Math.Min(rss.Count, maxPts);
-            float mx = Math.Max(0.001f, rss.Concat(rsh).Max());
-
-            for (int i = 0; i < n; i++)
-            {
-                int idx = rss.Count - n + i;
-                int xs = x0 + i * bar;
-                int ys = y0 + graphH - (int)(rss[idx] / mx * graphH);
-                int yh = y0 + graphH - (int)(rsh[idx] / mx * graphH);
-                Raylib.DrawLine(xs, y0 + graphH, xs, ys, new RColor(100, 150, 255, 255));
-                Raylib.DrawLine(xs, y0 + graphH, xs, yh, new RColor(80, 220, 80, 255));
-            }
+            Raylib.DrawText($"S{i + 1}:{sumS[i]:F1}", x + 20 + i * 50, y+645, fs, RColor.BLUE);
         }
-
-        int fs = 10;
-        string xLab = "Sessions";
-        Raylib.DrawText(xLab, x0 + graphW / 2 - Raylib.MeasureText(xLab, fs) / 2, y0 + graphH + 5, fs, RColor.BLACK);
-        Raylib.DrawText("Reward", x0 - 40, y0 + graphH / 2 - 20, fs, RColor.BLACK);
+        Raylib.DrawLine(20, 659, fieldSize, 659, RColor.BLACK);
+        for (int i = 0; i < 6; i++)
+        {
+            Raylib.DrawText($"H{i + 1}:{sumH[i]:F1}", x + 20 + i * 50, y+660, fs, RColor.GREEN);
+        }
     }
+
+//     static void DrawChart(int x0, int y0)
+// {
+//     Raylib.DrawRectangleLines(x0, y0, graphW, graphH, RColor.BLACK);
+//
+//     int bar = 2;
+//     int maxPts = Math.Min(graphW / bar, 100);
+//     int n = Math.Min(rss.Count, maxPts);
+//     if (n < 2) return;
+//
+//     float mx = Math.Max(0.001f, rss.Concat(rsh).Max());
+//
+//     // горизонтальная сетка и метки по Y
+//     int ySteps = 5;
+//     for (int i = 0; i <= ySteps; i++)
+//     {
+//         int y = y0 + i * graphH / ySteps;
+//         Raylib.DrawLine(x0, y, x0 + graphW, y, RColor.LIGHTGRAY);
+//         float val = mx * (1f - i / (float)ySteps);
+//         string label = val.ToString("0.0");
+//         Raylib.DrawText(label, x0 - Raylib.MeasureText(label, 8) - 4, y - 4, 8, RColor.BLACK);
+//     }
+//
+//     // вертикальная сетка и метки по X (каждые 5 сессий)
+//     int sessionsToShow = n;
+//     int sessionStart = rss.Count - sessionsToShow;
+//     for (int i = 0; i < sessionsToShow; i++)
+//     {
+//         int globalSessionIndex = sessionStart + i;
+//         if (globalSessionIndex % 5 == 0)
+//         {
+//             int x = x0 + i * bar;
+//             Raylib.DrawLine(x, y0, x, y0 + graphH, RColor.LIGHTGRAY);
+//             string label = globalSessionIndex.ToString();
+//             Raylib.DrawText(label, x - Raylib.MeasureText(label, 8) / 2, y0 + graphH + 2, 8, RColor.BLACK);
+//         }
+//     }
+
+    // отрисовка графиков
+//     for (int i = 1; i < n; i++)
+//     {
+//         int i0 = rss.Count - n + i - 1;
+//         int i1 = rss.Count - n + i;
+//
+//         int x0s = x0 + (i - 1) * bar;
+//         int x1s = x0 + i * bar;
+//
+//         int y0s = y0 + graphH - (int)(rss[i0] / mx * graphH);
+//         int y1s = y0 + graphH - (int)(rss[i1] / mx * graphH);
+//
+//         int y0h = y0 + graphH - (int)(rsh[i0] / mx * graphH);
+//         int y1h = y0 + graphH - (int)(rsh[i1] / mx * graphH);
+//
+//         Raylib.DrawLine(x0s, y0s, x1s, y1s, new RColor(100, 150, 255, 255));
+//         Raylib.DrawLine(x0s, y0h, x1s, y1h, new RColor(80, 220, 80, 255));
+//     }
+//
+//     // подписи осей
+//     int fs = 10;
+//     Raylib.DrawText("Sessions", x0 + graphW / 2 - Raylib.MeasureText("Sessions", fs) / 2, y0 + graphH + 14, fs, RColor.BLACK);
+//
+//     string yLab = "Reward";
+//     int yStart = y0 + graphH / 2 - (yLab.Length * fs) / 2;
+//     for (int i = 0; i < yLab.Length; i++)
+//     {
+//         Raylib.DrawText(yLab[i].ToString(), x0 - 12, yStart + i * fs, fs, RColor.BLACK);
+//     }
+// }
 
     static void DrawFilledVisionCone(Agent agent, int cell, RColor col, World w,
                                      float stepDeg = 1f, float stepPix = 2f, float thick = 3f)
