@@ -1,5 +1,0 @@
-/Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Train/obj/Debug/net8.0/ToolUse.Train.csproj.AssemblyReference.cache
-/Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Train/obj/Debug/net8.0/ToolUse.Train.GeneratedMSBuildEditorConfig.editorconfig
-/Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Train/obj/Debug/net8.0/ToolUse.Train.AssemblyInfoInputs.cache
-/Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Train/obj/Debug/net8.0/ToolUse.Train.AssemblyInfo.cs
-/Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Train/obj/Debug/net8.0/ToolUse.Train.csproj.CoreCompileInputs.cache
