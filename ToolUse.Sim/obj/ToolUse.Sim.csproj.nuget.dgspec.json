@@ -1,0 +1,150 @@
+{
+  "format": 1,
+  "restore": {
+    "/Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Sim/ToolUse.Sim.csproj": {}
+  },
+  "projects": {
+    "/Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Core/ToolUse.Core.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "/Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Core/ToolUse.Core.csproj",
+        "projectName": "ToolUse.Core",
+        "projectPath": "/Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Core/ToolUse.Core.csproj",
+        "packagesPath": "/Users/al.v.goncharov/.nuget/packages/",
+        "outputPath": "/Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Core/obj/",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "/Users/al.v.goncharov/.nuget/NuGet/NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net9.0"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net9.0": {
+            "targetAlias": "net9.0",
+            "projectReferences": {}
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "all"
+        },
+        "SdkAnalysisLevel": "9.0.100"
+      },
+      "frameworks": {
+        "net9.0": {
+          "targetAlias": "net9.0",
+          "dependencies": {
+            "Newtonsoft.Json": {
+              "target": "Package",
+              "version": "[13.0.3, )"
+            }
+          },
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "/Users/al.v.goncharov/.dotnet/sdk/9.0.100/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    },
+    "/Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Sim/ToolUse.Sim.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "/Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Sim/ToolUse.Sim.csproj",
+        "projectName": "ToolUse.Sim",
+        "projectPath": "/Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Sim/ToolUse.Sim.csproj",
+        "packagesPath": "/Users/al.v.goncharov/.nuget/packages/",
+        "outputPath": "/Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Sim/obj/",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "/Users/al.v.goncharov/.nuget/NuGet/NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net9.0"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net9.0": {
+            "targetAlias": "net9.0",
+            "projectReferences": {
+              "/Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Core/ToolUse.Core.csproj": {
+                "projectPath": "/Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Core/ToolUse.Core.csproj"
+              }
+            }
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "all"
+        },
+        "SdkAnalysisLevel": "9.0.100"
+      },
+      "frameworks": {
+        "net9.0": {
+          "targetAlias": "net9.0",
+          "dependencies": {
+            "Aether.Physics2D": {
+              "target": "Package",
+              "version": "[2.2.0, )"
+            },
+            "Newtonsoft.Json": {
+              "target": "Package",
+              "version": "[13.0.3, )"
+            },
+            "Raylib-cs": {
+              "target": "Package",
+              "version": "[4.5.0.2, )"
+            }
+          },
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "/Users/al.v.goncharov/.dotnet/sdk/9.0.100/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    }
+  }
+}
