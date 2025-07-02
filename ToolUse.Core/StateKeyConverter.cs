@@ -1,19 +1,43 @@
 using System;
-using Newtonsoft.Json;
+using System.ComponentModel;
+using System.Globalization;
 
 namespace ToolUse.Core.RL
 {
-    /// <summary>Позволяет сериализовать / десериализовать State, когда он выступает КЛЮЧОМ словаря.</summary>
-    public sealed class StateKeyConverter : JsonConverter<State>
+    public class StateConverter : TypeConverter
     {
-        public override void WriteJson(JsonWriter writer, State value, JsonSerializer serializer)
+        public override bool CanConvertFrom(ITypeDescriptorContext context, Type sourceType)
         {
-            writer.WriteValue(value.ToString());          // ключ → строка
+            if (sourceType == typeof(string))
+                return true;
+            return base.CanConvertFrom(context, sourceType);
         }
 
-        public override State ReadJson(JsonReader reader, Type t, State? _, bool __, JsonSerializer ___)
+        public override object ConvertFrom(ITypeDescriptorContext context, CultureInfo culture, object value)
         {
-            return State.FromString((string)reader.Value!); // строка → State
+            if (value is string s)
+            {
+                return State.FromString(s);
+            }
+
+            return base.ConvertFrom(context, culture, value);
+        }
+
+        public override bool CanConvertTo(ITypeDescriptorContext context, Type destinationType)
+        {
+            if (destinationType == typeof(string))
+                return true;
+            return base.CanConvertTo(context, destinationType);
+        }
+
+        public override object ConvertTo(ITypeDescriptorContext context, CultureInfo culture, object value, Type destinationType)
+        {
+            if (destinationType == typeof(string) && value is State state)
+            {
+                return state.ToString();
+            }
+
+            return base.ConvertTo(context, culture, value, destinationType);
         }
     }
 }

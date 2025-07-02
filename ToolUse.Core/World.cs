@@ -25,99 +25,100 @@ namespace ToolUse.Core
         }
 
         /* ────── общие проверки ────── */
-        public bool IsInside(int x, int y) => x >= 0 && y >= 0 && x < Size && y < Size;
+        public bool IsInside(int x, int y) =>
+            x >= 0 && y >= 0 && x < Size && y < Size;
 
         public bool IsBlocked(int x, int y) =>
             !IsInside(x, y) || Grid[x, y] == TileType.Wall;
 
         /* ─────────────────────────────────────────────────────────────
-         *  recursive-backtracking: идём по нечётным координатам,
-         *  «вырезая» коридоры шириной 1 клетка.
-         *  Размер поля должен быть нечётным (для простоты).
+         *  Генерация простого и полностью проходимого лабиринта
          * ──────────────────────────────────────────────────────────── */
-        public void GenerateStaticGrid()
+ public void GenerateStaticGrid()
+{
+    // Инициализируем всё как пустые ячейки
+    for (int x = 0; x < Size; x++)
+    {
+        for (int y = 0; y < Size; y++)
         {
-            // 1. всё заполняем стенами
-            for (int x = 0; x < Size; x++)
-            for (int y = 0; y < Size; y++)
+            Grid[x, y] = TileType.Empty;
+        }
+    }
+
+    // === Генерация внутренних стен (как раньше) ===
+    int roomSize = 8;
+    int roomsInRow = Size / roomSize;
+
+    for (int roomY = 1; roomY < roomsInRow; roomY++)
+    {
+        int y = roomY * roomSize;
+
+        // Горизонтальная стена
+        for (int x = 0; x < Size; x++)
+        {
+            if (x > 0 && x < Size - 1)
                 Grid[x, y] = TileType.Wall;
-
-            // 2. стартовая точка (1,1)
-            Carve(1, 1);
-
-            // 3. пробиваем дополнительные проходы
-            AddExtraConnections(probability: 0.2); // 20% шанс на пробитие стены
-
-            // 4. внешняя рамка
-            for (int i = 0; i < Size; i++)
-            {
-                Grid[i, 0] = Grid[i, Size - 1] = TileType.Wall;
-                Grid[0, i] = Grid[Size - 1, i] = TileType.Wall;
-            }
         }
-        
-        private void AddExtraConnections(double probability)
+
+        // Проходы в горизонтальной стене
+        for (int i = 0; i < roomsInRow; i++)
         {
-            for (int x = 1; x < Size - 1; x++)
-            for (int y = 1; y < Size - 1; y++)
-            {
-                if (Grid[x, y] != TileType.Wall) continue;
+            int gapX = i * roomSize + _rng.Next(1, roomSize - 1);
+            if (gapX >= Size - 1) gapX = Size - 2;
 
-                bool verticalWall =
-                    Grid[x, y - 1] == TileType.Empty &&
-                    Grid[x, y + 1] == TileType.Empty;
-
-                bool horizontalWall =
-                    Grid[x - 1, y] == TileType.Empty &&
-                    Grid[x + 1, y] == TileType.Empty;
-
-                if ((verticalWall || horizontalWall) && _rng.NextDouble() < probability)
-                {
-                    Grid[x, y] = TileType.Empty; // пробиваем
-                }
-            }
+            Grid[gapX, y] = TileType.Empty;
+            if (gapX + 1 < Size - 1) Grid[gapX + 1, y] = TileType.Empty;
+            if (gapX - 1 > 0) Grid[gapX - 1, y] = TileType.Empty;
         }
+    }
 
+    for (int roomX = 1; roomX < roomsInRow; roomX++)
+    {
+        int x = roomX * roomSize;
 
-
-        /* рекурсивное «вырезание» */
-        private void Carve(int cx, int cy)
+        // Вертикальная стена
+        for (int y = 0; y < Size; y++)
         {
-            Grid[cx, cy] = TileType.Empty;
-
-            // случайный порядок четырёх направлений
-            var dirs = new List<(int dx, int dy)>
-            {
-                ( 0, -2), // вверх
-                ( 2,  0), // вправо
-                ( 0,  2), // вниз
-                (-2,  0)  // влево
-            };
-            Shuffle(dirs);
-
-            foreach (var (dx, dy) in dirs)
-            {
-                int nx = cx + dx;
-                int ny = cy + dy;
-
-                if (IsInside(nx, ny) && Grid[nx, ny] == TileType.Wall)
-                {
-                    // «прорубаем» стену между клетками
-                    Grid[cx + dx / 2, cy + dy / 2] = TileType.Empty;
-                    Carve(nx, ny);
-                }
-            }
+            if (y > 0 && y < Size - 1)
+                Grid[x, y] = TileType.Wall;
         }
 
-        /* Fisher-Yates */
-        private void Shuffle<T>(IList<T> list)
+        // Проходы в вертикальной стене
+        for (int i = 0; i < roomsInRow; i++)
         {
-            for (int i = list.Count - 1; i > 0; i--)
-            {
-                int j = _rng.Next(i + 1);
-                (list[i], list[j]) = (list[j], list[i]);
-            }
+            int gapY = i * roomSize + _rng.Next(1, roomSize - 1);
+            if (gapY >= Size - 1) gapY = Size - 2;
+
+            Grid[x, gapY] = TileType.Empty;
+            if (gapY + 1 < Size - 1) Grid[x, gapY + 1] = TileType.Empty;
+            if (gapY - 1 > 0) Grid[x, gapY - 1] = TileType.Empty;
         }
+    }
+
+    // === Добавляем рамку только по краям всего игрового поля ===
+    for (int x = 0; x < Size; x++)
+    {
+        Grid[x, 0] = TileType.Wall;               // Верхняя граница
+        Grid[x, Size - 1] = TileType.Wall;        // Нижняя граница
+    }
+
+    for (int y = 0; y < Size; y++)
+    {
+        Grid[0, y] = TileType.Wall;               // Левая граница
+        Grid[Size - 1, y] = TileType.Wall;        // Правая граница
+    }
+
+    // === Делаем один проход в каждой стороне рамки (по желанию) ===
+    int sideGap = _rng.Next(1, Size - 2);
+
+    // Верхняя и нижняя — проходы
+    Grid[sideGap, 0] = TileType.Empty;
+    Grid[sideGap, Size - 1] = TileType.Empty;
+
+    // Левая и правая — проходы
+    Grid[0, sideGap] = TileType.Empty;
+    Grid[Size - 1, sideGap] = TileType.Empty;
+}
 
         /* ────── LOS (брезенхем) ────── */
         public bool HasLineOfSight(Agent from, Agent to)
@@ -136,7 +137,7 @@ namespace ToolUse.Core
 
                 int e2 = 2 * err;
                 if (e2 > -dy) { err -= dy; x0 += sx; }
-                if (e2 <  dx) { err += dx; y0 += sy; }
+                if (e2 < dx) { err += dx; y0 += sy; }
             }
         }
     }

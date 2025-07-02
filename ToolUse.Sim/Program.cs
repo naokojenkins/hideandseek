@@ -1,6 +1,4 @@
-﻿// Program.cs — 6 агентов каждого типа
-
-using System;
+﻿using System;
 using System.IO;
 using System.Numerics;
 using System.Collections.Generic;
@@ -15,18 +13,19 @@ class Program
 {
     const int cellSize = 16, gridSize = 40;
     const int fieldSize = cellSize * gridSize;
-    //const int graphW = 500, graphH = 80;
     const int padY = 0;
     const int screenW = fieldSize;
     const int screenH = fieldSize + padY + 40;
 
-    const float sessSec = 300f;
+    const float sessSec = 30f;
     const int FPS = 5;
     const int maxFrames = (int)(sessSec * FPS);
 
     static JsonSerializerSettings jsonSettings = new()
     {
-        Converters = new List<JsonConverter> { new StateKeyConverter() }
+        // Убираем StateKeyConverter
+        TypeNameHandling = TypeNameHandling.None,
+        MetadataPropertyHandling = MetadataPropertyHandling.Ignore
     };
 
     static QTable seekerQ = new(), hiderQ = new();
@@ -34,16 +33,14 @@ class Program
     static QAgent hiderRL = new(hiderQ, 0.1f);
 
     static World world = new(gridSize);
-    static List<Agent> seekers = new();
-    static List<Agent> hiders = new();
+    static Agent seeker = null!; // Инициализация в Reset()
+    static Agent hider = null!;  // Инициализация в Reset()
 
     static int session = 0, frame = 0, caughtFrames = 0;
     static float timer = 0f;
     static bool caught = false;
 
-    static List<float> rss = new(), rsh = new();
-    static float[] sumS = new float[6];
-    static float[] sumH = new float[6];
+    static float sumSeeker = 0f, sumHider = 0f;
 
     enum Act { RotL, RotR, Fwd }
 
@@ -63,44 +60,45 @@ class Program
             frame++;
             timer += 1f / FPS;
 
-            foreach (var seeker in seekers)
-            foreach (var hider in hiders)
+            var sSeek = new State(seeker.X, seeker.Y, hider.X, hider.Y, seeker.CanSee(hider, world));
+            var sHide = new State(hider.X, hider.Y, seeker.X, seeker.Y, seeker.CanSee(hider, world));
+
+            var aS = (Act)seekerRL.ChooseAction(sSeek);
+            var aH = (Act)hiderRL.ChooseAction(sHide);
+
+            DoAction(seeker, aS);
+            DoAction(hider, aH);
+
+            bool visible = seeker.CanSee(hider, world);
+
+            float rS = 0, rH = 0;
+
+            if (visible)
             {
-                var sSeek = new State(seeker.X, seeker.Y, hider.X, hider.Y, seeker.CanSee(hider, world));
-                var sHide = new State(hider.X, hider.Y, seeker.X, seeker.Y, seeker.CanSee(hider, world));
-
-                var aS = (Act)seekerRL.ChooseAction(sSeek);
-                var aH = (Act)hiderRL.ChooseAction(sHide);
-
-                DoAction(seeker, aS);
-                DoAction(hider, aH);
-
-                bool visible = seeker.CanSee(hider, world);
-
-                int iS = seekers.IndexOf(seeker);
-                int iH = hiders.IndexOf(hider);
-                float rS = 0, rH = 0;
-
-                if (visible)
+                rS += 0.1f;
+                rH -= 0.1f;
+                if (++caughtFrames >= FPS * 10)
                 {
-                    rS += 0.1f; rH -= 0.1f;
-                    if (++caughtFrames >= FPS * 10) { rS += 1; rH -= 1; caught = true; }
+                    rS += 1;
+                    rH -= 1;
+                    caught = true;
                 }
-                else
-                {
-                    rS -= 0.02f; rH += 0.1f;
-                    caughtFrames = 0;
-                }
-
-                sumS[iS] += rS;
-                sumH[iH] += rH;
-
-                var sS2 = new State(seeker.X, seeker.Y, hider.X, hider.Y, visible);
-                var sH2 = new State(hider.X, hider.Y, seeker.X, seeker.Y, visible);
-
-                seekerRL.Learn(sSeek, (int)aS, rS, sS2);
-                hiderRL.Learn(sHide, (int)aH, rH, sH2);
             }
+            else
+            {
+                rS -= 0.02f;
+                rH += 0.1f;
+                caughtFrames = 0;
+            }
+
+            sumSeeker += rS;
+            sumHider += rH;
+
+            var sS2 = new State(seeker.X, seeker.Y, hider.X, hider.Y, visible);
+            var sH2 = new State(hider.X, hider.Y, seeker.X, seeker.Y, visible);
+
+            seekerRL.Learn(sSeek, (int)aS, rS, sS2);
+            hiderRL.Learn(sHide, (int)aH, rH, sH2);
 
             if (caught || frame >= maxFrames) Reset();
 
@@ -110,7 +108,6 @@ class Program
             DrawWorld();
             DrawAgents();
             DrawHUD();
-            //DrawChart((screenW - graphW) / 2, fieldSize + 25);
 
             Raylib.EndDrawing();
         }
@@ -122,42 +119,41 @@ class Program
 
     static void Reset()
     {
-        if (session > 0)
-        {
-            rss.Add(sumS.Sum());
-            rsh.Add(sumH.Sum());
-        }
-
         session++;
         frame = 0;
         timer = 0f;
         caught = false;
         caughtFrames = 0;
+        sumSeeker = 0f;
+        sumHider = 0f;
 
-        for (int i = 0; i < 6; i++) { sumS[i] = 0; sumH[i] = 0; }
+        // 1. Сначала сохраняем таблицы, чтобы сохранить опыт предыдущей сессии
+        if (session > 1)
+        {
+            SaveTable("qtable_seeker.json", seekerQ);
+            SaveTable("qtable_hider.json", hiderQ);
+        }
 
+        // 2. Теперь загружаем обновлённые таблицы (включая только что сохранённые)
+        LoadTable("qtable_seeker.json", seekerQ);
+        LoadTable("qtable_hider.json", hiderQ);
+
+        // 3. Генерируем новую карту и агентов
         world.GenerateStaticGrid();
-        seekers.Clear();
-        hiders.Clear();
 
-        for (int i = 0; i < 6; i++)
+        // Создаем искателя
+        do
         {
-            Agent s;
-            do s = new Agent(Raylib.GetRandomValue(0, gridSize - 1), Raylib.GetRandomValue(0, gridSize - 1), true, 0);
-            while (world.IsBlocked(s.X, s.Y));
-            seekers.Add(s);
+            seeker = new Agent(Raylib.GetRandomValue(0, gridSize - 1), Raylib.GetRandomValue(0, gridSize - 1), true, 0);
         }
+        while (world.IsBlocked(seeker.X, seeker.Y));
 
-        for (int i = 0; i < 6; i++)
+        // Создаем прятку
+        do
         {
-            Agent h;
-            do h = new Agent(Raylib.GetRandomValue(0, gridSize - 1), Raylib.GetRandomValue(0, gridSize - 1), false, 180);
-            while (world.IsBlocked(h.X, h.Y));
-            hiders.Add(h);
+            hider = new Agent(Raylib.GetRandomValue(0, gridSize - 1), Raylib.GetRandomValue(0, gridSize - 1), false, 180);
         }
-
-        SaveTable("qtable_seeker.json", seekerQ);
-        SaveTable("qtable_hider.json", hiderQ);
+        while (world.IsBlocked(hider.X, hider.Y));
     }
 
     static void DoAction(Agent ag, Act act)
@@ -189,19 +185,13 @@ class Program
 
     static void DrawAgents()
     {
-        foreach (var seeker in seekers)
-        {
-            DrawCone(seeker, new RColor(173, 216, 230, 80));
-            DrawAgent(seeker, RColor.BLUE);
-        }
+        DrawCone(seeker, new RColor(173, 216, 230, 80));
+        DrawAgent(seeker, RColor.BLUE);
 
-        foreach (var hider in hiders)
-        {
-            var visible = seekers.Any(s => s.CanSee(hider, world));
-            var color = visible ? RColor.YELLOW : RColor.GREEN;
-            DrawCone(hider, new RColor(0, 255, 0, 40));
-            DrawAgent(hider, color);
-        }
+        var visible = seeker.CanSee(hider, world);
+        var color = visible ? RColor.YELLOW : RColor.GREEN;
+        DrawCone(hider, new RColor(0, 255, 0, 40));
+        DrawAgent(hider, color);
     }
 
     static void DrawAgent(Agent ag, RColor color)
@@ -219,87 +209,13 @@ class Program
         int x = 10, y = 2, fs = 8;
         Raylib.DrawText($"Session: {session}  Time: {timer:F0}s", x, y, fs, RColor.BLACK);
 
-        for (int i = 0; i < 6; i++)
-        {
-            Raylib.DrawText($"S{i + 1}:{sumS[i]:F1}", x + 20 + i * 50, y+645, fs, RColor.BLUE);
-        }
+        Raylib.DrawText($"Seeker: {sumSeeker:F1}", x + 20, y + 645, fs, RColor.BLUE);
         Raylib.DrawLine(20, 659, fieldSize, 659, RColor.BLACK);
-        for (int i = 0; i < 6; i++)
-        {
-            Raylib.DrawText($"H{i + 1}:{sumH[i]:F1}", x + 20 + i * 50, y+660, fs, RColor.GREEN);
-        }
+        Raylib.DrawText($"Hider: {sumHider:F1}", x + 20, y + 660, fs, RColor.GREEN);
     }
 
-//     static void DrawChart(int x0, int y0)
-// {
-//     Raylib.DrawRectangleLines(x0, y0, graphW, graphH, RColor.BLACK);
-//
-//     int bar = 2;
-//     int maxPts = Math.Min(graphW / bar, 100);
-//     int n = Math.Min(rss.Count, maxPts);
-//     if (n < 2) return;
-//
-//     float mx = Math.Max(0.001f, rss.Concat(rsh).Max());
-//
-//     // горизонтальная сетка и метки по Y
-//     int ySteps = 5;
-//     for (int i = 0; i <= ySteps; i++)
-//     {
-//         int y = y0 + i * graphH / ySteps;
-//         Raylib.DrawLine(x0, y, x0 + graphW, y, RColor.LIGHTGRAY);
-//         float val = mx * (1f - i / (float)ySteps);
-//         string label = val.ToString("0.0");
-//         Raylib.DrawText(label, x0 - Raylib.MeasureText(label, 8) - 4, y - 4, 8, RColor.BLACK);
-//     }
-//
-//     // вертикальная сетка и метки по X (каждые 5 сессий)
-//     int sessionsToShow = n;
-//     int sessionStart = rss.Count - sessionsToShow;
-//     for (int i = 0; i < sessionsToShow; i++)
-//     {
-//         int globalSessionIndex = sessionStart + i;
-//         if (globalSessionIndex % 5 == 0)
-//         {
-//             int x = x0 + i * bar;
-//             Raylib.DrawLine(x, y0, x, y0 + graphH, RColor.LIGHTGRAY);
-//             string label = globalSessionIndex.ToString();
-//             Raylib.DrawText(label, x - Raylib.MeasureText(label, 8) / 2, y0 + graphH + 2, 8, RColor.BLACK);
-//         }
-//     }
-
-    // отрисовка графиков
-//     for (int i = 1; i < n; i++)
-//     {
-//         int i0 = rss.Count - n + i - 1;
-//         int i1 = rss.Count - n + i;
-//
-//         int x0s = x0 + (i - 1) * bar;
-//         int x1s = x0 + i * bar;
-//
-//         int y0s = y0 + graphH - (int)(rss[i0] / mx * graphH);
-//         int y1s = y0 + graphH - (int)(rss[i1] / mx * graphH);
-//
-//         int y0h = y0 + graphH - (int)(rsh[i0] / mx * graphH);
-//         int y1h = y0 + graphH - (int)(rsh[i1] / mx * graphH);
-//
-//         Raylib.DrawLine(x0s, y0s, x1s, y1s, new RColor(100, 150, 255, 255));
-//         Raylib.DrawLine(x0s, y0h, x1s, y1h, new RColor(80, 220, 80, 255));
-//     }
-//
-//     // подписи осей
-//     int fs = 10;
-//     Raylib.DrawText("Sessions", x0 + graphW / 2 - Raylib.MeasureText("Sessions", fs) / 2, y0 + graphH + 14, fs, RColor.BLACK);
-//
-//     string yLab = "Reward";
-//     int yStart = y0 + graphH / 2 - (yLab.Length * fs) / 2;
-//     for (int i = 0; i < yLab.Length; i++)
-//     {
-//         Raylib.DrawText(yLab[i].ToString(), x0 - 12, yStart + i * fs, fs, RColor.BLACK);
-//     }
-// }
-
     static void DrawFilledVisionCone(Agent agent, int cell, RColor col, World w,
-                                     float stepDeg = 1f, float stepPix = 2f, float thick = 3f)
+                                 float stepDeg = 1f, float stepPix = 2f, float thick = 3f)
     {
         Vector2 c = new(agent.X * cell + cell / 2, agent.Y * cell + cell / 2);
         float maxR = cell * agent.VisionRadius;
@@ -336,11 +252,90 @@ class Program
         try
         {
             var map = JsonConvert.DeserializeObject<Dictionary<State, float[]>>(File.ReadAllText(path), jsonSettings);
-            if (map != null) q.LoadFrom(map);
+            if (map != null)
+            {
+                var current = q.Export();
+
+                foreach (var kvp in map)
+                {
+                    bool found = false;
+                    foreach (var key in current.Keys)
+                    {
+                        if (key.Equals(kvp.Key))
+                        {
+                            float[] existing = current[key];
+                            float[] loaded = kvp.Value;
+                            for (int i = 0; i < existing.Length; i++)
+                            {
+                                existing[i] = (existing[i] + loaded[i]) / 2f;
+                            }
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if (!found)
+                    {
+                        current[kvp.Key] = kvp.Value;
+                    }
+                }
+
+                q.LoadFrom(current);
+            }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка загрузки файла {path}: {ex.Message}");
+        }
     }
 
-    static void SaveTable(string path, QTable q) =>
-        File.WriteAllText(path, JsonConvert.SerializeObject(q.Export(), Formatting.None, jsonSettings));
+    static void SaveTable(string path, QTable q)
+    {
+        try
+        {
+            var combined = new Dictionary<State, float[]>();
+
+            if (File.Exists(path))
+            {
+                var existing = JsonConvert.DeserializeObject<Dictionary<State, float[]>>(File.ReadAllText(path), jsonSettings);
+                if (existing != null)
+                {
+                    foreach (var kvp in existing)
+                    {
+                        combined[kvp.Key] = kvp.Value;
+                    }
+                }
+            }
+
+            foreach (var kvp in q.Export())
+            {
+                bool found = false;
+                foreach (var key in combined.Keys.ToList())
+                {
+                    if (key.Equals(kvp.Key))
+                    {
+                        float[] old = combined[key];
+                        float[] @new = kvp.Value;
+                        for (int i = 0; i < old.Length; i++)
+                        {
+                            old[i] = (old[i] + @new[i]) / 2f;
+                        }
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (!found)
+                {
+                    combined[kvp.Key] = kvp.Value;
+                }
+            }
+
+            File.WriteAllText(path, JsonConvert.SerializeObject(combined, Formatting.None, jsonSettings));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка сохранения файла {path}: {ex.Message}");
+        }
+    }
 }

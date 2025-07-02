@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "NP8VyFGD1ic=",
+  "dgSpecHash": "3SgdbrcT0hk=",
   "success": true,
-  "projectFilePath": "/Users/al.v.goncharov/Desktop/ToolUseCSharp/DrawSectorTest/DrawSectorTest.csproj",
+  "projectFilePath": "/Users/al.v.goncharov/RiderProjects/hideandseek/DrawSectorTest/DrawSectorTest.csproj",
   "expectedPackageFiles": [
     "/Users/al.v.goncharov/.nuget/packages/raylib-cs/7.0.1/raylib-cs.7.0.1.nupkg.sha512"
   ],

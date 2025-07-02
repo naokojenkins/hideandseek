@@ -11,3 +11,16 @@
 /Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Core/obj/Debug/net9.0/ref/ToolUse.Core.dll
 /Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Core/obj/Debug/net9.0/ToolUse.Core.csproj.AssemblyReference.cache
 /Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Core/obj/Debug/net9.0/ToolUse.Core.sourcelink.json
+/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Core/bin/Debug/net9.0/ToolUse.Core.deps.json
+/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Core/bin/Debug/net9.0/ToolUse.Core.dll
+/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Core/bin/Debug/net9.0/ToolUse.Core.pdb
+/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Core/obj/Debug/net9.0/ToolUse.Core.csproj.AssemblyReference.cache
+/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Core/obj/Debug/net9.0/ToolUse.Core.GeneratedMSBuildEditorConfig.editorconfig
+/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Core/obj/Debug/net9.0/ToolUse.Core.AssemblyInfoInputs.cache
+/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Core/obj/Debug/net9.0/ToolUse.Core.AssemblyInfo.cs
+/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Core/obj/Debug/net9.0/ToolUse.Core.csproj.CoreCompileInputs.cache
+/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Core/obj/Debug/net9.0/ToolUse.Core.sourcelink.json
+/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Core/obj/Debug/net9.0/ToolUse.Core.dll
+/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Core/obj/Debug/net9.0/refint/ToolUse.Core.dll
+/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Core/obj/Debug/net9.0/ToolUse.Core.pdb
+/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Core/obj/Debug/net9.0/ref/ToolUse.Core.dll

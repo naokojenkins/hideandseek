@@ -229,11 +229,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "/Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Sim/ToolUse.Sim.csproj",
+      "projectUniqueName": "/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Sim/ToolUse.Sim.csproj",
       "projectName": "ToolUse.Sim",
-      "projectPath": "/Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Sim/ToolUse.Sim.csproj",
+      "projectPath": "/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Sim/ToolUse.Sim.csproj",
       "packagesPath": "/Users/al.v.goncharov/.nuget/packages/",
-      "outputPath": "/Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Sim/obj/",
+      "outputPath": "/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Sim/obj/",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "/Users/al.v.goncharov/.nuget/NuGet/NuGet.Config"
@@ -248,8 +248,8 @@
         "net9.0": {
           "targetAlias": "net9.0",
           "projectReferences": {
-            "/Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Core/ToolUse.Core.csproj": {
-              "projectPath": "/Users/al.v.goncharov/Desktop/ToolUseCSharp/ToolUse.Core/ToolUse.Core.csproj"
+            "/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Core/ToolUse.Core.csproj": {
+              "projectPath": "/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Core/ToolUse.Core.csproj"
             }
           }
         }
