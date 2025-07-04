@@ -177,7 +177,7 @@ namespace ToolUse.Core.RaylibThreeD
 
         private void DrawHUD()
         {
-            Raylib.DrawRectangle(5, 5, 250, 145, Raylib.ColorAlpha(Color.Black, 0.6f));
+            Raylib.DrawRectangle(5, 5, 250, 185, Raylib.ColorAlpha(Color.Black, 0.6f)); // Увеличиваем высоту еще больше
             int y = 10;
             Raylib.DrawText($"Session: {Session}", 10, y, 20, Color.White);
             y += 25;
@@ -187,8 +187,17 @@ namespace ToolUse.Core.RaylibThreeD
             y += 25;
             Raylib.DrawText($"Hider Score: {HiderScore:F1}", 10, y, 20, Color.Green);
             y += 25;
-            Raylib.DrawText($"Visible: {(IsHiderVisible ? "YES" : "NO")}", 10, y, 20,
+            Raylib.DrawText($"Hider Visible: {(IsHiderVisible ? "YES" : "NO")}", 10, y, 20,
                 IsHiderVisible ? Color.Gold : Color.LightGray);
+            y += 25;
+            // Информация о состоянии конусов
+            Raylib.DrawText($"Vision Cones: {(_showVisionCones ? "ON" : "OFF")}", 10, y, 20,
+                _showVisionCones ? Color.Lime : Color.Gray);
+            y += 25;
+            // Добавляем информацию о состоянии сетки
+            Raylib.DrawText($"Grid: {(_showGrid ? "ON" : "OFF")}", 10, y, 20,
+                _showGrid ? Color.Lime : Color.Gray);
+    
             if (_isHiderCaught)
             {
                 string caughtText = "CAUGHT!";

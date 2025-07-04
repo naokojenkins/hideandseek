@@ -189,21 +189,44 @@ namespace ToolUse.Core.RaylibThreeD
         public void DrawGrid()
         {
             // Рисуем сетку на полу для лучшей ориентации
+            Raylib_cs.Color gridColor = new Raylib_cs.Color(0, 0, 0, 150); // Более заметный черный цвет
+    
+            // Горизонтальные линии
             for (int x = 0; x <= Size; x++)
             {
                 Raylib.DrawLine3D(
-                    new Vector3(x, 0, 0),
-                    new Vector3(x, 0, Size),
-                    new Raylib_cs.Color(100, 100, 100, 100)
+                    new Vector3(x, 0.01f, 0),      // Немного приподнимаем над полом
+                    new Vector3(x, 0.01f, Size),
+                    gridColor
                 );
             }
-            
+    
+            // Вертикальные линии  
             for (int z = 0; z <= Size; z++)
             {
                 Raylib.DrawLine3D(
-                    new Vector3(0, 0, z),
-                    new Vector3(Size, 0, z),
-                    new Raylib_cs.Color(100, 100, 100, 100)
+                    new Vector3(0, 0.01f, z),
+                    new Vector3(Size, 0.01f, z),
+                    gridColor
+                );
+            }
+    
+            // Дополнительно рисуем более толстые линии каждые 5 клеток для лучшей навигации
+            for (int x = 0; x <= Size; x += 5)
+            {
+                Raylib.DrawLine3D(
+                    new Vector3(x, 0.02f, 0),
+                    new Vector3(x, 0.02f, Size),
+                    new Raylib_cs.Color(255, 0, 0, 200) // Красные линии
+                );
+            }
+    
+            for (int z = 0; z <= Size; z += 5)
+            {
+                Raylib.DrawLine3D(
+                    new Vector3(0, 0.02f, z),
+                    new Vector3(Size, 0.02f, z),
+                    new Raylib_cs.Color(255, 0, 0, 200) // Красные линии
                 );
             }
         }

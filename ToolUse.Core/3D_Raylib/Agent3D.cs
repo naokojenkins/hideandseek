@@ -162,56 +162,105 @@ namespace ToolUse.Core.RaylibThreeD
                 Color
             );
 
-            // Рисуем направление взгляда
+            // Рисуем направление взгляда - делаем его длиннее и толще для лучшей видимости
             float radians = Rotation.Y * MathF.PI / 180f;
             Vector3 forward = new Vector3(
-                MathF.Cos(radians) * 0.8f,
+                MathF.Cos(radians) * 2.0f,  // Увеличиваем длину
                 0.1f,
-                MathF.Sin(radians) * 0.8f
+                MathF.Sin(radians) * 2.0f   // Увеличиваем длину
             );
             
-            Raylib.DrawLine3D(
-                Position + new Vector3(0, 0.8f, 0),
-                Position + new Vector3(0, 0.8f, 0) + forward,
-                Raylib_cs.Color.Yellow
-            );
+            Vector3 startPos = Position + new Vector3(0, 0.8f, 0);
+            Vector3 endPos = startPos + forward;
+            
+            // Рисуем толстую желтую линию
+            Raylib.DrawLine3D(startPos, endPos, Raylib_cs.Color.Yellow);
+            
+            // Добавляем еще несколько линий рядом для "толщины"
+            Raylib.DrawLine3D(startPos + new Vector3(0.05f, 0, 0), endPos + new Vector3(0.05f, 0, 0), Raylib_cs.Color.Yellow);
+            Raylib.DrawLine3D(startPos + new Vector3(-0.05f, 0, 0), endPos + new Vector3(-0.05f, 0, 0), Raylib_cs.Color.Yellow);
+            Raylib.DrawLine3D(startPos + new Vector3(0, 0, 0.05f), endPos + new Vector3(0, 0, 0.05f), Raylib_cs.Color.Yellow);
+            Raylib.DrawLine3D(startPos + new Vector3(0, 0, -0.05f), endPos + new Vector3(0, 0, -0.05f), Raylib_cs.Color.Yellow);
         }
 
+       
+        
         public void DrawVisionCone(World3D world, Raylib_cs.Color? visionColor = null)
         {
-            // Рисуем конус видимости полупрозрачными линиями
+            Raylib_cs.Color coneColor = visionColor ?? new Raylib_cs.Color(255, 255, 0, 80);
+    
+            int segments = 20; // Увеличиваем количество сегментов для более гладкого конуса
             float startAngle = Rotation.Y - VisionAngle / 2f;
             float endAngle = Rotation.Y + VisionAngle / 2f;
 
-            // Используем переданный цвет или устанавливаем по умолчанию
-            Raylib_cs.Color coneColor = visionColor ?? new Raylib_cs.Color(255, 255, 0, 60);
+            Vector3 agentPos = Position + new Vector3(0, 0.05f, 0); // Немного приподнимаем над землей
 
-            for (float angle = startAngle; angle <= endAngle; angle += 3f)
+            // Собираем все точки для полигона
+            List<Vector3> points = new List<Vector3>();
+            points.Add(agentPos); // Центр конуса
+
+            // Добавляем точки по дуге
+            for (int i = 0; i <= segments; i++)
             {
+                float angle = startAngle + (endAngle - startAngle) * i / segments;
                 float radians = angle * MathF.PI / 180f;
+        
+                // Используем правильную систему координат
                 Vector3 direction = new Vector3(MathF.Cos(radians), 0, MathF.Sin(radians));
-
-                // Трассируем луч до препятствия
-                float maxDistance = VisionRadius;
-                Vector3 rayEnd = Position + direction * maxDistance;
-
-                // Проверяем коллизии по пути
-                for (float t = 0.2f; t <= maxDistance; t += 0.2f)
-                {
-                    Vector3 point = Position + direction * t;
-                    if (world.IsBlocked((int)point.X, (int)point.Z))
-                    {
-                        rayEnd = Position + direction * (t - 0.2f);
-                        break;
-                    }
-                }
-
-                Raylib.DrawLine3D(
-                    Position + new Vector3(0, 0.3f, 0),
-                    rayEnd + new Vector3(0, 0.3f, 0),
-                    coneColor
-                );
+                Vector3 rayEnd = GetRayEndPoint(Position, direction, VisionRadius, world);
+                points.Add(rayEnd + new Vector3(0, 0.05f, 0));
             }
+
+            // Включаем альфа-блендинг для полупрозрачности
+            Raylib.BeginBlendMode(BlendMode.Alpha);
+    
+            // Рисуем заливку как набор треугольников
+            for (int i = 1; i < points.Count - 1; i++)
+            {
+                Vector3 p1 = points[0];      // Центр конуса
+                Vector3 p2 = points[i];      // Текущая точка
+                Vector3 p3 = points[i + 1];  // Следующая точка
+        
+                // Проверяем, что точки не совпадают
+                if (Vector3.Distance(p1, p2) > 0.1f && Vector3.Distance(p2, p3) > 0.1f && Vector3.Distance(p1, p3) > 0.1f)
+                {
+                    // Рисуем треугольник с обеих сторон для лучшей видимости
+                    Raylib.DrawTriangle3D(p1, p2, p3, coneColor);
+                    Raylib.DrawTriangle3D(p1, p3, p2, coneColor);
+                }
+            }
+    
+            Raylib.EndBlendMode();
+    
+            // Убираем линии контура - теперь только заливка!
+        }
+
+        private Vector3 GetRayEndPoint(Vector3 start, Vector3 direction, float maxDistance, World3D world)
+        {
+            Vector3 rayEnd = start + direction * maxDistance;
+
+            // Проверяем коллизии по пути с шагом
+            float step = 0.5f;
+            for (float t = step; t <= maxDistance; t += step)
+            {
+                Vector3 point = start + direction * t;
+                
+                // Проверяем границы мира
+                if (point.X < 0 || point.X >= world.Size || point.Z < 0 || point.Z >= world.Size)
+                {
+                    rayEnd = start + direction * (t - step);
+                    break;
+                }
+                
+                // Проверяем коллизии
+                if (world.IsBlocked((int)point.X, (int)point.Z))
+                {
+                    rayEnd = start + direction * (t - step);
+                    break;
+                }
+            }
+
+            return rayEnd;
         }
     }
 }
