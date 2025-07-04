@@ -7,6 +7,7 @@ using Newtonsoft.Json;
 using Raylib_cs;
 using ToolUse.Core;
 using ToolUse.Core.RL;
+using ToolUse.Sim;
 using RColor = Raylib_cs.Color;
 
 class Program
@@ -17,8 +18,8 @@ class Program
     const int screenW = fieldSize;
     const int screenH = fieldSize + padY + 40;
 
-    const float sessSec = 30f;
-    const int FPS = 5;
+    const float sessSec = 60f;
+    const int FPS = 20;
     const int maxFrames = (int)(sessSec * FPS);
 
     static JsonSerializerSettings jsonSettings = new()
@@ -46,10 +47,25 @@ class Program
 
     static void Main()
     {
+        Console.WriteLine("Choose simulation mode:");
+        Console.WriteLine("1. 2D Simulation");
+        Console.WriteLine("2. 3D Simulation");
+        Console.Write("Enter your choice (1 or 2): ");
+
+        string choice = Console.ReadLine();
+
+        if (choice == "2")
+        {
+            // Run 3D simulation
+            Program3D.Run();
+            return;
+        }
+
+        // Default to 2D simulation
         LoadTable("qtable_seeker.json", seekerQ);
         LoadTable("qtable_hider.json", hiderQ);
 
-        Raylib.InitWindow(screenW, screenH, "Tool Use – multi-agent");
+        Raylib.InitWindow(screenW, screenH, "Tool Use – multi-agent (2D)");
         Raylib.SetTargetFPS(FPS);
 
         world.GenerateStaticGrid();
@@ -103,7 +119,7 @@ class Program
             if (caught || frame >= maxFrames) Reset();
 
             Raylib.BeginDrawing();
-            Raylib.ClearBackground(RColor.RAYWHITE);
+            Raylib.ClearBackground(RColor.RayWhite);
 
             DrawWorld();
             DrawAgents();
@@ -174,22 +190,22 @@ class Program
             var t = world.Grid[gx, gy];
             RColor f = t switch
             {
-                TileType.Empty => RColor.LIGHTGRAY,
-                TileType.Wall => RColor.DARKGRAY,
-                _ => RColor.BROWN
+                TileType.Empty => RColor.LightGray,
+                TileType.Wall => RColor.DarkGray,
+                _ => RColor.Brown
             };
             Raylib.DrawRectangle(gx * cellSize, gy * cellSize, cellSize, cellSize, f);
-            Raylib.DrawRectangleLines(gx * cellSize, gy * cellSize, cellSize, cellSize, RColor.BLACK);
+            Raylib.DrawRectangleLines(gx * cellSize, gy * cellSize, cellSize, cellSize, RColor.Black);
         }
     }
 
     static void DrawAgents()
     {
         DrawCone(seeker, new RColor(173, 216, 230, 80));
-        DrawAgent(seeker, RColor.BLUE);
+        DrawAgent(seeker, RColor.Blue);
 
         var visible = seeker.CanSee(hider, world);
-        var color = visible ? RColor.YELLOW : RColor.GREEN;
+        var color = visible ? RColor.Yellow : RColor.Green;
         DrawCone(hider, new RColor(0, 255, 0, 40));
         DrawAgent(hider, color);
     }
@@ -205,13 +221,13 @@ class Program
 
     static void DrawHUD()
     {
-        Raylib.DrawRectangle(0, 0, fieldSize, 12, RColor.WHITE);
+        Raylib.DrawRectangle(0, 0, fieldSize, 12, RColor.White);
         int x = 10, y = 2, fs = 8;
-        Raylib.DrawText($"Session: {session}  Time: {timer:F0}s", x, y, fs, RColor.BLACK);
+        Raylib.DrawText($"Session: {session}  Time: {timer:F0}s", x, y, fs, RColor.Black);
 
-        Raylib.DrawText($"Seeker: {sumSeeker:F1}", x + 20, y + 645, fs, RColor.BLUE);
-        Raylib.DrawLine(20, 659, fieldSize, 659, RColor.BLACK);
-        Raylib.DrawText($"Hider: {sumHider:F1}", x + 20, y + 660, fs, RColor.GREEN);
+        Raylib.DrawText($"Seeker: {sumSeeker:F1}", x + 20, y + 645, fs, RColor.Blue);
+        Raylib.DrawLine(20, 659, fieldSize, 659, RColor.Black);
+        Raylib.DrawText($"Hider: {sumHider:F1}", x + 20, y + 660, fs, RColor.Green);
     }
 
     static void DrawFilledVisionCone(Agent agent, int cell, RColor col, World w,
@@ -222,7 +238,7 @@ class Program
         float a0 = agent.Angle - agent.VisionAngle / 2;
         float a1 = agent.Angle + agent.VisionAngle / 2;
 
-        Raylib.BeginBlendMode(BlendMode.BLEND_ALPHA);
+        Raylib.BeginBlendMode(BlendMode.Alpha);
         for (float ang = a0; ang <= a1; ang += stepDeg)
         {
             float r = ang * MathF.PI / 180f;

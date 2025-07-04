@@ -1,13 +1,12 @@
 {
   "version": 2,
-  "dgSpecHash": "ot10qWtI1u4=",
+  "dgSpecHash": "mhnbN+VVBs4=",
   "success": true,
-  "projectFilePath": "/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Sim/ToolUse.Sim.csproj",
+  "projectFilePath": "/Users/ag/RiderProjects/hideandseek/ToolUse.Sim/ToolUse.Sim.csproj",
   "expectedPackageFiles": [
-    "/Users/al.v.goncharov/.nuget/packages/aether.physics2d/2.2.0/aether.physics2d.2.2.0.nupkg.sha512",
-    "/Users/al.v.goncharov/.nuget/packages/newtonsoft.json/13.0.3/newtonsoft.json.13.0.3.nupkg.sha512",
-    "/Users/al.v.goncharov/.nuget/packages/raylib-cs/4.5.0.2/raylib-cs.4.5.0.2.nupkg.sha512",
-    "/Users/al.v.goncharov/.nuget/packages/system.numerics.vectors/4.5.0/system.numerics.vectors.4.5.0.nupkg.sha512"
+    "/Users/ag/.nuget/packages/aether.physics2d/2.2.0/aether.physics2d.2.2.0.nupkg.sha512",
+    "/Users/ag/.nuget/packages/newtonsoft.json/13.0.3/newtonsoft.json.13.0.3.nupkg.sha512",
+    "/Users/ag/.nuget/packages/raylib-cs/7.0.1/raylib-cs.7.0.1.nupkg.sha512"
   ],
   "logs": []
 }

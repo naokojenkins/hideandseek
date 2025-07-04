@@ -10,7 +10,7 @@
         "dependencies": {
           "Aether.Physics2D": "2.2.0",
           "Newtonsoft.Json": "13.0.3",
-          "Raylib-cs": "4.5.0.2",
+          "Raylib-cs": "7.0.1",
           "ToolUse.Core": "1.0.0"
         },
         "runtime": {
@@ -33,10 +33,7 @@
           }
         }
       },
-      "Raylib-cs/4.5.0.2": {
-        "dependencies": {
-          "System.Numerics.Vectors": "4.5.0"
-        },
+      "Raylib-cs/7.0.1": {
         "runtime": {
           "lib/net6.0/Raylib-cs.dll": {
             "assemblyVersion": "0.0.0.0",
@@ -71,14 +68,14 @@
           }
         }
       },
-      "System.Numerics.Vectors/4.5.0": {},
       "ToolUse.Core/1.0.0": {
         "dependencies": {
-          "Newtonsoft.Json": "13.0.3"
+          "Newtonsoft.Json": "13.0.3",
+          "Raylib-cs": "7.0.1"
         },
         "runtime": {
           "ToolUse.Core.dll": {
-            "assemblyVersion": "1.0.0",
+            "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
         }
@@ -105,19 +102,12 @@
       "path": "newtonsoft.json/13.0.3",
       "hashPath": "newtonsoft.json.13.0.3.nupkg.sha512"
     },
-    "Raylib-cs/4.5.0.2": {
+    "Raylib-cs/7.0.1": {
       "type": "package",
       "serviceable": true,
-      "sha512": "sha512-CeMdyV6CMJp2ZOPBVaSjQ5kk1O2SwjoHde1/WRBSdRXG9g3Sw+bS/fSjXwjyK729DtUYLVYk4pg1AMH7XPdHcQ==",
-      "path": "raylib-cs/4.5.0.2",
-      "hashPath": "raylib-cs.4.5.0.2.nupkg.sha512"
-    },
-    "System.Numerics.Vectors/4.5.0": {
-      "type": "package",
-      "serviceable": true,
-      "sha512": "sha512-QQTlPTl06J/iiDbJCiepZ4H//BVraReU4O4EoRw1U02H5TLUIT7xn3GnDp9AXPSlJUDyFs4uWjWafNX6WrAojQ==",
-      "path": "system.numerics.vectors/4.5.0",
-      "hashPath": "system.numerics.vectors.4.5.0.nupkg.sha512"
+      "sha512": "sha512-Ub764yPExCago40qjPpTQqtYhhA0/aIEderv5XjB5peOXFs7A4YLyyARsfBv0JzCt4C+QvuqH0CrjAJIzgzjKA==",
+      "path": "raylib-cs/7.0.1",
+      "hashPath": "raylib-cs.7.0.1.nupkg.sha512"
     },
     "ToolUse.Core/1.0.0": {
       "type": "project",

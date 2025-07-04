@@ -1,20 +1,20 @@
 {
   "format": 1,
   "restore": {
-    "/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Core/ToolUse.Core.csproj": {}
+    "/Users/ag/RiderProjects/hideandseek/ToolUse.Core/ToolUse.Core.csproj": {}
   },
   "projects": {
-    "/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Core/ToolUse.Core.csproj": {
+    "/Users/ag/RiderProjects/hideandseek/ToolUse.Core/ToolUse.Core.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Core/ToolUse.Core.csproj",
+        "projectUniqueName": "/Users/ag/RiderProjects/hideandseek/ToolUse.Core/ToolUse.Core.csproj",
         "projectName": "ToolUse.Core",
-        "projectPath": "/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Core/ToolUse.Core.csproj",
-        "packagesPath": "/Users/al.v.goncharov/.nuget/packages/",
-        "outputPath": "/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Core/obj/",
+        "projectPath": "/Users/ag/RiderProjects/hideandseek/ToolUse.Core/ToolUse.Core.csproj",
+        "packagesPath": "/Users/ag/.nuget/packages/",
+        "outputPath": "/Users/ag/RiderProjects/hideandseek/ToolUse.Core/obj/",
         "projectStyle": "PackageReference",
         "configFilePaths": [
-          "/Users/al.v.goncharov/.nuget/NuGet/NuGet.Config"
+          "/Users/ag/.nuget/NuGet/NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net9.0"
@@ -36,9 +36,9 @@
         "restoreAuditProperties": {
           "enableAudit": "true",
           "auditLevel": "low",
-          "auditMode": "all"
+          "auditMode": "direct"
         },
-        "SdkAnalysisLevel": "9.0.100"
+        "SdkAnalysisLevel": "9.0.300"
       },
       "frameworks": {
         "net9.0": {
@@ -47,6 +47,10 @@
             "Newtonsoft.Json": {
               "target": "Package",
               "version": "[13.0.3, )"
+            },
+            "Raylib-cs": {
+              "target": "Package",
+              "version": "[7.0.1, )"
             }
           },
           "imports": [
@@ -65,7 +69,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "/Users/al.v.goncharov/.dotnet/sdk/9.0.100/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "/Users/ag/.dotnet/sdk/9.0.301/PortableRuntimeIdentifierGraph.json"
         }
       }
     }

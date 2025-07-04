@@ -28,11 +28,8 @@
           }
         }
       },
-      "Raylib-cs/4.5.0.2": {
+      "Raylib-cs/7.0.1": {
         "type": "package",
-        "dependencies": {
-          "System.Numerics.Vectors": "4.5.0"
-        },
         "compile": {
           "lib/net6.0/Raylib-cs.dll": {
             "related": ".xml"
@@ -66,20 +63,12 @@
           }
         }
       },
-      "System.Numerics.Vectors/4.5.0": {
-        "type": "package",
-        "compile": {
-          "ref/netcoreapp2.0/_._": {}
-        },
-        "runtime": {
-          "lib/netcoreapp2.0/_._": {}
-        }
-      },
       "ToolUse.Core/1.0.0": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v9.0",
         "dependencies": {
-          "Newtonsoft.Json": "13.0.3"
+          "Newtonsoft.Json": "13.0.3",
+          "Raylib-cs": "7.0.1"
         },
         "compile": {
           "bin/placeholder/ToolUse.Core.dll": {}
@@ -140,19 +129,17 @@
         "packageIcon.png"
       ]
     },
-    "Raylib-cs/4.5.0.2": {
-      "sha512": "CeMdyV6CMJp2ZOPBVaSjQ5kk1O2SwjoHde1/WRBSdRXG9g3Sw+bS/fSjXwjyK729DtUYLVYk4pg1AMH7XPdHcQ==",
+    "Raylib-cs/7.0.1": {
+      "sha512": "Ub764yPExCago40qjPpTQqtYhhA0/aIEderv5XjB5peOXFs7A4YLyyARsfBv0JzCt4C+QvuqH0CrjAJIzgzjKA==",
       "type": "package",
-      "path": "raylib-cs/4.5.0.2",
+      "path": "raylib-cs/7.0.1",
       "files": [
         ".nupkg.metadata",
         ".signature.p7s",
         "README.md",
-        "lib/net5.0/Raylib-cs.dll",
-        "lib/net5.0/Raylib-cs.xml",
         "lib/net6.0/Raylib-cs.dll",
         "lib/net6.0/Raylib-cs.xml",
-        "raylib-cs.4.5.0.2.nupkg.sha512",
+        "raylib-cs.7.0.1.nupkg.sha512",
         "raylib-cs.nuspec",
         "raylib-cs_64x64.png",
         "runtimes/linux-x64/native/libraylib.so",
@@ -160,53 +147,6 @@
         "runtimes/osx-x64/native/libraylib.dylib",
         "runtimes/win-x64/native/raylib.dll",
         "runtimes/win-x86/native/raylib.dll"
-      ]
-    },
-    "System.Numerics.Vectors/4.5.0": {
-      "sha512": "QQTlPTl06J/iiDbJCiepZ4H//BVraReU4O4EoRw1U02H5TLUIT7xn3GnDp9AXPSlJUDyFs4uWjWafNX6WrAojQ==",
-      "type": "package",
-      "path": "system.numerics.vectors/4.5.0",
-      "files": [
-        ".nupkg.metadata",
-        ".signature.p7s",
-        "LICENSE.TXT",
-        "THIRD-PARTY-NOTICES.TXT",
-        "lib/MonoAndroid10/_._",
-        "lib/MonoTouch10/_._",
-        "lib/net46/System.Numerics.Vectors.dll",
-        "lib/net46/System.Numerics.Vectors.xml",
-        "lib/netcoreapp2.0/_._",
-        "lib/netstandard1.0/System.Numerics.Vectors.dll",
-        "lib/netstandard1.0/System.Numerics.Vectors.xml",
-        "lib/netstandard2.0/System.Numerics.Vectors.dll",
-        "lib/netstandard2.0/System.Numerics.Vectors.xml",
-        "lib/portable-net45+win8+wp8+wpa81/System.Numerics.Vectors.dll",
-        "lib/portable-net45+win8+wp8+wpa81/System.Numerics.Vectors.xml",
-        "lib/uap10.0.16299/_._",
-        "lib/xamarinios10/_._",
-        "lib/xamarinmac20/_._",
-        "lib/xamarintvos10/_._",
-        "lib/xamarinwatchos10/_._",
-        "ref/MonoAndroid10/_._",
-        "ref/MonoTouch10/_._",
-        "ref/net45/System.Numerics.Vectors.dll",
-        "ref/net45/System.Numerics.Vectors.xml",
-        "ref/net46/System.Numerics.Vectors.dll",
-        "ref/net46/System.Numerics.Vectors.xml",
-        "ref/netcoreapp2.0/_._",
-        "ref/netstandard1.0/System.Numerics.Vectors.dll",
-        "ref/netstandard1.0/System.Numerics.Vectors.xml",
-        "ref/netstandard2.0/System.Numerics.Vectors.dll",
-        "ref/netstandard2.0/System.Numerics.Vectors.xml",
-        "ref/uap10.0.16299/_._",
-        "ref/xamarinios10/_._",
-        "ref/xamarinmac20/_._",
-        "ref/xamarintvos10/_._",
-        "ref/xamarinwatchos10/_._",
-        "system.numerics.vectors.4.5.0.nupkg.sha512",
-        "system.numerics.vectors.nuspec",
-        "useSharedDesignerContext.txt",
-        "version.txt"
       ]
     },
     "ToolUse.Core/1.0.0": {
@@ -219,24 +159,24 @@
     "net9.0": [
       "Aether.Physics2D >= 2.2.0",
       "Newtonsoft.Json >= 13.0.3",
-      "Raylib-cs >= 4.5.0.2",
+      "Raylib-cs >= 7.0.1",
       "ToolUse.Core >= 1.0.0"
     ]
   },
   "packageFolders": {
-    "/Users/al.v.goncharov/.nuget/packages/": {}
+    "/Users/ag/.nuget/packages/": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Sim/ToolUse.Sim.csproj",
+      "projectUniqueName": "/Users/ag/RiderProjects/hideandseek/ToolUse.Sim/ToolUse.Sim.csproj",
       "projectName": "ToolUse.Sim",
-      "projectPath": "/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Sim/ToolUse.Sim.csproj",
-      "packagesPath": "/Users/al.v.goncharov/.nuget/packages/",
-      "outputPath": "/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Sim/obj/",
+      "projectPath": "/Users/ag/RiderProjects/hideandseek/ToolUse.Sim/ToolUse.Sim.csproj",
+      "packagesPath": "/Users/ag/.nuget/packages/",
+      "outputPath": "/Users/ag/RiderProjects/hideandseek/ToolUse.Sim/obj/",
       "projectStyle": "PackageReference",
       "configFilePaths": [
-        "/Users/al.v.goncharov/.nuget/NuGet/NuGet.Config"
+        "/Users/ag/.nuget/NuGet/NuGet.Config"
       ],
       "originalTargetFrameworks": [
         "net9.0"
@@ -248,8 +188,8 @@
         "net9.0": {
           "targetAlias": "net9.0",
           "projectReferences": {
-            "/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Core/ToolUse.Core.csproj": {
-              "projectPath": "/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Core/ToolUse.Core.csproj"
+            "/Users/ag/RiderProjects/hideandseek/ToolUse.Core/ToolUse.Core.csproj": {
+              "projectPath": "/Users/ag/RiderProjects/hideandseek/ToolUse.Core/ToolUse.Core.csproj"
             }
           }
         }
@@ -262,9 +202,9 @@
       "restoreAuditProperties": {
         "enableAudit": "true",
         "auditLevel": "low",
-        "auditMode": "all"
+        "auditMode": "direct"
       },
-      "SdkAnalysisLevel": "9.0.100"
+      "SdkAnalysisLevel": "9.0.300"
     },
     "frameworks": {
       "net9.0": {
@@ -280,7 +220,7 @@
           },
           "Raylib-cs": {
             "target": "Package",
-            "version": "[4.5.0.2, )"
+            "version": "[7.0.1, )"
           }
         },
         "imports": [
@@ -299,7 +239,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "/Users/al.v.goncharov/.dotnet/sdk/9.0.100/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "/Users/ag/.dotnet/sdk/9.0.301/PortableRuntimeIdentifierGraph.json"
       }
     }
   }

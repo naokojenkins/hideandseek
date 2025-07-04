@@ -7,7 +7,7 @@
   <ItemGroup>
     <PackageReference Include="Aether.Physics2D" Version="2.2.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-    <PackageReference Include="Raylib-cs" Version="4.5.0.2" />
+    <PackageReference Include="Raylib-cs" Version="7.0.1" />
   </ItemGroup>
 
   <PropertyGroup>

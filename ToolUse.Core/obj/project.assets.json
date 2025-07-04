@@ -14,6 +14,41 @@
             "related": ".xml"
           }
         }
+      },
+      "Raylib-cs/7.0.1": {
+        "type": "package",
+        "compile": {
+          "lib/net6.0/Raylib-cs.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net6.0/Raylib-cs.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtimeTargets": {
+          "runtimes/linux-x64/native/libraylib.so": {
+            "assetType": "native",
+            "rid": "linux-x64"
+          },
+          "runtimes/osx-arm64/native/libraylib.dylib": {
+            "assetType": "native",
+            "rid": "osx-arm64"
+          },
+          "runtimes/osx-x64/native/libraylib.dylib": {
+            "assetType": "native",
+            "rid": "osx-x64"
+          },
+          "runtimes/win-x64/native/raylib.dll": {
+            "assetType": "native",
+            "rid": "win-x64"
+          },
+          "runtimes/win-x86/native/raylib.dll": {
+            "assetType": "native",
+            "rid": "win-x86"
+          }
+        }
       }
     }
   },
@@ -47,27 +82,48 @@
         "newtonsoft.json.nuspec",
         "packageIcon.png"
       ]
+    },
+    "Raylib-cs/7.0.1": {
+      "sha512": "Ub764yPExCago40qjPpTQqtYhhA0/aIEderv5XjB5peOXFs7A4YLyyARsfBv0JzCt4C+QvuqH0CrjAJIzgzjKA==",
+      "type": "package",
+      "path": "raylib-cs/7.0.1",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "README.md",
+        "lib/net6.0/Raylib-cs.dll",
+        "lib/net6.0/Raylib-cs.xml",
+        "raylib-cs.7.0.1.nupkg.sha512",
+        "raylib-cs.nuspec",
+        "raylib-cs_64x64.png",
+        "runtimes/linux-x64/native/libraylib.so",
+        "runtimes/osx-arm64/native/libraylib.dylib",
+        "runtimes/osx-x64/native/libraylib.dylib",
+        "runtimes/win-x64/native/raylib.dll",
+        "runtimes/win-x86/native/raylib.dll"
+      ]
     }
   },
   "projectFileDependencyGroups": {
     "net9.0": [
-      "Newtonsoft.Json >= 13.0.3"
+      "Newtonsoft.Json >= 13.0.3",
+      "Raylib-cs >= 7.0.1"
     ]
   },
   "packageFolders": {
-    "/Users/al.v.goncharov/.nuget/packages/": {}
+    "/Users/ag/.nuget/packages/": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Core/ToolUse.Core.csproj",
+      "projectUniqueName": "/Users/ag/RiderProjects/hideandseek/ToolUse.Core/ToolUse.Core.csproj",
       "projectName": "ToolUse.Core",
-      "projectPath": "/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Core/ToolUse.Core.csproj",
-      "packagesPath": "/Users/al.v.goncharov/.nuget/packages/",
-      "outputPath": "/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Core/obj/",
+      "projectPath": "/Users/ag/RiderProjects/hideandseek/ToolUse.Core/ToolUse.Core.csproj",
+      "packagesPath": "/Users/ag/.nuget/packages/",
+      "outputPath": "/Users/ag/RiderProjects/hideandseek/ToolUse.Core/obj/",
       "projectStyle": "PackageReference",
       "configFilePaths": [
-        "/Users/al.v.goncharov/.nuget/NuGet/NuGet.Config"
+        "/Users/ag/.nuget/NuGet/NuGet.Config"
       ],
       "originalTargetFrameworks": [
         "net9.0"
@@ -89,9 +145,9 @@
       "restoreAuditProperties": {
         "enableAudit": "true",
         "auditLevel": "low",
-        "auditMode": "all"
+        "auditMode": "direct"
       },
-      "SdkAnalysisLevel": "9.0.100"
+      "SdkAnalysisLevel": "9.0.300"
     },
     "frameworks": {
       "net9.0": {
@@ -100,6 +156,10 @@
           "Newtonsoft.Json": {
             "target": "Package",
             "version": "[13.0.3, )"
+          },
+          "Raylib-cs": {
+            "target": "Package",
+            "version": "[7.0.1, )"
           }
         },
         "imports": [
@@ -118,7 +178,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "/Users/al.v.goncharov/.dotnet/sdk/9.0.100/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "/Users/ag/.dotnet/sdk/9.0.301/PortableRuntimeIdentifierGraph.json"
       }
     }
   }

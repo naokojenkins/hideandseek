@@ -1,20 +1,20 @@
 {
   "format": 1,
   "restore": {
-    "/Users/al.v.goncharov/RiderProjects/hideandseek/DrawSectorTest/DrawSectorTest.csproj": {}
+    "/Users/ag/RiderProjects/hideandseek/DrawSectorTest/DrawSectorTest.csproj": {}
   },
   "projects": {
-    "/Users/al.v.goncharov/RiderProjects/hideandseek/DrawSectorTest/DrawSectorTest.csproj": {
+    "/Users/ag/RiderProjects/hideandseek/DrawSectorTest/DrawSectorTest.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "/Users/al.v.goncharov/RiderProjects/hideandseek/DrawSectorTest/DrawSectorTest.csproj",
+        "projectUniqueName": "/Users/ag/RiderProjects/hideandseek/DrawSectorTest/DrawSectorTest.csproj",
         "projectName": "DrawSectorTest",
-        "projectPath": "/Users/al.v.goncharov/RiderProjects/hideandseek/DrawSectorTest/DrawSectorTest.csproj",
-        "packagesPath": "/Users/al.v.goncharov/.nuget/packages/",
-        "outputPath": "/Users/al.v.goncharov/RiderProjects/hideandseek/DrawSectorTest/obj/",
+        "projectPath": "/Users/ag/RiderProjects/hideandseek/DrawSectorTest/DrawSectorTest.csproj",
+        "packagesPath": "/Users/ag/.nuget/packages/",
+        "outputPath": "/Users/ag/RiderProjects/hideandseek/DrawSectorTest/obj/",
         "projectStyle": "PackageReference",
         "configFilePaths": [
-          "/Users/al.v.goncharov/.nuget/NuGet/NuGet.Config"
+          "/Users/ag/.nuget/NuGet/NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net9.0"
@@ -36,9 +36,9 @@
         "restoreAuditProperties": {
           "enableAudit": "true",
           "auditLevel": "low",
-          "auditMode": "all"
+          "auditMode": "direct"
         },
-        "SdkAnalysisLevel": "9.0.100"
+        "SdkAnalysisLevel": "9.0.300"
       },
       "frameworks": {
         "net9.0": {
@@ -65,7 +65,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "/Users/al.v.goncharov/.dotnet/sdk/9.0.100/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "/Users/ag/.dotnet/sdk/9.0.301/PortableRuntimeIdentifierGraph.json"
         }
       }
     }
