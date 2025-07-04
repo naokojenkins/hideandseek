@@ -4,7 +4,6 @@ using System.Globalization;
 
 namespace ToolUse.Core.RL
 {
-    [TypeConverter(typeof(StateConverter))]
     public class State
     {
         public int AgentX { get; init; }

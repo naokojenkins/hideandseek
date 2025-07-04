@@ -166,7 +166,7 @@ namespace ToolUse.Core.RaylibThreeD
                 Hider.Draw();
                 if (_showVisionCones)
                 {
-                    Seeker.DrawVisionCone(World, new Color(255, 0, 0, 80));
+                    Seeker.DrawVisionCone(World, new Color(0, 0, 255, 80));
                     Hider.DrawVisionCone(World, new Color(0, 255, 0, 80));
                 }
             }
@@ -183,7 +183,7 @@ namespace ToolUse.Core.RaylibThreeD
             y += 25;
             Raylib.DrawText($"Time: {Timer:F1}s", 10, y, 20, Color.White);
             y += 25;
-            Raylib.DrawText($"Seeker Score: {SeekerScore:F1}", 10, y, 20, Color.Red);
+            Raylib.DrawText($"Seeker Score: {SeekerScore:F1}", 10, y, 20, Color.Blue);
             y += 25;
             Raylib.DrawText($"Hider Score: {HiderScore:F1}", 10, y, 20, Color.Green);
             y += 25;

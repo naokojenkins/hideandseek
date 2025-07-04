@@ -32,7 +32,7 @@ namespace ToolUse.Core.RaylibThreeD
             Position = position;
             IsSeeker = isSeeker;
             Rotation = new Vector3(0, initialRotation, 0);
-            Color = isSeeker ? Raylib_cs.Color.Red : Raylib_cs.Color.Green;
+            Color = isSeeker ? Raylib_cs.Color.Blue : Raylib_cs.Color.Green;
         }
 
         public void Rotate(float degrees)
