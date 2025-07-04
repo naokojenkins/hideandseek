@@ -106,7 +106,7 @@ namespace ToolUse.Sim
                 simulation.Draw();
 
                 // Рисуем UI поверх 3D
-                DrawHUD();
+               // DrawHUD();
 
                 Raylib.EndDrawing();
             }
@@ -181,7 +181,7 @@ namespace ToolUse.Sim
             }
         }
 
-        static void DrawHUD()
+        /*static void DrawHUD()
         {
             int x = 10, y = 10;
             Raylib.DrawRectangle(x - 5, y - 5, 300, 100, Raylib.ColorAlpha(RColor.Black, 0.7f));
@@ -197,7 +197,7 @@ namespace ToolUse.Sim
             int width = Raylib.MeasureText(instructions, 20);
             Raylib.DrawRectangle(screenW/2 - width/2 - 10, screenH - 40, width + 20, 30, Raylib.ColorAlpha(RColor.Black, 0.7f));
             Raylib.DrawText(instructions, screenW/2 - width/2, screenH - 35, 20, RColor.White);
-        }
+        }*/
 
         static void LoadTable(string path, QTable q)
         {

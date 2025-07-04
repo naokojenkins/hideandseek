@@ -163,24 +163,25 @@ namespace ToolUse.Core.RaylibThreeD
             );
 
             // Рисуем направление взгляда - делаем его длиннее и толще для лучшей видимости
-            float radians = Rotation.Y * MathF.PI / 180f;
-            Vector3 forward = new Vector3(
+            //float radians = Rotation.Y * MathF.PI / 180f;
+            /*Vector3 forward = new Vector3(
                 MathF.Cos(radians) * 2.0f,  // Увеличиваем длину
                 0.1f,
                 MathF.Sin(radians) * 2.0f   // Увеличиваем длину
             );
             
             Vector3 startPos = Position + new Vector3(0, 0.8f, 0);
-            Vector3 endPos = startPos + forward;
+            Vector3 endPos = startPos + forward;*/
             
             // Рисуем толстую желтую линию
-            Raylib.DrawLine3D(startPos, endPos, Raylib_cs.Color.Yellow);
+            
             
             // Добавляем еще несколько линий рядом для "толщины"
-            Raylib.DrawLine3D(startPos + new Vector3(0.05f, 0, 0), endPos + new Vector3(0.05f, 0, 0), Raylib_cs.Color.Yellow);
+            /*Raylib.DrawLine3D(startPos + new Vector3(0.05f, 0, 0), endPos + new Vector3(0.05f, 0, 0), Raylib_cs.Color.Yellow);
             Raylib.DrawLine3D(startPos + new Vector3(-0.05f, 0, 0), endPos + new Vector3(-0.05f, 0, 0), Raylib_cs.Color.Yellow);
             Raylib.DrawLine3D(startPos + new Vector3(0, 0, 0.05f), endPos + new Vector3(0, 0, 0.05f), Raylib_cs.Color.Yellow);
             Raylib.DrawLine3D(startPos + new Vector3(0, 0, -0.05f), endPos + new Vector3(0, 0, -0.05f), Raylib_cs.Color.Yellow);
+        */
         }
 
        
@@ -189,7 +190,7 @@ namespace ToolUse.Core.RaylibThreeD
         {
             Raylib_cs.Color coneColor = visionColor ?? new Raylib_cs.Color(255, 255, 0, 80);
     
-            int segments = 20; // Увеличиваем количество сегментов для более гладкого конуса
+            int segments = 40; // Увеличиваем количество сегментов для более гладкого конуса
             float startAngle = Rotation.Y - VisionAngle / 2f;
             float endAngle = Rotation.Y + VisionAngle / 2f;
 

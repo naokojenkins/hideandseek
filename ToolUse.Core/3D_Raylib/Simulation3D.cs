@@ -188,7 +188,7 @@ namespace ToolUse.Core.RaylibThreeD
             Raylib.DrawText($"Hider Score: {HiderScore:F1}", 10, y, 20, Color.Green);
             y += 25;
             Raylib.DrawText($"Hider Visible: {(IsHiderVisible ? "YES" : "NO")}", 10, y, 20,
-                IsHiderVisible ? Color.Gold : Color.LightGray);
+              IsHiderVisible ? Color.Gold : Color.LightGray);
             y += 25;
             // Информация о состоянии конусов
             Raylib.DrawText($"Vision Cones: {(_showVisionCones ? "ON" : "OFF")}", 10, y, 20,
