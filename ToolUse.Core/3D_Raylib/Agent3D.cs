@@ -16,8 +16,8 @@ namespace ToolUse.Core.RaylibThreeD
             set => Rotation = new Vector3(Rotation.X, value, Rotation.Z);
         }
 
-        public float VisionRadius { get; set; } = 5.0f;
-        public float VisionAngle { get; set; } = 60.0f;
+        public float VisionRadius { get; set; } = 8.0f;  // Увеличиваем радиус обзора
+        public float VisionAngle { get; set; } = 90.0f; // Расширяем угол обзора
         public bool IsSeeker { get; set; }
         public Raylib_cs.Color Color { get; set; }
         public float Speed { get; set; } = 2.0f;
@@ -141,8 +141,21 @@ namespace ToolUse.Core.RaylibThreeD
             // Проверяем угол обзора
             Vector3 toOther = Vector3.Normalize(other.Position - Position);
             float angleToOther = MathF.Atan2(toOther.Z, toOther.X) * 180f / MathF.PI;
-            float angleDiff = Math.Abs(angleToOther - Rotation.Y);
+
+            // Нормализуем угол в диапазоне 0-360
+            if (angleToOther < 0) angleToOther += 360f;
+
+            // Нормализуем угол текущего направления (для уверенности)
+            float currentDirection = Rotation.Y;
+            while (currentDirection < 0) currentDirection += 360f;
+            while (currentDirection >= 360f) currentDirection -= 360f;
+
+            // Вычисляем разницу между углами
+            float angleDiff = Math.Abs(angleToOther - currentDirection);
             if (angleDiff > 180f) angleDiff = 360f - angleDiff;
+
+            // Отладочная информация
+            //Console.WriteLine($"Distance: {distance:F2}, AngleToOther: {angleToOther:F2}, Direction: {currentDirection:F2}, AngleDiff: {angleDiff:F2}, Threshold: {VisionAngle/2f:F2}");
             
             if (angleDiff > VisionAngle / 2f) return false;
 

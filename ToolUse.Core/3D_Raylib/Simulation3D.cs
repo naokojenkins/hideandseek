@@ -10,6 +10,7 @@ namespace ToolUse.Core.RaylibThreeD
         public World3D World { get; }
         public Agent3D Seeker { get; set; }
         public Agent3D Hider { get; set; }
+        public bool IsHiderCaught => _isHiderCaught;
 
         private readonly QAgent _seekerAgent;
         private readonly QAgent _hiderAgent;
@@ -24,7 +25,16 @@ namespace ToolUse.Core.RaylibThreeD
         public float Timer { get; private set; } = 0f;
         public float SeekerScore { get; private set; } = 0f;
         public float HiderScore { get; private set; } = 0f;
-        public bool IsHiderVisible { get; private set; } = false;
+        // Использование кэширования для предотвращения множественных вычислений видимости
+        private bool _isHiderVisible = false;
+        private float _lastVisibilityCheck = 0f;
+        private const float _visibilityCheckInterval = 0.05f; // Проверять видимость не чаще чем раз в 50 мс
+
+        public bool IsHiderVisible 
+        { 
+            get => _isHiderVisible; 
+            private set => _isHiderVisible = value; 
+        }
         private bool _isHiderCaught = false;
         private int _caughtFrames = 0;
 
@@ -71,14 +81,24 @@ namespace ToolUse.Core.RaylibThreeD
             UpdateRLAgents(deltaTime);
             UpdateCamera();
 
-            IsHiderVisible = Seeker.CanSee(Hider, World);
+            // Оптимизация: проверяем видимость не каждый кадр, а с определенным интервалом
+            _lastVisibilityCheck += deltaTime;
+            if (_lastVisibilityCheck >= _visibilityCheckInterval)
+            {
+                IsHiderVisible = Seeker.CanSee(Hider, World);
+                _lastVisibilityCheck = 0f;
 
-            // 3. Корректное детектирование "пойман"
+                // Отладка
+                // Console.WriteLine($"Visibility check at {Timer:F2}s: {IsHiderVisible}");
+            }
+
+            // Корректное детектирование "пойман"
             if (IsHiderVisible)
             {
-                if (++_caughtFrames >= Raylib.GetFPS() * 5)
+                if (++_caughtFrames >= Raylib.GetFPS() * 3) // Уменьшаем время до поимки для более быстрой реакции
                 {
                     _isHiderCaught = true;
+                    // Console.WriteLine($"Hider caught at {Timer:F2}s!");
                 }
             }
             else
@@ -129,8 +149,18 @@ namespace ToolUse.Core.RaylibThreeD
 
         private void UpdateScores(float deltaTime)
         {
-            if (IsHiderVisible) SeekerScore += deltaTime;
-            else HiderScore += deltaTime;
+            // Более наглядное обновление очков с логированием
+            if (IsHiderVisible) 
+            {
+                SeekerScore += deltaTime;
+                // Раскомментируйте для отладки
+                //Console.WriteLine($"Hider visible! Adding {deltaTime:F2} to Seeker Score. Total: {SeekerScore:F2}");
+            }
+            else 
+            {
+                HiderScore += deltaTime;
+                //Console.WriteLine($"Hider NOT visible. Adding {deltaTime:F2} to Hider Score. Total: {HiderScore:F2}");
+            }
         }
 
         public void Restart()
@@ -166,7 +196,12 @@ namespace ToolUse.Core.RaylibThreeD
                 Hider.Draw();
                 if (_showVisionCones)
                 {
-                    Seeker.DrawVisionCone(World, new Color(0, 0, 255, 80));
+                    // Меняем цвет конуса в зависимости от видимости для наглядности
+                    Color seekerConeColor = IsHiderVisible ? 
+                        new Color(255, 255, 0, 100) : // Желтый, если видит
+                        new Color(0, 0, 255, 80);    // Синий, если не видит
+
+                    Seeker.DrawVisionCone(World, seekerConeColor);
                     Hider.DrawVisionCone(World, new Color(0, 255, 0, 80));
                 }
             }
@@ -177,33 +212,80 @@ namespace ToolUse.Core.RaylibThreeD
 
         private void DrawHUD()
         {
-            Raylib.DrawRectangle(5, 5, 250, 185, Raylib.ColorAlpha(Color.Black, 0.6f)); // Увеличиваем высоту еще больше
+            // Фон для информационной панели с увеличенной высотой
+            Raylib.DrawRectangle(5, 5, 250, 210, Raylib.ColorAlpha(Color.Black, 0.7f));
+
             int y = 10;
             Raylib.DrawText($"Session: {Session}", 10, y, 20, Color.White);
             y += 25;
-            Raylib.DrawText($"Time: {Timer:F1}s", 10, y, 20, Color.White);
+
+            // Отображаем таймер с предупреждением, когда приближается конец сессии
+            Color timeColor = Timer > 50f ? Color.Red : Color.White;
+            Raylib.DrawText($"Time: {Timer:F1}s / 60s", 10, y, 20, timeColor);
             y += 25;
-            Raylib.DrawText($"Seeker Score: {SeekerScore:F1}", 10, y, 20, Color.Blue);
+
+            // Отображаем счет с более выразительным форматированием
+            Raylib.DrawText($"Seeker: {SeekerScore:F1}", 10, y, 20, Color.Blue);
+            // Добавляем прогресс-бар для счета
+            float seekerPercent = SeekerScore / 60f * 100f; // Процент от максимального времени
+            Raylib.DrawRectangle(120, y + 5, (int)(100 * (seekerPercent / 100f)), 10, Color.Blue);
+            Raylib.DrawRectangleLines(120, y + 5, 100, 10, Color.White);
             y += 25;
-            Raylib.DrawText($"Hider Score: {HiderScore:F1}", 10, y, 20, Color.Green);
+
+            Raylib.DrawText($"Hider: {HiderScore:F1}", 10, y, 20, Color.Green);
+            float hiderPercent = HiderScore / 60f * 100f;
+            Raylib.DrawRectangle(120, y + 5, (int)(100 * (hiderPercent / 100f)), 10, Color.Green);
+            Raylib.DrawRectangleLines(120, y + 5, 100, 10, Color.White);
             y += 25;
-            Raylib.DrawText($"Hider Visible: {(IsHiderVisible ? "YES" : "NO")}", 10, y, 20,
-              IsHiderVisible ? Color.Gold : Color.LightGray);
+
+            // Более заметное отображение статуса видимости
+            Color visibilityColor = IsHiderVisible ? Color.Gold : Color.Gray;
+            string visibilityText = IsHiderVisible ? "VISIBLE!" : "Hidden";
+            Raylib.DrawText($"Hider: {visibilityText}", 10, y, 20, visibilityColor);
+
+            // Мигающий индикатор, если hider видим
+            if (IsHiderVisible && (int)(Timer * 2) % 2 == 0)
+            {
+                Raylib.DrawRectangle(120, y, 15, 15, Color.Gold);
+            }
             y += 25;
-            // Информация о состоянии конусов
+
+            // Информация о статусе видимости конусов
             Raylib.DrawText($"Vision Cones: {(_showVisionCones ? "ON" : "OFF")}", 10, y, 20,
                 _showVisionCones ? Color.Lime : Color.Gray);
             y += 25;
-            // Добавляем информацию о состоянии сетки
+
+            // Информация о статусе сетки
             Raylib.DrawText($"Grid: {(_showGrid ? "ON" : "OFF")}", 10, y, 20,
                 _showGrid ? Color.Lime : Color.Gray);
-    
+            y += 25;
+
+            // Дополнительная информация о режиме камеры
+            Raylib.DrawText($"Camera: {(_followAgent ? "Follow" : "Free")}", 10, y, 20,
+                _followAgent ? Color.Lime : Color.Yellow);
+
+            // Сообщение о поимке с эффектами
             if (_isHiderCaught)
             {
                 string caughtText = "CAUGHT!";
-                int textWidth = Raylib.MeasureText(caughtText, 40);
-                Raylib.DrawText(caughtText, (Raylib.GetScreenWidth() - textWidth) / 2,
-                    Raylib.GetScreenHeight() / 2 - 20, 40, Color.Gold);
+                int textWidth = Raylib.MeasureText(caughtText, 60); // Увеличиваем размер шрифта
+
+                // Фон для сообщения
+                Raylib.DrawRectangle(
+                    (Raylib.GetScreenWidth() - textWidth) / 2 - 20,
+                    Raylib.GetScreenHeight() / 2 - 40,
+                    textWidth + 40,
+                    80,
+                    Raylib.ColorAlpha(Color.Black, 0.8f));
+
+                // Мигающий текст для привлечения внимания
+                Color caughtColor = (int)(Timer * 4) % 2 == 0 ? Color.Gold : Color.Red;
+
+                Raylib.DrawText(caughtText, 
+                    (Raylib.GetScreenWidth() - textWidth) / 2,
+                    Raylib.GetScreenHeight() / 2 - 30, 
+                    60, 
+                    caughtColor);
             }
         }
 
@@ -223,9 +305,23 @@ namespace ToolUse.Core.RaylibThreeD
 
         public void Reset(Agent3D seeker, Agent3D hider)
         {
+            // Обновляем агентов
             this.Seeker = seeker;
             this.Hider = hider;
-            // Дополнительно сбросить состояние мира, счётчики, и т.п., если требуется
+
+            // Сбрасываем состояние симуляции
+            Timer = 0f;
+            SeekerScore = 0f;
+            HiderScore = 0f;
+            _isHiderCaught = false;
+            _caughtFrames = 0;
+
+            // Пересоздаем адаптер для новых агентов
+            _adapter.GetType().GetField("_seeker", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.SetValue(_adapter, seeker);
+            _adapter.GetType().GetField("_hider", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.SetValue(_adapter, hider);
+
+            // Перегенерируем карту
+            World.GenerateStaticGrid();
         }
     }
 }

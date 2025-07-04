@@ -70,33 +70,13 @@ namespace ToolUse.Sim
                 // Обработка ввода для симуляции
                 simulation.HandleInput();
 
-                // Обновление симуляции
+                // Обновление симуляции - она сама обновляет очки
                 simulation.Update(deltaTime);
 
-                // Проверка условий завершения сессии
-                bool visible = seeker.CanSee(hider, world);
+                // Убираем дублирование логики подсчета очков
+                // Проверка условий завершения сессии теперь делается в simulation.Update()
 
-                if (visible)
-                {
-                    if (++caughtFrames >= FPS * 5) // Reduced time to catch in 3D
-                    {
-                        caught = true;
-                    }
-                }
-                else
-                {
-                    caughtFrames = 0;
-                }
-
-                // Обновляем счет на основе видимости
-                float seekerReward = visible ? 0.1f : -0.02f;
-                float hiderReward = visible ? -0.1f : 0.1f;
-
-                // Накапливаем счет для отображения
-                sumSeeker += seekerReward;
-                sumHider += hiderReward;
-
-                if (caught || frame >= maxFrames) Reset();
+                if (simulation.IsHiderCaught || simulation.Timer > sessSec) Reset();
 
                 // Рисуем сцену
                 Raylib.BeginDrawing();
@@ -104,9 +84,6 @@ namespace ToolUse.Sim
 
                 // Рисуем 3D сцену
                 simulation.Draw();
-
-                // Рисуем UI поверх 3D
-               // DrawHUD();
 
                 Raylib.EndDrawing();
             }

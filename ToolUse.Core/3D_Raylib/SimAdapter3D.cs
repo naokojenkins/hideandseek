@@ -55,6 +55,9 @@ namespace ToolUse.Core.RaylibThreeD
             // Normalize to 0-360 range
             if (angle < 0) angle += 360f;
 
+            // Отладочная информация для проверки правильности расчета углов
+            //Console.WriteLine($"Direction from ({from.Position.X:F1},{from.Position.Z:F1}) to ({to.Position.X:F1},{to.Position.Z:F1}): {angle:F1}°");
+
             return angle;
         }
 
@@ -64,10 +67,19 @@ namespace ToolUse.Core.RaylibThreeD
         public float GetAngleDifference(Agent3D from, Agent3D to)
         {
             float targetAngle = GetDirectionToTarget(from, to);
-            float angleDiff = Math.Abs(from.Direction - targetAngle);
+
+            // Нормализуем текущий угол агента
+            float currentAngle = from.Direction;
+            while (currentAngle < 0) currentAngle += 360f;
+            while (currentAngle >= 360f) currentAngle -= 360f;
+
+            float angleDiff = Math.Abs(currentAngle - targetAngle);
 
             // Ensure we get the smallest angle
             if (angleDiff > 180f) angleDiff = 360f - angleDiff;
+
+            // Отладочная информация
+            //Console.WriteLine($"Agent at direction {currentAngle:F1}°, target at {targetAngle:F1}°, diff: {angleDiff:F1}°");
 
             return angleDiff;
         }

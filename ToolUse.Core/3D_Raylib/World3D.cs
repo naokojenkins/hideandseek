@@ -102,11 +102,11 @@ namespace ToolUse.Core.RaylibThreeD
             }
 
             // Проходы в рамке
-            int sideGap = _rng.Next(1, Size - 2);
+            /*int sideGap = _rng.Next(1, Size - 2);
             Grid[sideGap, 0] = TileType.Empty;
             Grid[sideGap, Size - 1] = TileType.Empty;
             Grid[0, sideGap] = TileType.Empty;
-            Grid[Size - 1, sideGap] = TileType.Empty;
+            Grid[Size - 1, sideGap] = TileType.Empty;*/
         }
 
         public void Draw(bool showShadows = true)
