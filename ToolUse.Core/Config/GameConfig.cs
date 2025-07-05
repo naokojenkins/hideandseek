@@ -12,13 +12,13 @@ namespace ToolUse.Core.Config
         // Общие параметры
         public float SessionDurationSeconds { get; set; } = 600f;
         public int FramesForCatch { get; set; } = 60; // Сколько кадров должен быть виден hider, чтобы считаться пойманным
-
+        
         // Параметры для Seeker
         public SeekerConfig Seeker { get; set; } = new SeekerConfig();
-
+        
         // Параметры для Hider
         public HiderConfig Hider { get; set; } = new HiderConfig();
-
+        
         // Статический метод для загрузки конфигурации из файла
         public static GameConfig Load(string filePath = "game_config.json")
         {
@@ -52,7 +52,7 @@ namespace ToolUse.Core.Config
                 return defaultConfig;
             }
         }
-
+        
         // Сохранение конфигурации в файл
         public void Save(string filePath = "game_config.json")
         {
@@ -67,44 +67,62 @@ namespace ToolUse.Core.Config
             }
         }
     }
-
+    
     /// <summary>
     /// Параметры для настройки Seeker (Искателя)
     /// </summary>
     public class SeekerConfig
     {
         // Базовые очки за секунду, когда Hider видим
-        public float PointsPerSecondWhenHiderVisible { get; set; } = 1.0f;
-
+        public float PointsPerSecondWhenHiderVisible { get; set; } = 10.0f;
+        
         // Базовые очки за секунду, когда Hider не видим
         public float PointsPerSecondWhenHiderHidden { get; set; } = 0.0f;
-
+        
         // Награда RL-агенту, когда Hider видим
-        public float RewardWhenHiderVisible { get; set; } = 1.0f;
-
+        public float RewardWhenHiderVisible { get; set; } = 10.0f;
+        
         // Награда RL-агенту, когда Hider не видим
-        public float RewardWhenHiderHidden { get; set; } = -0.1f;
-
+        public float RewardWhenHiderHidden { get; set; } = -0.05f;
+        
         // Параметры исследования
-        public float ExplorationBonusPerCell { get; set; } = 0.1f; // Бонус за каждую новую исследованную клетку
-        public float ExplorationScoreMultiplier { get; set; } = 1.0f; // Множитель для очков за исследование
+        public float ExplorationBonusPerCell { get; set; } = 1.0f; // Бонус за каждую новую исследованную клетку
+        public float ExplorationScoreMultiplier { get; set; } = 2.0f; // Множитель для очков за исследование
+        
+        // Награда за близость к hider'у
+        public bool ProximityRewardEnabled { get; set; } = true;
+        public float ProximityRewardMultiplier { get; set; } = 5.0f; // Множитель награды за близость
+        public float MaxProximityDistance { get; set; } = 15.0f; // Максимальное расстояние для награды за близость
+        
+        // Награда за движение (мотивирует не стоять на месте)
+        public bool MovementRewardEnabled { get; set; } = true;
+        public float MovementRewardPerSecond { get; set; } = 0.1f;
+        
+        // Штраф за бездействие
+        public bool IdlePenaltyEnabled { get; set; } = true;
+        public float IdlePenaltyPerSecond { get; set; } = -0.2f;
     }
-
+    
     /// <summary>
     /// Параметры для настройки Hider (Прячущегося)
     /// </summary>
     public class HiderConfig
     {
         // Базовые очки за секунду, когда Hider видим
-        public float PointsPerSecondWhenVisible { get; set; } = 0.0f;
-
+        public float PointsPerSecondWhenVisible { get; set; } = -2.0f;
+        
         // Базовые очки за секунду, когда Hider не видим
         public float PointsPerSecondWhenHidden { get; set; } = 1.0f;
-
+        
         // Награда RL-агенту, когда Hider видим
-        public float RewardWhenVisible { get; set; } = -1.0f;
-
+        public float RewardWhenVisible { get; set; } = -10.0f;
+        
         // Награда RL-агенту, когда Hider не видим
-        public float RewardWhenHidden { get; set; } = 0.1f;
+        public float RewardWhenHidden { get; set; } = 0.2f;
+        
+        // Награда за поддержание дистанции от seeker'а
+        public bool DistanceRewardEnabled { get; set; } = true;
+        public float DistanceRewardMultiplier { get; set; } = 2.0f;
+        public float MinSafeDistance { get; set; } = 10.0f; // Минимальная безопасная дистанция
     }
 }

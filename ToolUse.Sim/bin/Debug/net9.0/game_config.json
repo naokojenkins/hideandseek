@@ -1,0 +1,29 @@
+
+{
+  "SessionDurationSeconds": 600.0,
+  "FramesForCatch": 60,
+  "Seeker": {
+    "PointsPerSecondWhenHiderVisible": 10.0,
+    "PointsPerSecondWhenHiderHidden": 0.0,
+    "RewardWhenHiderVisible": 10.0,
+    "RewardWhenHiderHidden": -0.05,
+    "ExplorationBonusPerCell": 1.0,
+    "ExplorationScoreMultiplier": 2.0,
+    "ProximityRewardEnabled": true,
+    "ProximityRewardMultiplier": 5.0,
+    "MaxProximityDistance": 15.0,
+    "MovementRewardEnabled": true,
+    "MovementRewardPerSecond": 0.1,
+    "IdlePenaltyEnabled": true,
+    "IdlePenaltyPerSecond": -0.2
+  },
+  "Hider": {
+    "PointsPerSecondWhenVisible": -2.0,
+    "PointsPerSecondWhenHidden": 1.0,
+    "RewardWhenVisible": -10.0,
+    "RewardWhenHidden": 0.2,
+    "DistanceRewardEnabled": true,
+    "DistanceRewardMultiplier": 2.0,
+    "MinSafeDistance": 10.0
+  }
+}
