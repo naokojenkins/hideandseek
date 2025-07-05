@@ -2,6 +2,7 @@ using System;
 using System.Numerics;
 using Raylib_cs;
 using ToolUse.Core.RL;
+using ToolUse.Core.Config;
 
 namespace ToolUse.Core.RaylibThreeD
 {
@@ -11,6 +12,9 @@ namespace ToolUse.Core.RaylibThreeD
         public Agent3D Seeker { get; set; }
         public Agent3D Hider { get; set; }
         public bool IsHiderCaught => _isHiderCaught;
+
+        // Конфигурация игры
+        public GameConfig Config { get; private set; }
 
         private readonly QAgent _seekerAgent;
         private readonly QAgent _hiderAgent;
@@ -39,8 +43,11 @@ namespace ToolUse.Core.RaylibThreeD
         private bool _isHiderCaught = false;
         private int _caughtFrames = 0;
 
-        public Simulation3D(int worldSize = 40)
+        public Simulation3D(int worldSize = 40, string configPath = "game_config.json")
         {
+            // Загружаем конфигурацию
+            Config = GameConfig.Load(configPath);
+
             World = new World3D(worldSize);
             World.GenerateStaticGrid();
 
@@ -58,7 +65,7 @@ namespace ToolUse.Core.RaylibThreeD
             _seekerAgent = new QAgent(seekerQTable, 0.1f, 0.1f, 0.9f);
             _hiderAgent = new QAgent(hiderQTable, 0.1f, 0.1f, 0.9f);
 
-            // 2. ПРАВИЛЬНЫЙ ПОРЯДОК АРГУМЕНТОВ
+            // Используем адаптер с правильным порядком аргументов
             _adapter = new SimAdapter3D(World, Seeker, Hider);
 
             InitializeCamera();
@@ -93,10 +100,10 @@ namespace ToolUse.Core.RaylibThreeD
                 // Console.WriteLine($"Visibility check at {Timer:F2}s: {IsHiderVisible}");
             }
 
-            // Корректное детектирование "пойман"
+            // Корректное детектирование "пойман" с использованием параметра из конфигурации
             if (IsHiderVisible)
             {
-                if (++_caughtFrames >= Raylib.GetFPS() * 3) // Уменьшаем время до поимки для более быстрой реакции
+                if (++_caughtFrames >= Config.FramesForCatch) // Используем настраиваемый параметр
                 {
                     _isHiderCaught = true;
                     // Console.WriteLine($"Hider caught at {Timer:F2}s!");
@@ -136,17 +143,30 @@ namespace ToolUse.Core.RaylibThreeD
             int exploredAfter = Seeker.GetExploredCount();
             int newCellsExplored = exploredAfter - exploredBefore;
 
-            float seekerReward = IsHiderVisible ? 1.0f : -0.1f;
-            float hiderReward = IsHiderVisible ? -1.0f : 0.1f;
+            // Используем параметры из конфигурации для наград агентам
+            float seekerReward = IsHiderVisible ? 
+                Config.Seeker.RewardWhenHiderVisible : 
+                Config.Seeker.RewardWhenHiderHidden;
+
+            float hiderReward = IsHiderVisible ? 
+                Config.Hider.RewardWhenVisible : 
+                Config.Hider.RewardWhenHidden;
 
             // Добавляем награду за исследование новых клеток
             if (newCellsExplored > 0)
             {
-                float explorationBonus = newCellsExplored * 0.1f; // Увеличиваем награду за каждую новую клетку
+                // Используем параметр из конфигурации для бонуса за исследование
+                float explorationBonus = newCellsExplored * Config.Seeker.ExplorationBonusPerCell;
                 seekerReward += explorationBonus;
 
-                // Начисляем очки за исследование, которые будут отображаться в интерфейсе
+                // Начисляем очки за исследование для отображения в интерфейсе
                 ExplorationScore += explorationBonus;
+
+                // Также добавляем бонус напрямую к счету Seeker'а, применяя множитель из конфигурации
+                SeekerScore += explorationBonus * Config.Seeker.ExplorationScoreMultiplier;
+
+                // Также добавляем эти очки напрямую к счету Seeker'а
+                SeekerScore += explorationBonus;
             }
             _seekerAgent.Learn(seekerState, seekerAction, seekerReward, _adapter.GetSeekerState());
             _hiderAgent.Learn(hiderState, hiderAction, hiderReward, _adapter.GetHiderState());
@@ -180,10 +200,9 @@ namespace ToolUse.Core.RaylibThreeD
                 //Console.WriteLine($"Hider NOT visible. Adding {deltaTime:F2} to Hider Score. Total: {HiderScore:F2}");
             }
 
-            // Добавляем бонус к счету Seeker'a за исследование - делаем это один раз в расчете
-            // Счет ExplorationScore увеличивается в UpdateRLAgents при обнаружении новых клеток
-            // Сам бонус за исследование добавляется к общему счету здесь
-            SeekerScore += ExplorationScore * 0.1f * deltaTime; // Пропорционально добавляем бонус к общему счету
+            // Бонус за исследование теперь добавляется только в UpdateRLAgents
+            // при фактическом обнаружении новых клеток, а не здесь
+            // ExplorationScore используется только для отображения в интерфейсе
         }
 
         public void Restart()
@@ -254,7 +273,7 @@ namespace ToolUse.Core.RaylibThreeD
             // Отображаем счет с более выразительным форматированием
             Raylib.DrawText($"Seeker: {SeekerScore:F1}", 10, y, 20, Color.Blue);
             // Добавляем прогресс-бар для счета
-            float seekerPercent = SeekerScore / 600f * 100f; // Процент от максимального времени
+            float seekerPercent = SeekerScore / Config.SessionDurationSeconds * 100f; // Процент от максимального времени
             Raylib.DrawRectangle(140, y + 5, (int)(100 * (seekerPercent / 100f)), 10, Color.Blue);
             Raylib.DrawRectangleLines(140, y + 5, 100, 10, Color.White);
             y += 25;
@@ -264,7 +283,7 @@ namespace ToolUse.Core.RaylibThreeD
             y += 25;
 
             Raylib.DrawText($"Hider: {HiderScore:F1}", 10, y, 20, Color.Green);
-            float hiderPercent = HiderScore / 600f * 100f;
+            float hiderPercent = HiderScore / Config.SessionDurationSeconds * 100f;
             Raylib.DrawRectangle(140, y + 5, (int)(100 * (hiderPercent / 100f)), 10, Color.Green);
             Raylib.DrawRectangleLines(140, y + 5, 100, 10, Color.White);
             y += 25;
@@ -318,7 +337,7 @@ namespace ToolUse.Core.RaylibThreeD
                     60, 
                     caughtColor);
             }
-            if (_isHiderCaught || Timer > 600f) // 10 минут
+            if (_isHiderCaught || Timer > Config.SessionDurationSeconds) // Используем настраиваемую длительность сессии
             {
                 Restart();
             }

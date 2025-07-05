@@ -9,6 +9,7 @@ using Raylib_cs;
 using ToolUse.Core;
 using ToolUse.Core.RL;
 using ToolUse.Core.RaylibThreeD;
+using ToolUse.Core.Config;
 using RColor = Raylib_cs.Color;
 
 namespace ToolUse.Sim
@@ -19,9 +20,9 @@ namespace ToolUse.Sim
         const int screenW = 1024;
         const int screenH = 768;
 
-        const float sessSec = 600f;
+        static float sessSec = 600f; // Будет переопределено из конфигурации
         const int FPS = 20;
-        const int maxFrames = (int)(sessSec * FPS);
+        static int maxFrames = (int)(sessSec * FPS); // Изменено с const на static
 
         static JsonSerializerSettings jsonSettings = new()
         {
@@ -49,6 +50,13 @@ namespace ToolUse.Sim
 
         public static void Run()
         {
+            // Загружаем конфигурацию перед стартом
+            var config = GameConfig.Load();
+            // Обновляем длительность сессии из конфигурации
+            sessSec = config.SessionDurationSeconds;
+            // Обновляем значение maxFrames после изменения sessSec
+            maxFrames = (int)(sessSec * FPS);
+
             LoadTable("qtable_seeker_3d.json", seekerQ);
             LoadTable("qtable_hider_3d.json", hiderQ);
 
