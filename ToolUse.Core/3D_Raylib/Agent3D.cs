@@ -2,25 +2,28 @@ using System;
 using System.Numerics;
 using Raylib_cs;
 
+using System.Collections.Generic;
 namespace ToolUse.Core.RaylibThreeD
 {
     public class Agent3D
     {
         public Vector3 Position { get; set; }
         public Vector3 Rotation { get; set; }
-
         // Свойство для более удобного доступа к направлению (угол по оси Y)
         public float Direction
         {
             get => Rotation.Y;
             set => Rotation = new Vector3(Rotation.X, value, Rotation.Z);
         }
-
         public float VisionRadius { get; set; } = 8.0f;  // Увеличиваем радиус обзора
         public float VisionAngle { get; set; } = 90.0f; // Расширяем угол обзора
         public bool IsSeeker { get; set; }
         public Raylib_cs.Color Color { get; set; }
         public float Speed { get; set; } = 2.0f;
+
+        // Система отслеживания исследованных клеток
+        private HashSet<(int x, int z)> ExploredCells { get; } = new HashSet<(int, int)>();
+
         
         // Для совместимости с 2D версией
         public int X => (int)Math.Round(Position.X);
@@ -33,6 +36,12 @@ namespace ToolUse.Core.RaylibThreeD
             IsSeeker = isSeeker;
             Rotation = new Vector3(0, initialRotation, 0);
             Color = isSeeker ? Raylib_cs.Color.Blue : Raylib_cs.Color.Green;
+
+            // Добавляем стартовую позицию как исследованную
+            if (IsSeeker)
+            {
+                ExploredCells.Add(((int)Math.Round(position.X), (int)Math.Round(position.Z)));
+            }
         }
 
         public void Rotate(float degrees)
@@ -58,6 +67,26 @@ namespace ToolUse.Core.RaylibThreeD
             if (!world.IsBlocked((int)newPosition.X, (int)newPosition.Z))
             {
                 Position = newPosition;
+
+                // Добавляем новую клетку как исследованную для seeker'а
+                if (IsSeeker)
+                {
+                    ExploredCells.Add(((int)Math.Round(Position.X), (int)Math.Round(Position.Z)));
+                }
+            }
+        }
+
+        // Методы для работы с исследованными клетками
+        public int GetExploredCount() => ExploredCells.Count;
+
+        public bool HasExplored(int x, int z) => ExploredCells.Contains((x, z));
+
+        public void ResetExploration()
+        {
+            ExploredCells.Clear();
+            if (IsSeeker)
+            {
+                ExploredCells.Add(((int)Math.Round(Position.X), (int)Math.Round(Position.Z)));
             }
         }
 
@@ -129,6 +158,13 @@ namespace ToolUse.Core.RaylibThreeD
 
             // Путь свободен, двигаемся
             Position = newPosition;
+
+            // Добавляем новую клетку как исследованную для seeker'а
+            if (IsSeeker)
+            {
+                ExploredCells.Add(((int)Math.Round(Position.X), (int)Math.Round(Position.Z)));
+            }
+
             return true;
         }
 

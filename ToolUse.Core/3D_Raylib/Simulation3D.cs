@@ -25,6 +25,7 @@ namespace ToolUse.Core.RaylibThreeD
         public float Timer { get; private set; } = 0f;
         public float SeekerScore { get; private set; } = 0f;
         public float HiderScore { get; private set; } = 0f;
+        public float ExplorationScore { get; private set; } = 0f; // Счетчик очков за исследование
         // Использование кэширования для предотвращения множественных вычислений видимости
         private bool _isHiderVisible = false;
         private float _lastVisibilityCheck = 0f;
@@ -108,7 +109,7 @@ namespace ToolUse.Core.RaylibThreeD
 
             UpdateScores(deltaTime);
 
-            if (_isHiderCaught || Timer > 60f)
+            if (_isHiderCaught || Timer > 600f) // 10 минут
             {
                 Restart();
             }
@@ -124,12 +125,29 @@ namespace ToolUse.Core.RaylibThreeD
             int hiderAction = _hiderAgent.ChooseAction(hiderState);
             _adapter.ApplyAction(Hider, hiderAction);
 
+            // Запоминаем количество исследованных клеток до движения
+            int exploredBefore = Seeker.GetExploredCount();
+
             // 4. Метод MoveWithCollisionAvoidance требует правильные параметры
             if (seekerAction == 2) Seeker.MoveWithCollisionAvoidance(World, deltaTime, Hider);
             if (hiderAction == 2) Hider.MoveWithCollisionAvoidance(World, deltaTime, Seeker);
 
+            // Проверяем, исследовал ли seeker новые клетки
+            int exploredAfter = Seeker.GetExploredCount();
+            int newCellsExplored = exploredAfter - exploredBefore;
+
             float seekerReward = IsHiderVisible ? 1.0f : -0.1f;
             float hiderReward = IsHiderVisible ? -1.0f : 0.1f;
+
+            // Добавляем награду за исследование новых клеток
+            if (newCellsExplored > 0)
+            {
+                float explorationBonus = newCellsExplored * 0.1f; // Увеличиваем награду за каждую новую клетку
+                seekerReward += explorationBonus;
+
+                // Начисляем очки за исследование, которые будут отображаться в интерфейсе
+                ExplorationScore += explorationBonus;
+            }
             _seekerAgent.Learn(seekerState, seekerAction, seekerReward, _adapter.GetSeekerState());
             _hiderAgent.Learn(hiderState, hiderAction, hiderReward, _adapter.GetHiderState());
         }
@@ -161,6 +179,11 @@ namespace ToolUse.Core.RaylibThreeD
                 HiderScore += deltaTime;
                 //Console.WriteLine($"Hider NOT visible. Adding {deltaTime:F2} to Hider Score. Total: {HiderScore:F2}");
             }
+
+            // Добавляем бонус к счету Seeker'a за исследование - делаем это один раз в расчете
+            // Счет ExplorationScore увеличивается в UpdateRLAgents при обнаружении новых клеток
+            // Сам бонус за исследование добавляется к общему счету здесь
+            SeekerScore += ExplorationScore * 0.1f * deltaTime; // Пропорционально добавляем бонус к общему счету
         }
 
         public void Restart()
@@ -169,6 +192,7 @@ namespace ToolUse.Core.RaylibThreeD
             Timer = 0f;
             SeekerScore = 0f;
             HiderScore = 0f;
+            ExplorationScore = 0f; // Сбрасываем счетчик очков за исследование
             _isHiderCaught = false;
             _caughtFrames = 0;
 
@@ -184,6 +208,9 @@ namespace ToolUse.Core.RaylibThreeD
 
             Hider.Position = hiderPosition;
             Hider.Direction = Raylib.GetRandomValue(0, 359);
+
+            // Сбрасываем исследованные клетки для новой сессии
+            Seeker.ResetExploration();
         }
 
         public void Draw()
@@ -213,29 +240,33 @@ namespace ToolUse.Core.RaylibThreeD
         private void DrawHUD()
         {
             // Фон для информационной панели с увеличенной высотой
-            Raylib.DrawRectangle(5, 5, 250, 210, Raylib.ColorAlpha(Color.Black, 0.7f));
+            Raylib.DrawRectangle(5, 5, 280, 270, Raylib.ColorAlpha(Color.Black, 0.7f));
 
             int y = 10;
             Raylib.DrawText($"Session: {Session}", 10, y, 20, Color.White);
             y += 25;
 
             // Отображаем таймер с предупреждением, когда приближается конец сессии
-            Color timeColor = Timer > 50f ? Color.Red : Color.White;
-            Raylib.DrawText($"Time: {Timer:F1}s / 60s", 10, y, 20, timeColor);
+            Color timeColor = Timer > 550f ? Color.Red : Color.White;
+            Raylib.DrawText($"Time: {Timer:F1}s / 600s", 10, y, 20, timeColor);
             y += 25;
 
             // Отображаем счет с более выразительным форматированием
             Raylib.DrawText($"Seeker: {SeekerScore:F1}", 10, y, 20, Color.Blue);
             // Добавляем прогресс-бар для счета
-            float seekerPercent = SeekerScore / 60f * 100f; // Процент от максимального времени
-            Raylib.DrawRectangle(120, y + 5, (int)(100 * (seekerPercent / 100f)), 10, Color.Blue);
-            Raylib.DrawRectangleLines(120, y + 5, 100, 10, Color.White);
+            float seekerPercent = SeekerScore / 600f * 100f; // Процент от максимального времени
+            Raylib.DrawRectangle(140, y + 5, (int)(100 * (seekerPercent / 100f)), 10, Color.Blue);
+            Raylib.DrawRectangleLines(140, y + 5, 100, 10, Color.White);
+            y += 25;
+
+            // Добавляем информацию о количестве исследованных клеток
+            Raylib.DrawText($"Explored: {Seeker.GetExploredCount()}", 10, y, 20, Color.Purple);
             y += 25;
 
             Raylib.DrawText($"Hider: {HiderScore:F1}", 10, y, 20, Color.Green);
-            float hiderPercent = HiderScore / 60f * 100f;
-            Raylib.DrawRectangle(120, y + 5, (int)(100 * (hiderPercent / 100f)), 10, Color.Green);
-            Raylib.DrawRectangleLines(120, y + 5, 100, 10, Color.White);
+            float hiderPercent = HiderScore / 600f * 100f;
+            Raylib.DrawRectangle(140, y + 5, (int)(100 * (hiderPercent / 100f)), 10, Color.Green);
+            Raylib.DrawRectangleLines(140, y + 5, 100, 10, Color.White);
             y += 25;
 
             // Более заметное отображение статуса видимости
@@ -287,6 +318,11 @@ namespace ToolUse.Core.RaylibThreeD
                     60, 
                     caughtColor);
             }
+            if (_isHiderCaught || Timer > 600f) // 10 минут
+            {
+                Restart();
+            }
+
         }
 
         public void HandleInput()
@@ -313,6 +349,7 @@ namespace ToolUse.Core.RaylibThreeD
             Timer = 0f;
             SeekerScore = 0f;
             HiderScore = 0f;
+            ExplorationScore = 0f; // Сбрасываем счетчик очков за исследование
             _isHiderCaught = false;
             _caughtFrames = 0;
 
@@ -322,6 +359,9 @@ namespace ToolUse.Core.RaylibThreeD
 
             // Перегенерируем карту
             World.GenerateStaticGrid();
+
+            // Сбрасываем исследованные клетки для нового агента
+            Seeker.ResetExploration();
         }
     }
 }

@@ -82,12 +82,29 @@ class Program
             var aS = (Act)seekerRL.ChooseAction(sSeek);
             var aH = (Act)hiderRL.ChooseAction(sHide);
 
+            // Запоминаем количество исследованных клеток до движения
+            int exploredBefore = seeker.GetExploredCount();
+
             DoAction(seeker, aS);
             DoAction(hider, aH);
+
+            // Проверяем, исследовал ли seeker новые клетки
+            int exploredAfter = seeker.GetExploredCount();
+            int newCellsExplored = exploredAfter - exploredBefore;
 
             bool visible = seeker.CanSee(hider, world);
 
             float rS = 0, rH = 0;
+
+            // Награда за исследование новых клеток (меньше чем за обнаружение hider'а)
+            if (newCellsExplored > 0)
+            {
+                float explorationBonus = newCellsExplored * 0.1f; // Увеличиваем награду за каждую новую клетку
+                rS += explorationBonus;
+
+                // Добавляем к итоговому счету seeker'а
+                sumSeeker += explorationBonus * 0.2f; // Добавляем часть бонуса к общему счету
+            }
 
             if (visible)
             {
@@ -170,6 +187,9 @@ class Program
             hider = new Agent(Raylib.GetRandomValue(0, gridSize - 1), Raylib.GetRandomValue(0, gridSize - 1), false, 180);
         }
         while (world.IsBlocked(hider.X, hider.Y));
+
+        // Сбрасываем исследованные клетки для новой сессии
+        seeker.ResetExploration();
     }
 
     static void DoAction(Agent ag, Act act)
@@ -225,7 +245,7 @@ class Program
         int x = 10, y = 2, fs = 8;
         Raylib.DrawText($"Session: {session}  Time: {timer:F0}s", x, y, fs, RColor.Black);
 
-        Raylib.DrawText($"Seeker: {sumSeeker:F1}", x + 20, y + 645, fs, RColor.Blue);
+        Raylib.DrawText($"Seeker: {sumSeeker:F1} | Explored: {seeker.GetExploredCount()}", x + 20, y + 645, fs, RColor.Blue);
         Raylib.DrawLine(20, 659, fieldSize, 659, RColor.Black);
         Raylib.DrawText($"Hider: {sumHider:F1}", x + 20, y + 660, fs, RColor.Green);
     }

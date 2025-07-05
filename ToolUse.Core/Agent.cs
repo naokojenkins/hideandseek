@@ -2,6 +2,7 @@ namespace ToolUse.Core
 {
     using System;
     using System.Numerics;
+    using System.Collections.Generic;
 
     public class Agent
     {
@@ -15,12 +16,21 @@ namespace ToolUse.Core
 
         public bool  IsSeeker { get; }
 
+        // Система отслеживания исследованных клеток
+        private HashSet<(int x, int y)> ExploredCells { get; } = new HashSet<(int, int)>();
+
         /* ───── ctor ───── */
         public Agent(int x, int y, bool isSeeker, float angle = 0f)
         {
             X = x;  Y = y;
             Angle    = angle;
             IsSeeker = isSeeker;
+
+            // Добавляем стартовую позицию как исследованную
+            if (IsSeeker)
+            {
+                ExploredCells.Add((x, y));
+            }
         }
 
         /* ───── поворот + движение ───── */
@@ -36,6 +46,26 @@ namespace ToolUse.Core
             if (!world.IsBlocked(nx, ny))
             {
                 X = nx; Y = ny;
+
+                // Добавляем новую клетку как исследованную для seeker'а
+                if (IsSeeker)
+                {
+                    ExploredCells.Add((X, Y));
+                }
+            }
+        }
+
+        /* ───── методы для работы с исследованием ───── */
+        public int GetExploredCount() => ExploredCells.Count;
+
+        public bool HasExplored(int x, int y) => ExploredCells.Contains((x, y));
+
+        public void ResetExploration()
+        {
+            ExploredCells.Clear();
+            if (IsSeeker)
+            {
+                ExploredCells.Add((X, Y));
             }
         }
 

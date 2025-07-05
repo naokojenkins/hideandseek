@@ -19,8 +19,8 @@ namespace ToolUse.Sim
         const int screenW = 1024;
         const int screenH = 768;
 
-        const float sessSec = 60f;
-        const int FPS = 5;
+        const float sessSec = 600f;
+        const int FPS = 20;
         const int maxFrames = (int)(sessSec * FPS);
 
         static JsonSerializerSettings jsonSettings = new()
