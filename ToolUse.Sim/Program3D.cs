@@ -41,12 +41,12 @@ namespace ToolUse.Sim
 
         public static void Run()
         {
-            AppDomain.CurrentDomain.ProcessExit += (s, e) =>
-            {
-                SaveTable(seekerFile, seekerQ);
-                SaveTable(hiderFile, hiderQ);
-                Raylib.CloseWindow();
-            };
+            // AppDomain.CurrentDomain.ProcessExit += (s, e) =>
+            // {
+            //     SaveTable(seekerFile, seekerQ);
+            //     SaveTable(hiderFile, hiderQ);
+            //     Raylib.CloseWindow();
+            // };
 
             var cfg = GameConfig.Load();
             Console.WriteLine($"[DEBUG] SessionDurationSeconds = {cfg.SessionDurationSeconds}");
