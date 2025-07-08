@@ -24,7 +24,6 @@ class Program
 
     static JsonSerializerSettings jsonSettings = new()
     {
-        // Убираем StateKeyConverter
         TypeNameHandling = TypeNameHandling.None,
         MetadataPropertyHandling = MetadataPropertyHandling.Ignore
     };
@@ -287,33 +286,14 @@ class Program
         if (!File.Exists(path)) return;
         try
         {
-            var map = JsonConvert.DeserializeObject<Dictionary<State, float[]>>(File.ReadAllText(path), jsonSettings);
+            var map = JsonConvert.DeserializeObject<Dictionary<string, float[]>>(File.ReadAllText(path), jsonSettings);
             if (map != null)
             {
                 var current = q.Export();
 
                 foreach (var kvp in map)
                 {
-                    bool found = false;
-                    foreach (var key in current.Keys)
-                    {
-                        if (key.Equals(kvp.Key))
-                        {
-                            float[] existing = current[key];
-                            float[] loaded = kvp.Value;
-                            for (int i = 0; i < existing.Length; i++)
-                            {
-                                existing[i] = (existing[i] + loaded[i]) / 2f;
-                            }
-                            found = true;
-                            break;
-                        }
-                    }
-
-                    if (!found)
-                    {
-                        current[kvp.Key] = kvp.Value;
-                    }
+                    current[kvp.Key] = kvp.Value;
                 }
 
                 q.LoadFrom(current);
@@ -329,11 +309,11 @@ class Program
     {
         try
         {
-            var combined = new Dictionary<State, float[]>();
+            var combined = new Dictionary<string, float[]>();
 
             if (File.Exists(path))
             {
-                var existing = JsonConvert.DeserializeObject<Dictionary<State, float[]>>(File.ReadAllText(path), jsonSettings);
+                var existing = JsonConvert.DeserializeObject<Dictionary<string, float[]>>(File.ReadAllText(path), jsonSettings);
                 if (existing != null)
                 {
                     foreach (var kvp in existing)
@@ -345,26 +325,7 @@ class Program
 
             foreach (var kvp in q.Export())
             {
-                bool found = false;
-                foreach (var key in combined.Keys.ToList())
-                {
-                    if (key.Equals(kvp.Key))
-                    {
-                        float[] old = combined[key];
-                        float[] @new = kvp.Value;
-                        for (int i = 0; i < old.Length; i++)
-                        {
-                            old[i] = (old[i] + @new[i]) / 2f;
-                        }
-                        found = true;
-                        break;
-                    }
-                }
-
-                if (!found)
-                {
-                    combined[kvp.Key] = kvp.Value;
-                }
+                combined[kvp.Key] = kvp.Value;
             }
 
             File.WriteAllText(path, JsonConvert.SerializeObject(combined, Formatting.None, jsonSettings));

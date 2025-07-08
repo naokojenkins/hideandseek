@@ -11,6 +11,8 @@ namespace ToolUse.Core.Config
     {
         // Общие параметры
         public float SessionDurationSeconds { get; set; } = 600f;
+        public bool ShowSessionTime { get; set; } = true;
+        public string TimeFormat { get; set; } = "{0:F1}s / {1:F0}s";
         public int FramesForCatch { get; set; } = 60; // Сколько кадров должен быть виден hider, чтобы считаться пойманным
         
         // Параметры для Seeker

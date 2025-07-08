@@ -1,55 +1,71 @@
 using System;
-using System.Collections.Generic;
+using System.Linq;
+using ToolUse.Core.RL;
+using ToolUse.Core.RaylibThreeD;
+
 
 namespace ToolUse.Core.RL
 {
     public class QAgent
     {
-        private readonly QTable _q;
-        private readonly float  _eps, _alpha, _gamma;
-        private readonly Random _rnd = new();
+        private readonly QTable _table;
+        private readonly float _alpha;
+        private readonly float _gamma;
+        private readonly float _epsilon;
 
-        public int LastAction { get; private set; }
-
-        public QAgent(QTable table,
-            float epsilon     = 0.1f,
-            float learningRate = 0.1f,
-            float discount     = 0.95f)
+        public QAgent(QTable table, float alpha = 0.1f, float gamma = 0.9f, float epsilon = 0.1f)
         {
-            _q = table;
-            _eps   = epsilon;
-            _alpha = learningRate;
-            _gamma = discount;
+            _table = table;
+            _alpha = alpha;
+            _gamma = gamma;
+            _epsilon = epsilon;
         }
 
-        public int ChooseAction(State s)
+        public void UpdateAgent(Agent3D agent)
         {
-            float[] q = _q[s];
-
-            if (_rnd.NextDouble() < _eps)
-            {
-                LastAction = _rnd.Next(q.Length);
-            }
-            else
-            {
-                float max = float.NegativeInfinity;
-                int   a   = 0;
-                for (int i = 0; i < q.Length; i++)
-                    if (q[i] > max) { max = q[i]; a = i; }
-                LastAction = a;
-            }
-            return LastAction;
+            Console.WriteLine("[DEBUG] QAgent: агент обновлён");
         }
 
-        public void Learn(State s, int a, float r, State s2)
+        public int ChooseAction(State state)
         {
-            float[] q  = _q[s];
-            float[] q2 = _q[s2];
+            var values = _table.Get(state);
 
-            float best = float.NegativeInfinity;
-            foreach (float v in q2) if (v > best) best = v;
+            if (new Random().NextDouble() < _epsilon)
+            {
+                return new Random().Next(0, 4);
+            }
 
-            q[a] += _alpha * (r + _gamma * best - q[a]);
+            return Array.IndexOf(values, values.Max());
+        }
+
+        public void Learn(State oldState, int action, float reward, State newState)
+        {
+            var oldValues = _table.Get(oldState);
+            var newValues = _table.Get(newState);
+
+            float oldValue = oldValues[action];
+            float newValue = (1 - _alpha) * oldValue + _alpha * (reward + _gamma * newValues.Max());
+
+            oldValues[action] = newValue;
+            _table.Set(oldState, oldValues);
+
+            // Логируем
+            string oldKey = QTable.StateToString(oldState);
+            string newKey = QTable.StateToString(newState);
+
+            Console.WriteLine($"[DEBUG] QAgent.Learn() => s='{oldKey}', a={action}, r={reward:F2}, s2='{newKey}'");
+            Console.WriteLine($"[DEBUG] QTable[{GetTableId()}].GET('{oldKey}')");
+            Console.WriteLine($"[DEBUG] QTable[{GetTableId()}].GET('{newKey}')");
+            Console.WriteLine($"[DEBUG] QAgent.Learn() => best={newValues.Max():F2}, before={oldValue:F2}");
+            Console.WriteLine($"[DEBUG] QTable[{GetTableId()}].SET('{oldKey}', length={oldValues.Length})");
+            Console.WriteLine($"[DEBUG] QAgent.Learn() => После обновления: {newValue:F2}");
+        }
+
+        private int GetTableId()
+        {
+            var type = _table.GetType();
+            var field = type.GetField("_id", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            return (int)(field?.GetValue(_table) ?? -1);
         }
     }
 }
