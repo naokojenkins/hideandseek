@@ -77,7 +77,7 @@ namespace ToolUse.Sim
         static void Reset()
         {
             session++;
-            Console.WriteLine($"[DEBUG] Reset: начата сессия #{session}");
+            //Console.WriteLine($"[DEBUG] Reset: начата сессия #{session}");
 
             seekerQ.Clear();
             hiderQ.Clear();
@@ -110,7 +110,7 @@ namespace ToolUse.Sim
             // ✅ Подписываемся на событие завершения сессии
             simulation.OnSessionCompleted += () =>
             {
-                Console.WriteLine("[DEBUG] Simulation: сессия завершена, вызываем Reset()");
+                //Console.WriteLine("[DEBUG] Simulation: сессия завершена, вызываем Reset()");
                 SaveTable(seekerFile, seekerQ);
                 SaveTable(hiderFile, hiderQ);
                 Reset();
@@ -119,7 +119,7 @@ namespace ToolUse.Sim
             seeker = newSeeker;
             hider = newHider;
 
-            Console.WriteLine($"[DEBUG] Reset: сессия #{session} начата");
+            //Console.WriteLine($"[DEBUG] Reset: сессия #{session} начата");
         }
 
         static string PathTo(string file) => Path.Combine(TablesDir, file);
@@ -129,7 +129,7 @@ namespace ToolUse.Sim
             string path = PathTo(file);
             if (!File.Exists(path))
             {
-                Console.WriteLine($"[DEBUG] LoadTable: файл не найден: {file}");
+                //Console.WriteLine($"[DEBUG] LoadTable: файл не найден: {file}");
                 return;
             }
 
@@ -139,19 +139,19 @@ namespace ToolUse.Sim
                 var data = JsonConvert.DeserializeObject<Dictionary<string, float[]>>(json, jsonSettings);
                 if (data == null || data.Count == 0)
                 {
-                    Console.WriteLine($"[DEBUG] LoadTable: файл пуст или не распознан: {file}");
+                    //Console.WriteLine($"[DEBUG] LoadTable: файл пуст или не распознан: {file}");
                     return;
                 }
 
-                Console.WriteLine($"[DEBUG] LoadTable: загружено {data.Count} записей из {file}");
+                //Console.WriteLine($"[DEBUG] LoadTable: загружено {data.Count} записей из {file}");
                 q.LoadFrom(data);
 
                 // ✅ Логируем, что таблица обновилась
-                Console.WriteLine($"[DEBUG] LoadTable: QTable обновлена, теперь содержит {q.Export().Count} записей");
+                //Console.WriteLine($"[DEBUG] LoadTable: QTable обновлена, теперь содержит {q.Export().Count} записей");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[ERROR] LoadTable: ошибка загрузки {file}: {ex.Message}");
+                //Console.WriteLine($"[ERROR] LoadTable: ошибка загрузки {file}: {ex.Message}");
             }
         }
 
@@ -161,15 +161,15 @@ namespace ToolUse.Sim
             try
             {
                 var current = q.Export();
-                Console.WriteLine($"[DEBUG] SaveTable: экспортировано {current.Count} записей");
+                //Console.WriteLine($"[DEBUG] SaveTable: экспортировано {current.Count} записей");
 
                 File.WriteAllText(path, JsonConvert.SerializeObject(current, Formatting.None, jsonSettings));
 
-                Console.WriteLine($"[DEBUG] SaveTable: сохранено {current.Count} записей в {file}");
+                //Console.WriteLine($"[DEBUG] SaveTable: сохранено {current.Count} записей в {file}");
                 if (current.Count > 0)
                 {
                     var first = current.First();
-                    Console.WriteLine($"[DEBUG] SaveTable: пример записи: {first.Key} → [{string.Join(",", first.Value)}]");
+                    //Console.WriteLine($"[DEBUG] SaveTable: пример записи: {first.Key} → [{string.Join(",", first.Value)}]");
                 }
             }
             catch (Exception ex)

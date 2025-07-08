@@ -22,13 +22,13 @@ namespace ToolUse.Core.RL
         public override string ToString()
         {
             string result = $"ax={AgentX},ay={AgentY},ox={OtherX},oy={OtherY},see={CanSee}";
-            Console.WriteLine($"[DEBUG] State.ToString() => {result}");
+            //Console.WriteLine($"[DEBUG] State.ToString() => {result}");
             return result;
         }
 
         public static State FromString(string s)
         {
-            Console.WriteLine($"[DEBUG] State.FromString() => Parsing '{s}'");
+            //Console.WriteLine($"[DEBUG] State.FromString() => Parsing '{s}'");
             try
             {
                 var p = s.Split(',');
@@ -42,7 +42,7 @@ namespace ToolUse.Core.RL
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[ERROR] State.FromString() => Failed to parse '{s}': {ex.Message}");
+                //Console.WriteLine($"[ERROR] State.FromString() => Failed to parse '{s}': {ex.Message}");
                 throw;
             }
         }

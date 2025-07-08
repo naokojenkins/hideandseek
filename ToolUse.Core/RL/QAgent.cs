@@ -3,7 +3,6 @@ using System.Linq;
 using ToolUse.Core.RL;
 using ToolUse.Core.RaylibThreeD;
 
-
 namespace ToolUse.Core.RL
 {
     public class QAgent
@@ -23,7 +22,7 @@ namespace ToolUse.Core.RL
 
         public void UpdateAgent(Agent3D agent)
         {
-            Console.WriteLine("[DEBUG] QAgent: агент обновлён");
+            // Логирование отключено
         }
 
         public int ChooseAction(State state)
@@ -48,17 +47,6 @@ namespace ToolUse.Core.RL
 
             oldValues[action] = newValue;
             _table.Set(oldState, oldValues);
-
-            // Логируем
-            string oldKey = QTable.StateToString(oldState);
-            string newKey = QTable.StateToString(newState);
-
-            Console.WriteLine($"[DEBUG] QAgent.Learn() => s='{oldKey}', a={action}, r={reward:F2}, s2='{newKey}'");
-            Console.WriteLine($"[DEBUG] QTable[{GetTableId()}].GET('{oldKey}')");
-            Console.WriteLine($"[DEBUG] QTable[{GetTableId()}].GET('{newKey}')");
-            Console.WriteLine($"[DEBUG] QAgent.Learn() => best={newValues.Max():F2}, before={oldValue:F2}");
-            Console.WriteLine($"[DEBUG] QTable[{GetTableId()}].SET('{oldKey}', length={oldValues.Length})");
-            Console.WriteLine($"[DEBUG] QAgent.Learn() => После обновления: {newValue:F2}");
         }
 
         private int GetTableId()

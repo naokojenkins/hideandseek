@@ -14,7 +14,7 @@ public class QTable
     public QTable()
     {
         _id = ++_idCounter;
-        Console.WriteLine($"[DEBUG] QTable.ctor => создан новый экземпляр #{_id}");
+        //Console.WriteLine($"[DEBUG] QTable.ctor => создан новый экземпляр #{_id}");
     }
 
     public float[] Get(State state)
@@ -30,7 +30,7 @@ public class QTable
 
     public void LoadFrom(Dictionary<string, float[]> data)
     {
-        Console.WriteLine($"[DEBUG] QTable[{_id}].LoadFrom() => загружено {data.Count} записей");
+       // Console.WriteLine($"[DEBUG] QTable[{_id}].LoadFrom() => загружено {data.Count} записей");
         _table.Clear();
         foreach (var kvp in data)
         {
@@ -40,26 +40,26 @@ public class QTable
 
     public Dictionary<string, float[]> Export()
     {
-        Console.WriteLine(_table.Count == 0
-            ? $"[DEBUG] QTable[{_id}].Export => ПУСТАЯ ТАБЛИЦА"
-            : $"[DEBUG] QTable[{_id}].Export => Записей: {_table.Count}");
+       // Console.WriteLine(_table.Count == 0
+        //    ? $"[DEBUG] QTable[{_id}].Export => ПУСТАЯ ТАБЛИЦА"
+        //    : $"[DEBUG] QTable[{_id}].Export => Записей: {_table.Count}");
 
         return new Dictionary<string, float[]>(_table);
     }
 
     public void Save(string file)
     {
-        Console.WriteLine($"[DEBUG] QTable[{_id}].Save() => Сохраняется в {file}");
+        //Console.WriteLine($"[DEBUG] QTable[{_id}].Save() => Сохраняется в {file}");
         var json = JsonConvert.SerializeObject(_table, Formatting.None);
         File.WriteAllText(file, json);
     }
 
     public void Load(string file)
     {
-        Console.WriteLine($"[DEBUG] QTable[{_id}].Load() => Загружается из {file}");
+        //Console.WriteLine($"[DEBUG] QTable[{_id}].Load() => Загружается из {file}");
         if (!File.Exists(file))
         {
-            Console.WriteLine($"[DEBUG] QTable[{_id}].Load() => Файл не найден: {file}");
+            //Console.WriteLine($"[DEBUG] QTable[{_id}].Load() => Файл не найден: {file}");
             return;
         }
 
@@ -71,14 +71,14 @@ public class QTable
 
     public void Clear()
     {
-        Console.WriteLine($"[DEBUG] QTable[{_id}].Clear() => Таблица очищена");
+        //Console.WriteLine($"[DEBUG] QTable[{_id}].Clear() => Таблица очищена");
         _table.Clear();
     }
 
     public void Set(State state, float[] values)
     {
         string key = StateToString(state);
-        Console.WriteLine($"[DEBUG] QTable[{_id}].SET('{key}', length={values.Length})");
+        //Console.WriteLine($"[DEBUG] QTable[{_id}].SET('{key}', length={values.Length})");
         _table[key] = values;
     }
 
