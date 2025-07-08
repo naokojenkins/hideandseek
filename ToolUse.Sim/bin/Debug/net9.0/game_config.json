@@ -1,6 +1,6 @@
 
 {
-  "SessionDurationSeconds": 600.0,
+  "SessionDurationSeconds": 30.0,
   "ShowSessionTime": true,
   "TimeFormat": "{0:F1}s / {1:F0}s",
   "FramesForCatch": 60,
