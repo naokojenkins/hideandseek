@@ -1,11 +1,11 @@
 {
   "version": 2,
-  "dgSpecHash": "FsxjUo2I/vM=",
+  "dgSpecHash": "ucu/jNxhvvY=",
   "success": true,
-  "projectFilePath": "/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Core/ToolUse.Core.csproj",
+  "projectFilePath": "/Users/ag/RiderProjects/hideandseek/ToolUse.Core/ToolUse.Core.csproj",
   "expectedPackageFiles": [
-    "/Users/al.v.goncharov/.nuget/packages/newtonsoft.json/13.0.3/newtonsoft.json.13.0.3.nupkg.sha512",
-    "/Users/al.v.goncharov/.nuget/packages/raylib-cs/7.0.1/raylib-cs.7.0.1.nupkg.sha512"
+    "/Users/ag/.nuget/packages/newtonsoft.json/13.0.3/newtonsoft.json.13.0.3.nupkg.sha512",
+    "/Users/ag/.nuget/packages/raylib-cs/7.0.1/raylib-cs.7.0.1.nupkg.sha512"
   ],
   "logs": []
 }
