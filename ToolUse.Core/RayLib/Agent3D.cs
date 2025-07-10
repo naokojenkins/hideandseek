@@ -27,10 +27,14 @@ namespace ToolUse.Core.RaylibThreeD
         private HashSet<(int x, int z)> ExploredCells { get; } = new HashSet<(int, int)>();
         private HashSet<(int x, int z)> VisuallyExploredCells { get; } = new HashSet<(int, int)>();
 
-        // Для совместимости с 2D версией
-        public int X => (int)Math.Round(Position.X);
-        public int Y => (int)Math.Round(Position.Z); // В 3D Z соответствует Y из 2D
-        public float Angle => Rotation.Y;
+        // Вспомогательные методы для единообразного преобразования координат
+        private static int ToGridX(float x) => (int)Math.Floor(x);
+        private static int ToGridZ(float z) => (int)Math.Floor(z);
+        private static (int x, int z) ToGridCoords(Vector3 position) => (ToGridX(position.X), ToGridZ(position.Z));
+
+        // Свойства для получения координат сетки
+        public int GridX => ToGridX(Position.X);
+        public int GridZ => ToGridZ(Position.Z);
 
         public Agent3D(Vector3 position, bool isSeeker, float initialRotation = 0f)
         {
@@ -42,7 +46,7 @@ namespace ToolUse.Core.RaylibThreeD
             // Добавляем стартовую позицию как исследованную
             if (IsSeeker)
             {
-                ExploredCells.Add(((int)Math.Round(position.X), (int)Math.Round(position.Z)));
+                ExploredCells.Add(ToGridCoords(position));
             }
         }
 
@@ -69,7 +73,7 @@ namespace ToolUse.Core.RaylibThreeD
             VisuallyExploredCells.Clear();
             if (IsSeeker)
             {
-                ExploredCells.Add(((int)Math.Round(Position.X), (int)Math.Round(Position.Z)));
+                ExploredCells.Add(ToGridCoords(Position));
             }
         }
 
@@ -95,8 +99,8 @@ namespace ToolUse.Core.RaylibThreeD
                 for (float t = step; t <= VisionRadius; t += step)
                 {
                     Vector3 point = Position + direction * t;
-                    int gridX = (int)Math.Floor(point.X);
-                    int gridZ = (int)Math.Floor(point.Z);
+                    int gridX = ToGridX(point.X);
+                    int gridZ = ToGridZ(point.Z);
 
                     // Проверяем границы мира
                     if (point.X < 0 || point.X >= world.Size || point.Z < 0 || point.Z >= world.Size)
@@ -129,8 +133,8 @@ namespace ToolUse.Core.RaylibThreeD
 
             Vector3 newPosition = Position + forward;
 
-            // Проверяем коллизии со стенами
-            if (world.IsBlocked((int)newPosition.X, (int)newPosition.Z))
+            // Проверяем коллизии со стенами - используем единый метод
+            if (world.IsBlocked(ToGridX(newPosition.X), ToGridZ(newPosition.Z)))
             {
                 // Пробуем найти путь в обход препятствия
                 bool foundPath = false;
@@ -151,7 +155,8 @@ namespace ToolUse.Core.RaylibThreeD
 
                     Vector3 testPosition = Position + testDirection;
 
-                    if (!world.IsBlocked((int)testPosition.X, (int)testPosition.Z))
+                    // Используем единый метод для проверки коллизий
+                    if (!world.IsBlocked(ToGridX(testPosition.X), ToGridZ(testPosition.Z)))
                     {
                         // Нашли свободный путь - немного поворачиваем в этом направлении
                         Rotate(Math.Sign(angleOffset) * 10);
@@ -190,12 +195,11 @@ namespace ToolUse.Core.RaylibThreeD
             // Добавляем новую клетку как исследованную для seeker'а (физическое исследование)
             if (IsSeeker)
             {
-                int gridX = (int)Math.Round(Position.X);
-                int gridZ = (int)Math.Round(Position.Z);
-                ExploredCells.Add((gridX, gridZ));
+                var gridCoords = ToGridCoords(Position);
+                ExploredCells.Add(gridCoords);
                 
                 // Удаляем из визуально исследованных, если была там (физическое исследование приоритетнее)
-                VisuallyExploredCells.Remove((gridX, gridZ));
+                VisuallyExploredCells.Remove(gridCoords);
             }
 
             return true;
@@ -308,8 +312,9 @@ namespace ToolUse.Core.RaylibThreeD
                     return GetBoundaryIntersection(start, direction, lastValidPos, currentPos, world);
                 }
                 
-                int gridX = (int)Math.Floor(currentPos.X);
-                int gridZ = (int)Math.Floor(currentPos.Z);
+                // Используем единый метод для преобразования координат
+                int gridX = ToGridX(currentPos.X);
+                int gridZ = ToGridZ(currentPos.Z);
                 
                 // Проверяем коллизии с стенами
                 if (world.IsBlocked(gridX, gridZ))
@@ -357,8 +362,9 @@ namespace ToolUse.Core.RaylibThreeD
             {
                 Vector3 mid = (low + high) * 0.5f;
                 
-                int gridX = (int)Math.Floor(mid.X);
-                int gridZ = (int)Math.Floor(mid.Z);
+                // Используем единый метод для преобразования координат
+                int gridX = ToGridX(mid.X);
+                int gridZ = ToGridZ(mid.Z);
                 
                 if (gridX >= 0 && gridX < world.Size && gridZ >= 0 && gridZ < world.Size && 
                     !world.IsBlocked(gridX, gridZ))

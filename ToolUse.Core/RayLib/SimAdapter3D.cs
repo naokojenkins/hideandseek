@@ -19,10 +19,10 @@ namespace ToolUse.Core.RayLib
         public State GetSeekerState()
         {
             return new State(
-                _seeker.X,
-                _seeker.Y,
-                _hider.X,
-                _hider.Y,
+                _seeker.GridX,
+                _seeker.GridZ,
+                _hider.GridX,
+                _hider.GridZ,
                 IsVisible()
             );
         }
@@ -30,10 +30,10 @@ namespace ToolUse.Core.RayLib
         public State GetHiderState()
         {
             return new State(
-                _hider.X,
-                _hider.Y,
-                _seeker.X,
-                _seeker.Y,
+                _hider.GridX,
+                _hider.GridZ,
+                _seeker.GridX,
+                _seeker.GridZ,
                 IsVisible()
             );
         }
