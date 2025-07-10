@@ -30,6 +30,13 @@ namespace ToolUse.Core.RaylibThreeD
             WallHeight = config.World.WallHeight;
             RoomSize = config.World.RoomSize;
             
+            // Если размер комнаты слишком большой для поля, уменьшим его
+            if (RoomSize >= Size - 2)
+            {
+                RoomSize = Math.Max(4, Size / 4);
+                Console.WriteLine($"[WARNING] RoomSize слишком большой для поля {Size}x{Size}, установлен в {RoomSize}");
+            }
+            
             GenerateStaticGrid();
         }
 
@@ -41,59 +48,12 @@ namespace ToolUse.Core.RaylibThreeD
 
         public void GenerateStaticGrid()
         {
-            // Используем ту же логику генерации, что и в 2D версии
+            // Инициализируем все клетки как пустые
             for (int x = 0; x < Size; x++)
             {
                 for (int z = 0; z < Size; z++)
                 {
                     Grid[x, z] = TileType.Empty;
-                }
-            }
-
-            // Используем параметр RoomSize из конфигурации
-            int roomsInRow = Size / RoomSize;
-
-            // Горизонтальные стены
-            for (int roomY = 1; roomY < roomsInRow; roomY++)
-            {
-                int z = roomY * RoomSize;
-                for (int x = 0; x < Size; x++)
-                {
-                    if (x > 0 && x < Size - 1)
-                        Grid[x, z] = TileType.Wall;
-                }
-
-                // Проходы
-                for (int i = 0; i < roomsInRow; i++)
-                {
-                    int gapX = i * RoomSize + _rng.Next(1, RoomSize - 1);
-                    if (gapX >= Size - 1) gapX = Size - 2;
-
-                    Grid[gapX, z] = TileType.Empty;
-                    if (gapX + 1 < Size - 1) Grid[gapX + 1, z] = TileType.Empty;
-                    if (gapX - 1 > 0) Grid[gapX - 1, z] = TileType.Empty;
-                }
-            }
-
-            // Вертикальные стены
-            for (int roomX = 1; roomX < roomsInRow; roomX++)
-            {
-                int x = roomX * RoomSize;
-                for (int z = 0; z < Size; z++)
-                {
-                    if (z > 0 && z < Size - 1)
-                        Grid[x, z] = TileType.Wall;
-                }
-
-                // Проходы
-                for (int i = 0; i < roomsInRow; i++)
-                {
-                    int gapZ = i * RoomSize + _rng.Next(1, RoomSize - 1);
-                    if (gapZ >= Size - 1) gapZ = Size - 2;
-
-                    Grid[x, gapZ] = TileType.Empty;
-                    if (gapZ + 1 < Size - 1) Grid[x, gapZ + 1] = TileType.Empty;
-                    if (gapZ - 1 > 0) Grid[x, gapZ - 1] = TileType.Empty;
                 }
             }
 
@@ -109,6 +69,82 @@ namespace ToolUse.Core.RaylibThreeD
                 Grid[0, z] = TileType.Wall;
                 Grid[Size - 1, z] = TileType.Wall;
             }
+
+            // Только если поле достаточно большое, создаем внутренние стены
+            if (Size > RoomSize * 2)
+            {
+                int roomsInRow = Size / RoomSize;
+
+                // Горизонтальные стены
+                for (int roomY = 1; roomY < roomsInRow; roomY++)
+                {
+                    int z = roomY * RoomSize;
+                    if (z >= Size - 1) break;
+                    
+                    for (int x = 1; x < Size - 1; x++)
+                    {
+                        Grid[x, z] = TileType.Wall;
+                    }
+
+                    // Проходы
+                    for (int i = 0; i < roomsInRow && i * RoomSize < Size; i++)
+                    {
+                        int gapStart = i * RoomSize + 1;
+                        int gapEnd = Math.Min(gapStart + RoomSize - 2, Size - 2);
+                        
+                        if (gapStart < gapEnd)
+                        {
+                            int gapX = _rng.Next(gapStart, gapEnd);
+                            Grid[gapX, z] = TileType.Empty;
+                            
+                            // Расширяем проход
+                            if (gapX + 1 < Size - 1) Grid[gapX + 1, z] = TileType.Empty;
+                            if (gapX - 1 > 0) Grid[gapX - 1, z] = TileType.Empty;
+                        }
+                    }
+                }
+
+                // Вертикальные стены
+                for (int roomX = 1; roomX < roomsInRow; roomX++)
+                {
+                    int x = roomX * RoomSize;
+                    if (x >= Size - 1) break;
+                    
+                    for (int z = 1; z < Size - 1; z++)
+                    {
+                        Grid[x, z] = TileType.Wall;
+                    }
+
+                    // Проходы
+                    for (int i = 0; i < roomsInRow && i * RoomSize < Size; i++)
+                    {
+                        int gapStart = i * RoomSize + 1;
+                        int gapEnd = Math.Min(gapStart + RoomSize - 2, Size - 2);
+                        
+                        if (gapStart < gapEnd)
+                        {
+                            int gapZ = _rng.Next(gapStart, gapEnd);
+                            Grid[x, gapZ] = TileType.Empty;
+                            
+                            // Расширяем проход
+                            if (gapZ + 1 < Size - 1) Grid[x, gapZ + 1] = TileType.Empty;
+                            if (gapZ - 1 > 0) Grid[x, gapZ - 1] = TileType.Empty;
+                        }
+                    }
+                }
+            }
+            
+            // Подсчитываем свободные клетки для отладки
+            int emptyCount = 0;
+            for (int x = 0; x < Size; x++)
+            {
+                for (int z = 0; z < Size; z++)
+                {
+                    if (Grid[x, z] == TileType.Empty)
+                        emptyCount++;
+                }
+            }
+            Console.WriteLine($"[DEBUG] Мир {Size}x{Size} сгенерирован: {emptyCount} свободных клеток, RoomSize={RoomSize}");
         }
 
         public void Draw(bool showShadows = true)
@@ -188,38 +224,67 @@ namespace ToolUse.Core.RaylibThreeD
 
         public Vector3 GetRandomEmptyPosition(float heightOffset = 0f)
         {
-            int maxAttempts = 1000; // Увеличиваем количество попыток
-            int attempts = 0;
-
-            while (attempts < maxAttempts)
-            {
-                int x = _rng.Next(1, Size - 1);
-                int z = _rng.Next(1, Size - 1);
-
-                if (Grid[x, z] == TileType.Empty)
-                {
-                    return new Vector3(x + 0.5f, heightOffset, z + 0.5f);
-                }
-
-                attempts++;
-            }
-
-            // Если не нашли свободное место, ищем первое доступное
+            // Сначала собираем все свободные позиции
+            var emptyPositions = new List<Vector2>();
+            
             for (int x = 1; x < Size - 1; x++)
             {
                 for (int z = 1; z < Size - 1; z++)
                 {
                     if (Grid[x, z] == TileType.Empty)
                     {
-                        Console.WriteLine($"[WARNING] Fallback position used: ({x}, {z})");
-                        return new Vector3(x + 0.5f, heightOffset, z + 0.5f);
+                        emptyPositions.Add(new Vector2(x, z));
                     }
                 }
             }
 
-            // Критическая ошибка - нет свободных мест
-            Console.WriteLine("[ERROR] No empty positions found in world!");
-            return new Vector3(Size / 2f, heightOffset, Size / 2f);
+            if (emptyPositions.Count == 0)
+            {
+                Console.WriteLine("[ERROR] No empty positions found in world!");
+                // Возвращаем центр поля как последнюю попытку
+                return new Vector3(Size / 2f, heightOffset, Size / 2f);
+            }
+
+            // Выбираем случайную позицию из списка
+            var randomPos = emptyPositions[_rng.Next(emptyPositions.Count)];
+            var result = new Vector3(randomPos.X + 0.5f, heightOffset, randomPos.Y + 0.5f);
+            
+            Console.WriteLine($"[DEBUG] Найдена свободная позиция: ({randomPos.X}, {randomPos.Y}) из {emptyPositions.Count} доступных");
+            return result;
+        }
+
+        public Vector3 GetRandomEmptyPositionFarFrom(Vector3 otherPosition, float minDistance, float heightOffset = 0f)
+        {
+            // Сначала собираем все свободные позиции
+            var emptyPositions = new List<Vector2>();
+            
+            for (int x = 1; x < Size - 1; x++)
+            {
+                for (int z = 1; z < Size - 1; z++)
+                {
+                    if (Grid[x, z] == TileType.Empty)
+                    {
+                        var pos = new Vector3(x + 0.5f, heightOffset, z + 0.5f);
+                        if (Vector3.Distance(pos, otherPosition) >= minDistance)
+                        {
+                            emptyPositions.Add(new Vector2(x, z));
+                        }
+                    }
+                }
+            }
+
+            if (emptyPositions.Count == 0)
+            {
+                Console.WriteLine($"[WARNING] No empty positions found far enough ({minDistance}) from other position, using any empty position");
+                return GetRandomEmptyPosition(heightOffset);
+            }
+
+            // Выбираем случайную позицию из списка
+            var randomPos = emptyPositions[_rng.Next(emptyPositions.Count)];
+            var result = new Vector3(randomPos.X + 0.5f, heightOffset, randomPos.Y + 0.5f);
+            
+            Console.WriteLine($"[DEBUG] Найдена свободная позиция далеко от другой: ({randomPos.X}, {randomPos.Y}) из {emptyPositions.Count} доступных");
+            return result;
         }
 
         public bool HasLineOfSight(Vector3 from, Vector3 to)

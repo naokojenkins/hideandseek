@@ -154,7 +154,7 @@ namespace ToolUse.Sim
             Console.WriteLine($"Программа завершена. Всего сессий за историю: {Simulation3D.TotalSessions}");
         }
 
-        static void Reset()
+                static void Reset()
         {
             if (isExiting) return;
 
@@ -168,11 +168,13 @@ namespace ToolUse.Sim
                 world.GenerateStaticGrid();
 
                 Vector3 seekerPos = world.GetRandomEmptyPosition(0f);
-                Vector3 hiderPos;
-                do
-                {
-                    hiderPos = world.GetRandomEmptyPosition(0f);
-                } while (Vector3.Distance(seekerPos, hiderPos) < 10f);
+                Console.WriteLine($"[DEBUG] Seeker позиция: ({seekerPos.X:F1}, {seekerPos.Y:F1}, {seekerPos.Z:F1})");
+                
+                Vector3 hiderPos = world.GetRandomEmptyPositionFarFrom(seekerPos, 5f, 0f);
+                Console.WriteLine($"[DEBUG] Hider позиция: ({hiderPos.X:F1}, {hiderPos.Y:F1}, {hiderPos.Z:F1})");
+                
+                float actualDistance = Vector3.Distance(seekerPos, hiderPos);
+                Console.WriteLine($"[DEBUG] Расстояние между агентами: {actualDistance:F1}");
 
                 var newSeeker = new Agent3D(seekerPos, true, Raylib.GetRandomValue(0, 359));
                 var newHider = new Agent3D(hiderPos, false, Raylib.GetRandomValue(0, 359));
