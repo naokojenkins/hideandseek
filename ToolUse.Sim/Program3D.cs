@@ -1,4 +1,3 @@
-
 using System;
 using System.IO;
 using System.Numerics;
@@ -14,7 +13,8 @@ namespace ToolUse.Sim
 {
     class Program3D
     {
-        const int gridSize = 40;
+        static GameConfig config;
+        static int gridSize;
         const int screenW = 1024;
         const int screenH = 768;
         const int FPS = 60;
@@ -40,7 +40,7 @@ namespace ToolUse.Sim
         static Agent3D seeker = null!;
         static Agent3D hider = null!;
 
-        static int session = 0;
+        static int session = 0; // Счетчик сессий текущего запуска
         static DateTime lastSaveTime = DateTime.Now;
         static bool isExiting = false;
 
@@ -49,8 +49,13 @@ namespace ToolUse.Sim
 
         public static void Run()
         {
-            var cfg = GameConfig.Load();
-            Console.WriteLine($"[DEBUG] SessionDurationSeconds = {cfg.SessionDurationSeconds}");
+            // Загружаем конфигурацию
+            config = GameConfig.Load();
+            Console.WriteLine($"[DEBUG] Loaded 3D config: GridSize={config.World.GridSize3D}, CellSize={config.World.CellSize3D}");
+            Console.WriteLine($"[DEBUG] SessionDurationSeconds = {config.SessionDurationSeconds}");
+
+            // Инициализируем размер из конфигурации
+            gridSize = config.World.GridSize3D;
 
             Directory.CreateDirectory(TablesDir);
 
@@ -59,6 +64,7 @@ namespace ToolUse.Sim
             LoadTable(seekerFile, seekerQ);
             LoadTable(hiderFile, hiderQ);
             Console.WriteLine($"Загружено: Seeker={seekerQ.Export().Count}, Hider={hiderQ.Export().Count} записей");
+            Console.WriteLine($"Общий счетчик сессий: {Simulation3D.TotalSessions}");
 
             // Инициализируем Raylib
             Raylib.InitWindow(screenW, screenH, "ToolUse – 3D multi-agent");
@@ -77,12 +83,10 @@ namespace ToolUse.Sim
                         simulation?.HandleInput();
                         simulation?.Update(1f / FPS);
 
-                        // Периодическое сохранение в фоне
-                        //PeriodicSave();
-
                         Raylib.BeginDrawing();
                         Raylib.ClearBackground(Color.RayWhite);
                         simulation?.Draw();
+                        
                         Raylib.EndDrawing();
                     }
                     catch (Exception ex)
@@ -122,6 +126,9 @@ namespace ToolUse.Sim
                 // Финальное сохранение
                 Console.WriteLine("Финальное сохранение...");
                 SaveBothTablesSync();
+                
+                // Сохраняем общий счетчик сессий из Simulation3D
+                Simulation3D.ForceSaveTotalSessions();
             }
             catch (Exception ex)
             {
@@ -141,7 +148,7 @@ namespace ToolUse.Sim
                 Console.WriteLine($"[ERROR] Ошибка при закрытии Raylib: {ex.Message}");
             }
 
-            Console.WriteLine("Программа завершена.");
+            Console.WriteLine($"Программа завершена. Всего сессий за историю: {Simulation3D.TotalSessions}");
         }
 
         static void Reset()
@@ -149,10 +156,12 @@ namespace ToolUse.Sim
             if (isExiting) return;
 
             session++;
-            Console.WriteLine($"[DEBUG] Сессия #{session} начата");
+            
+            Console.WriteLine($"[DEBUG] Сессия #{session} (общий #{Simulation3D.TotalSessions + 1}) начата");
 
             try
             {
+                // Создаем мир с размером из конфигурации
                 var world = new World3D(gridSize);
                 world.GenerateStaticGrid();
 
@@ -166,6 +175,7 @@ namespace ToolUse.Sim
                 var newSeeker = new Agent3D(seekerPos, true, Raylib.GetRandomValue(0, 359));
                 var newHider = new Agent3D(hiderPos, false, Raylib.GetRandomValue(0, 359));
 
+                
                 if (simulation == null)
                 {
                     simulation = new Simulation3D(gridSize, newSeeker, newHider, seekerQ, hiderQ);
@@ -186,7 +196,7 @@ namespace ToolUse.Sim
                 {
                     if (isExiting) return;
 
-                    Console.WriteLine($"[DEBUG] Сессия #{session} завершена");
+                    Console.WriteLine($"[DEBUG] Сессия #{session} (общий #{Simulation3D.TotalSessions}) завершена");
                     
                     // Сохраняем только каждую N-ю сессию
                     if (session % SAVE_INTERVAL == 0)
@@ -214,16 +224,6 @@ namespace ToolUse.Sim
             catch (Exception ex)
             {
                 Console.WriteLine($"[ERROR] Ошибка в Reset(): {ex.Message}");
-            }
-        }
-
-        static void PeriodicSave()
-        {
-            // Сохранение каждые 5 минут
-            if (DateTime.Now - lastSaveTime > TimeSpan.FromMinutes(5) && !isExiting)
-            {
-                SaveBothTablesAsync();
-                lastSaveTime = DateTime.Now;
             }
         }
 

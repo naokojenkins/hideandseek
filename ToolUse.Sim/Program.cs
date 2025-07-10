@@ -7,20 +7,21 @@ using Newtonsoft.Json;
 using Raylib_cs;
 using ToolUse.Core;
 using ToolUse.Core.RL;
+using ToolUse.Core.Config;
 using ToolUse.Sim;
 using RColor = Raylib_cs.Color;
 
 class Program
 {
-    const int cellSize = 16, gridSize = 40;
-    const int fieldSize = cellSize * gridSize;
+    static GameConfig config;
+    static int cellSize, gridSize;
+    static int fieldSize;
+    static int screenW, screenH;
     const int padY = 0;
-    const int screenW = fieldSize;
-    const int screenH = fieldSize + padY + 40;
 
     const float sessSec = 60f;
     const int FPS = 20;
-    const int maxFrames = (int)(sessSec * FPS);
+    static int maxFrames;
 
     static JsonSerializerSettings jsonSettings = new()
     {
@@ -32,7 +33,7 @@ class Program
     static QAgent seekerRL = new(seekerQ, 0.1f);
     static QAgent hiderRL = new(hiderQ, 0.1f);
 
-    static World world = new(gridSize);
+    static World world;
     static Agent seeker = null!; // Инициализация в Reset()
     static Agent hider = null!;  // Инициализация в Reset()
 
@@ -61,6 +62,21 @@ class Program
         }
 
         // Default to 2D simulation
+        // Загружаем конфигурацию
+        config = GameConfig.Load();
+        Console.WriteLine($"[DEBUG] Loaded 2D config: GridSize={config.World.GridSize2D}, CellSize={config.World.CellSize2D}");
+
+        // Инициализируем размеры из конфигурации
+        gridSize = config.World.GridSize2D;
+        cellSize = config.World.CellSize2D;
+        fieldSize = cellSize * gridSize;
+        screenW = fieldSize;
+        screenH = fieldSize + padY + 40;
+        maxFrames = (int)(sessSec * FPS);
+
+        // Создаем мир с размером из конфигурации
+        world = new World(gridSize);
+
         LoadTable("qtable_seeker.json", seekerQ);
         LoadTable("qtable_hider.json", hiderQ);
 
@@ -95,20 +111,20 @@ class Program
 
             float rS = 0, rH = 0;
 
-            // Награда за исследование новых клеток (меньше чем за обнаружение hider'а)
+            // Награда за исследование новых клеток (используем значения из конфигурации)
             if (newCellsExplored > 0)
             {
-                float explorationBonus = newCellsExplored * 0.1f; // Увеличиваем награду за каждую новую клетку
+                float explorationBonus = newCellsExplored * config.Seeker.ExplorationBonusPerCell;
                 rS += explorationBonus;
 
                 // Добавляем к итоговому счету seeker'а
-                sumSeeker += explorationBonus * 0.2f; // Добавляем часть бонуса к общему счету
+                sumSeeker += explorationBonus * config.Seeker.ExplorationScoreMultiplier;
             }
 
             if (visible)
             {
-                rS += 0.1f;
-                rH -= 0.1f;
+                rS += config.Seeker.RewardWhenHiderVisible;
+                rH += config.Hider.RewardWhenVisible;
                 if (++caughtFrames >= FPS * 10)
                 {
                     rS += 1;
@@ -118,8 +134,8 @@ class Program
             }
             else
             {
-                rS -= 0.02f;
-                rH += 0.1f;
+                rS += config.Seeker.RewardWhenHiderHidden;
+                rH += config.Hider.RewardWhenHidden;
                 caughtFrames = 0;
             }
 
@@ -242,7 +258,7 @@ class Program
     {
         Raylib.DrawRectangle(0, 0, fieldSize, 12, RColor.White);
         int x = 10, y = 2, fs = 8;
-        Raylib.DrawText($"Session: {session}  Time: {timer:F0}s", x, y, fs, RColor.Black);
+        Raylib.DrawText($"Session: {session}  Time: {timer:F0}s  Grid: {gridSize}x{gridSize}", x, y, fs, RColor.Black);
 
         Raylib.DrawText($"Seeker: {sumSeeker:F1} | Explored: {seeker.GetExploredCount()}", x + 20, y + 645, fs, RColor.Blue);
         Raylib.DrawLine(20, 659, fieldSize, 659, RColor.Black);

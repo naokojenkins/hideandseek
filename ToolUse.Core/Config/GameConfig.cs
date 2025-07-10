@@ -1,3 +1,4 @@
+
 using System;
 using System.IO;
 using Newtonsoft.Json;
@@ -14,6 +15,9 @@ namespace ToolUse.Core.Config
         public bool ShowSessionTime { get; set; } = true;
         public string TimeFormat { get; set; } = "{0:F1}s / {1:F0}s";
         public int FramesForCatch { get; set; } = 60; // Сколько кадров должен быть виден hider, чтобы считаться пойманным
+        
+        // Параметры размера игрового поля
+        public WorldConfig World { get; set; } = new WorldConfig();
         
         // Параметры для Seeker
         public SeekerConfig Seeker { get; set; } = new SeekerConfig();
@@ -68,6 +72,34 @@ namespace ToolUse.Core.Config
                 Console.WriteLine($"Ошибка сохранения конфигурации: {ex.Message}");
             }
         }
+    }
+    
+    /// <summary>
+    /// Параметры размера игрового поля для 2D и 3D версий
+    /// </summary>
+    public class WorldConfig
+    {
+        // Размер поля для 2D версии
+        public int GridSize2D { get; set; } = 40;
+        
+        // Размер поля для 3D версии
+        public int GridSize3D { get; set; } = 40;
+        
+        // Размер клетки для 2D версии (в пикселях)
+        public int CellSize2D { get; set; } = 16;
+        
+        // Размер клетки для 3D версии (в единицах мира)
+        public float CellSize3D { get; set; } = 1.0f;
+        
+        // Высота стен в 3D версии
+        public float WallHeight3D { get; set; } = 2.0f;
+        
+        // Параметры генерации комнат
+        public int RoomSize { get; set; } = 8; // Размер комнаты в клетках
+        
+        // Настройки отображения
+        public bool ShowGrid { get; set; } = true;
+        public bool ShowShadows { get; set; } = true;
     }
     
     /// <summary>

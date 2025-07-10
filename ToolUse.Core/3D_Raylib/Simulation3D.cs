@@ -1,5 +1,8 @@
 using System;
+using System.IO;
 using System.Numerics;
+using System.Reflection;
+using Newtonsoft.Json;
 using Raylib_cs;
 using ToolUse.Core.RL;
 using ToolUse.Core.Config;
@@ -34,6 +37,7 @@ namespace ToolUse.Core.RaylibThreeD
         private bool _showGrid = true;
 
         public int Session { get; private set; } = 1;
+        public static int TotalSessions { get; private set; } = 0; // Общий счетчик сессий
         public float Timer { get; private set; } = 0f;
         public float SeekerScore { get; private set; } = 0f;
         public float HiderScore { get; private set; } = 0f;
@@ -43,6 +47,18 @@ namespace ToolUse.Core.RaylibThreeD
         private float _lastVisibilityCheck = 0f;
         private const float _visibilityCheckInterval = 0.05f;
 
+        // Файл для хранения общего счетчика сессий
+        private static readonly string SessionCounterFile = Path.Combine(
+            Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".",
+            "qtables",
+            "total_sessions_3d.json");
+
+        private static readonly JsonSerializerSettings JsonSettings = new()
+        {
+            TypeNameHandling = TypeNameHandling.None,
+            MetadataPropertyHandling = MetadataPropertyHandling.Ignore
+        };
+
         public bool IsHiderVisible
         {
             get => _isHiderVisible;
@@ -51,6 +67,12 @@ namespace ToolUse.Core.RaylibThreeD
 
         private bool _isHiderCaught = false;
         private int _caughtFrames = 0;
+
+        static Simulation3D()
+        {
+            // Загружаем общий счетчик сессий при первом обращении к классу
+            LoadTotalSessions();
+        }
 
         public Simulation3D(
             int worldSize,
@@ -64,8 +86,34 @@ namespace ToolUse.Core.RaylibThreeD
             World = new World3D(worldSize);
             World.GenerateStaticGrid();
 
-            Seeker = seeker ?? new Agent3D(World.GetRandomEmptyPosition(1.0f), true, Raylib.GetRandomValue(0, 359));
-            Hider = hider ?? GenerateHiderPosition(Seeker.Position);
+            // Улучшенная генерация seeker
+            if (seeker == null)
+            {
+                Vector3 seekerPos = World.GetRandomEmptyPosition(1.0f);
+                // Дополнительная проверка для seeker
+                int seekerX = (int)Math.Floor(seekerPos.X);
+                int seekerZ = (int)Math.Floor(seekerPos.Z);
+                if (World.IsBlocked(seekerX, seekerZ))
+                {
+                    Console.WriteLine("[WARNING] Seeker generated in blocked position, finding new position...");
+                    seekerPos = World.GetRandomEmptyPosition(1.0f);
+                }
+                Seeker = new Agent3D(seekerPos, true, Raylib.GetRandomValue(0, 359));
+            }
+            else
+            {
+                Seeker = seeker;
+            }
+
+            // Улучшенная генерация hider
+            if (hider == null)
+            {
+                Hider = GenerateHiderPosition(Seeker.Position);
+            }
+            else
+            {
+                Hider = hider;
+            }
 
             _seekerAgent = new QAgent(seekerQ, 0.1f, 0.1f, 0.9f);
             _hiderAgent = new QAgent(hiderQ, 0.1f, 0.1f, 0.9f);
@@ -76,13 +124,31 @@ namespace ToolUse.Core.RaylibThreeD
 
         private Agent3D GenerateHiderPosition(Vector3 seekerPos)
         {
-            Vector3 hiderPos;
-            do
+            int maxAttempts = 100;
+            int attempts = 0;
+    
+            while (attempts < maxAttempts)
             {
-                hiderPos = World.GetRandomEmptyPosition(1.0f);
-            } while (Vector3.Distance(seekerPos, hiderPos) < 15f);
-
-            return new Agent3D(hiderPos, false, Raylib.GetRandomValue(0, 359));
+                Vector3 hiderPos = World.GetRandomEmptyPosition(1.0f);
+        
+                // Проверяем, что позиция действительно свободна
+                int x = (int)Math.Floor(hiderPos.X);
+                int z = (int)Math.Floor(hiderPos.Z);
+        
+                if (World.IsInside(x, z) && !World.IsBlocked(x, z) && 
+                    Vector3.Distance(seekerPos, hiderPos) >= 15f)
+                {
+                    return new Agent3D(hiderPos, false, Raylib.GetRandomValue(0, 359));
+                }
+        
+                attempts++;
+            }
+    
+            // Если не получилось найти позицию с нужным расстоянием, 
+            // просто берем любую свободную позицию
+            Console.WriteLine("[WARNING] Could not find hider position with required distance, using any empty position");
+            Vector3 fallbackPos = World.GetRandomEmptyPosition(1.0f);
+            return new Agent3D(fallbackPos, false, Raylib.GetRandomValue(0, 359));
         }
 
         private void InitializeCamera()
@@ -234,6 +300,8 @@ namespace ToolUse.Core.RaylibThreeD
         public void Restart()
         {
             Session++;
+            TotalSessions++; // Увеличиваем общий счетчик
+    
             Timer = 0f;
             SeekerScore = 0f;
             HiderScore = 0f;
@@ -242,22 +310,69 @@ namespace ToolUse.Core.RaylibThreeD
             _caughtFrames = 0;
 
             World.GenerateStaticGrid();
-            Seeker.Position = World.GetRandomEmptyPosition(1.0f);
+    
+            // Улучшенная генерация позиций агентов
+            Vector3 seekerPos = World.GetRandomEmptyPosition(1.0f);
+    
+            // Дополнительная проверка для seeker
+            int seekerX = (int)Math.Floor(seekerPos.X);
+            int seekerZ = (int)Math.Floor(seekerPos.Z);
+            if (World.IsBlocked(seekerX, seekerZ))
+            {
+                Console.WriteLine("[WARNING] Seeker generated in blocked position, finding new position...");
+                seekerPos = World.GetRandomEmptyPosition(1.0f);
+            }
+    
+            Seeker.Position = seekerPos;
             Seeker.Direction = Raylib.GetRandomValue(0, 359);
 
-            Vector3 hiderPosition;
-            do
+            // Улучшенная генерация позиции hider
+            Vector3 hiderPosition = World.GetRandomEmptyPosition(1.0f);
+            int attempts = 0;
+            while (attempts < 50 && Vector3.Distance(seekerPos, hiderPosition) < 15f)
             {
                 hiderPosition = World.GetRandomEmptyPosition(1.0f);
-            } while (Vector3.Distance(Seeker.Position, hiderPosition) < 15f);
+                attempts++;
+            }
+    
+            // Дополнительная проверка для hider
+            int hiderX = (int)Math.Floor(hiderPosition.X);
+            int hiderZ = (int)Math.Floor(hiderPosition.Z);
+            if (World.IsBlocked(hiderX, hiderZ))
+            {
+                Console.WriteLine("[WARNING] Hider generated in blocked position, finding new position...");
+                hiderPosition = World.GetRandomEmptyPosition(1.0f);
+            }
 
             Hider.Position = hiderPosition;
             Hider.Direction = Raylib.GetRandomValue(0, 359);
 
             Seeker.ResetExploration();
 
+            // Сохраняем общий счетчик каждые 10 сессий
+            if (TotalSessions % 10 == 0)
+            {
+                SaveTotalSessions();
+            }
+
             // ✅ Вызываем событие завершения сессии
             OnSessionCompleted?.Invoke();
+        }
+
+        // Добавляем метод Reset для совместимости с Program3D
+        public void Reset(Agent3D newSeeker, Agent3D newHider)
+        {
+            Seeker = newSeeker;
+            Hider = newHider;
+            
+            Timer = 0f;
+            SeekerScore = 0f;
+            HiderScore = 0f;
+            ExplorationScore = 0f;
+            _isHiderCaught = false;
+            _caughtFrames = 0;
+
+            Seeker.ResetExploration();
         }
 
         public void Draw()
@@ -282,10 +397,11 @@ namespace ToolUse.Core.RaylibThreeD
 
         private void DrawHUD()
         {
-            Raylib.DrawRectangle(5, 5, 320, 320, Raylib.ColorAlpha(Color.Black, 0.7f));
+            Raylib.DrawRectangle(5, 5, 320, 340, Raylib.ColorAlpha(Color.Black, 0.7f));
 
             int y = 10;
-            Raylib.DrawText($"Session: {Session}", 10, y, 20, Color.White);
+            // Показываем оба счетчика сессий
+            Raylib.DrawText($"Session: {Session} / Total: {TotalSessions}", 10, y, 20, Color.White);
             y += 25;
 
             Color timeColor = Timer > (Config.SessionDurationSeconds * 0.9f) ? Color.Red : Color.White;
@@ -362,23 +478,69 @@ namespace ToolUse.Core.RaylibThreeD
             if (Raylib.IsKeyPressed(KeyboardKey.R)) Restart();
         }
 
-        public void Reset(Agent3D seeker, Agent3D hider)
+        // Методы для работы с общим счетчиком сессий
+        private static void LoadTotalSessions()
         {
-            this.Seeker = seeker;
-            this.Hider = hider;
+            try
+            {
+                // Создаем директорию, если её нет
+                string directory = Path.GetDirectoryName(SessionCounterFile);
+                if (!Directory.Exists(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
 
-            Timer = 0f;
-            SeekerScore = 0f;
-            HiderScore = 0f;
-            ExplorationScore = 0f;
-            _isHiderCaught = false;
-            _caughtFrames = 0;
+                if (!File.Exists(SessionCounterFile))
+                {
+                    TotalSessions = 0;
+                    Console.WriteLine("[DEBUG] Файл общего счетчика сессий не найден, начинаем с 0");
+                    return;
+                }
 
-            _adapter.GetType().GetField("_seeker", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.SetValue(_adapter, seeker);
-            _adapter.GetType().GetField("_hider", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.SetValue(_adapter, hider);
+                string json = File.ReadAllText(SessionCounterFile);
+                var data = JsonConvert.DeserializeObject<SessionCounterData>(json, JsonSettings);
+                TotalSessions = data?.TotalSessions ?? 0;
+                Console.WriteLine($"[DEBUG] Загружен общий счетчик сессий: {TotalSessions}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] Ошибка загрузки общего счетчика сессий: {ex.Message}");
+                TotalSessions = 0;
+            }
+        }
 
-            World.GenerateStaticGrid();
-            Seeker.ResetExploration();
+        private static void SaveTotalSessions()
+        {
+            try
+            {
+                var data = new SessionCounterData
+                {
+                    TotalSessions = TotalSessions,
+                    LastUpdate = DateTime.Now
+                };
+
+                string json = JsonConvert.SerializeObject(data, Formatting.Indented, JsonSettings);
+                File.WriteAllText(SessionCounterFile, json);
+                
+                Console.WriteLine($"[DEBUG] Сохранен общий счетчик сессий: {TotalSessions}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] Ошибка сохранения общего счетчика сессий: {ex.Message}");
+            }
+        }
+
+        // Метод для принудительного сохранения счетчика (например, при завершении программы)
+        public static void ForceSaveTotalSessions()
+        {
+            SaveTotalSessions();
+        }
+
+        // Класс для хранения данных счетчика сессий
+        private class SessionCounterData
+        {
+            public int TotalSessions { get; set; }
+            public DateTime LastUpdate { get; set; }
         }
     }
 }

@@ -192,11 +192,11 @@ namespace ToolUse.Core.RaylibThreeD
 
             // Отладочная информация
             //Console.WriteLine($"Distance: {distance:F2}, AngleToOther: {angleToOther:F2}, Direction: {currentDirection:F2}, AngleDiff: {angleDiff:F2}, Threshold: {VisionAngle/2f:F2}");
-            
+    
             if (angleDiff > VisionAngle / 2f) return false;
 
-            // Проверяем линию видимости
-            return world.HasLineOfSight(this, other);
+            // Проверяем линию видимости - ИСПРАВЛЕНИЕ ЗДЕСЬ
+            return world.HasLineOfSight(this.Position, other.Position);
         }
 
         public void Draw()

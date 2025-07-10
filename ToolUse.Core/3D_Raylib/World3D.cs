@@ -2,6 +2,7 @@
 using System;
 using System.Numerics;
 using Raylib_cs;
+using ToolUse.Core.Config;
 
 namespace ToolUse.Core.RaylibThreeD
 {
@@ -13,6 +14,7 @@ namespace ToolUse.Core.RaylibThreeD
         public float WallHeight { get; set; } = 2.0f;
         public Raylib_cs.Color FloorColor { get; set; } = Raylib_cs.Color.LightGray;
         public Raylib_cs.Color WallColor { get; set; } = Raylib_cs.Color.DarkGray;
+        public int RoomSize { get; set; } = 8;
 
         private readonly Random _rng = new();
 
@@ -20,6 +22,13 @@ namespace ToolUse.Core.RaylibThreeD
         {
             Size = size;
             Grid = new TileType[size, size];
+            
+            // Загружаем параметры из конфигурации
+            var config = GameConfig.Load();
+            CellSize = config.World.CellSize3D;
+            WallHeight = config.World.WallHeight3D;
+            RoomSize = config.World.RoomSize;
+            
             GenerateStaticGrid();
         }
 
@@ -40,14 +49,13 @@ namespace ToolUse.Core.RaylibThreeD
                 }
             }
 
-            // Копируем логику из World.cs
-            int roomSize = 8;
-            int roomsInRow = Size / roomSize;
+            // Используем параметр RoomSize из конфигурации
+            int roomsInRow = Size / RoomSize;
 
             // Горизонтальные стены
             for (int roomY = 1; roomY < roomsInRow; roomY++)
             {
-                int z = roomY * roomSize;
+                int z = roomY * RoomSize;
                 for (int x = 0; x < Size; x++)
                 {
                     if (x > 0 && x < Size - 1)
@@ -57,7 +65,7 @@ namespace ToolUse.Core.RaylibThreeD
                 // Проходы
                 for (int i = 0; i < roomsInRow; i++)
                 {
-                    int gapX = i * roomSize + _rng.Next(1, roomSize - 1);
+                    int gapX = i * RoomSize + _rng.Next(1, RoomSize - 1);
                     if (gapX >= Size - 1) gapX = Size - 2;
 
                     Grid[gapX, z] = TileType.Empty;
@@ -69,7 +77,7 @@ namespace ToolUse.Core.RaylibThreeD
             // Вертикальные стены
             for (int roomX = 1; roomX < roomsInRow; roomX++)
             {
-                int x = roomX * roomSize;
+                int x = roomX * RoomSize;
                 for (int z = 0; z < Size; z++)
                 {
                     if (z > 0 && z < Size - 1)
@@ -79,7 +87,7 @@ namespace ToolUse.Core.RaylibThreeD
                 // Проходы
                 for (int i = 0; i < roomsInRow; i++)
                 {
-                    int gapZ = i * roomSize + _rng.Next(1, roomSize - 1);
+                    int gapZ = i * RoomSize + _rng.Next(1, RoomSize - 1);
                     if (gapZ >= Size - 1) gapZ = Size - 2;
 
                     Grid[x, gapZ] = TileType.Empty;
@@ -100,13 +108,6 @@ namespace ToolUse.Core.RaylibThreeD
                 Grid[0, z] = TileType.Wall;
                 Grid[Size - 1, z] = TileType.Wall;
             }
-
-            // Проходы в рамке
-            /*int sideGap = _rng.Next(1, Size - 2);
-            Grid[sideGap, 0] = TileType.Empty;
-            Grid[sideGap, Size - 1] = TileType.Empty;
-            Grid[0, sideGap] = TileType.Empty;
-            Grid[Size - 1, sideGap] = TileType.Empty;*/
         }
 
         public void Draw(bool showShadows = true)
@@ -128,13 +129,6 @@ namespace ToolUse.Core.RaylibThreeD
                             CellSize, 0.2f, CellSize,
                             tileColor
                         );
-
-                        // Добавляем тонкую обводку для плиток пола
-                        Raylib.DrawCubeWires(
-                            new Vector3(x + 0.5f, -0.1f, z + 0.5f),
-                            CellSize, 0.2f, CellSize,
-                            Raylib.ColorAlpha(Raylib_cs.Color.Black, 0.3f)
-                        );
                     }
                 }
             }
@@ -146,40 +140,23 @@ namespace ToolUse.Core.RaylibThreeD
                 {
                     if (Grid[x, z] == TileType.Wall)
                     {
+                        Vector3 wallPosition = new Vector3(x + 0.5f, WallHeight / 2, z + 0.5f);
+                        Vector3 wallSize = new Vector3(CellSize, WallHeight, CellSize);
+
                         // Основная стена
-                        Raylib.DrawCube(
-                            new Vector3(x + 0.5f, WallHeight / 2f, z + 0.5f),
-                            CellSize, WallHeight, CellSize,
-                            WallColor
-                        );
+                        Raylib.DrawCube(wallPosition, wallSize.X, wallSize.Y, wallSize.Z, WallColor);
 
-                        // Добавляем контур стены
-                        Raylib.DrawCubeWires(
-                            new Vector3(x + 0.5f, WallHeight / 2f, z + 0.5f),
-                            CellSize, WallHeight, CellSize,
-                            Raylib_cs.Color.Black
-                        );
+                        // Добавляем черные контуры стены
+                        Raylib.DrawCubeWires(wallPosition, wallSize.X, wallSize.Y, wallSize.Z, Color.Black);
 
-                        // Добавляем тень от стены на пол если включено
                         if (showShadows)
                         {
-                            for (int dx = -1; dx <= 1; dx++)
-                            {
-                                for (int dz = -1; dz <= 1; dz++)
-                                {
-                                    int nx = x + dx;
-                                    int nz = z + dz;
-
-                                    if (IsInside(nx, nz) && Grid[nx, nz] == TileType.Empty)
-                                    {
-                                        Raylib.DrawCube(
-                                            new Vector3(nx + 0.5f, -0.09f, nz + 0.5f),
-                                            CellSize, 0.01f, CellSize,
-                                            Raylib.ColorAlpha(Raylib_cs.Color.Black, 0.2f)
-                                        );
-                                    }
-                                }
-                            }
+                            // Тень под стеной
+                            Raylib.DrawCube(
+                                new Vector3(x + 0.5f, -0.05f, z + 0.5f),
+                                CellSize * 1.1f, 0.1f, CellSize * 1.1f,
+                                Raylib.ColorBrightness(WallColor, 0.5f)
+                            );
                         }
                     }
                 }
@@ -188,118 +165,81 @@ namespace ToolUse.Core.RaylibThreeD
 
         public void DrawGrid()
         {
-            // Рисуем сетку на полу для лучшей ориентации
-            Raylib_cs.Color gridColor = new Raylib_cs.Color(0, 0, 0, 150); // Более заметный черный цвет
-    
-            // Горизонтальные линии
+            // Рисуем сетку на уровне пола
             for (int x = 0; x <= Size; x++)
             {
                 Raylib.DrawLine3D(
-                    new Vector3(x, 0.01f, 0),      // Немного приподнимаем над полом
+                    new Vector3(x, 0.01f, 0),
                     new Vector3(x, 0.01f, Size),
-                    gridColor
+                    Color.DarkGray
                 );
             }
-    
-            // Вертикальные линии  
+
             for (int z = 0; z <= Size; z++)
             {
                 Raylib.DrawLine3D(
                     new Vector3(0, 0.01f, z),
                     new Vector3(Size, 0.01f, z),
-                    gridColor
-                );
-            }
-    
-            // Дополнительно рисуем более толстые линии каждые 5 клеток для лучшей навигации
-            for (int x = 0; x <= Size; x += 5)
-            {
-                Raylib.DrawLine3D(
-                    new Vector3(x, 0.02f, 0),
-                    new Vector3(x, 0.02f, Size),
-                    new Raylib_cs.Color(255, 0, 0, 200) // Красные линии
-                );
-            }
-    
-            for (int z = 0; z <= Size; z += 5)
-            {
-                Raylib.DrawLine3D(
-                    new Vector3(0, 0.02f, z),
-                    new Vector3(Size, 0.02f, z),
-                    new Raylib_cs.Color(255, 0, 0, 200) // Красные линии
+                    Color.DarkGray
                 );
             }
         }
 
-        public bool HasLineOfSight(Agent3D from, Agent3D to)
+        public Vector3 GetRandomEmptyPosition(float heightOffset = 0f)
         {
-            int x0 = (int)from.Position.X, z0 = (int)from.Position.Z;
-            int x1 = (int)to.Position.X, z1 = (int)to.Position.Z;
-
-            int dx = Math.Abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
-            int dz = Math.Abs(z1 - z0), sz = z0 < z1 ? 1 : -1;
-            int err = dx - dz;
-
-            while (true)
-            {
-                if (IsBlocked(x0, z0)) return false;
-                if (x0 == x1 && z0 == z1) return true;
-
-                int e2 = 2 * err;
-                if (e2 > -dz) { err -= dz; x0 += sx; }
-                if (e2 < dx) { err += dx; z0 += sz; }
-            }
-        }
-
-        public Vector3 GetRandomEmptyPosition(float minDistanceFromWalls = 1.0f)
-        {
+            int maxAttempts = 1000; // Увеличиваем количество попыток
             int attempts = 0;
-            int maxAttempts = 100;
 
             while (attempts < maxAttempts)
             {
                 int x = _rng.Next(1, Size - 1);
                 int z = _rng.Next(1, Size - 1);
 
-                bool validPosition = true;
-
-                // Check if the position is empty
-                if (Grid[x, z] != TileType.Empty)
+                if (Grid[x, z] == TileType.Empty)
                 {
-                    validPosition = false;
-                }
-
-                // Check minimum distance from walls if needed
-                if (validPosition && minDistanceFromWalls > 0.5f)
-                {
-                    for (int dx = -1; dx <= 1; dx++)
-                    {
-                        for (int dz = -1; dz <= 1; dz++)
-                        {
-                            int nx = x + dx;
-                            int nz = z + dz;
-
-                            if (IsInside(nx, nz) && Grid[nx, nz] == TileType.Wall)
-                            {
-                                validPosition = false;
-                                break;
-                            }
-                        }
-
-                        if (!validPosition) break;
-                    }
-                }
-
-                if (validPosition)
-                {
-                    return new Vector3(x + 0.5f, 0, z + 0.5f);
+                    return new Vector3(x + 0.5f, heightOffset, z + 0.5f);
                 }
 
                 attempts++;
             }
 
-            // Fallback to a safe position if we couldn't find a random one
-            return new Vector3(Size / 2f, 0, Size / 2f);
+            // Если не нашли свободное место, ищем первое доступное
+            for (int x = 1; x < Size - 1; x++)
+            {
+                for (int z = 1; z < Size - 1; z++)
+                {
+                    if (Grid[x, z] == TileType.Empty)
+                    {
+                        Console.WriteLine($"[WARNING] Fallback position used: ({x}, {z})");
+                        return new Vector3(x + 0.5f, heightOffset, z + 0.5f);
+                    }
+                }
+            }
+
+            // Критическая ошибка - нет свободных мест
+            Console.WriteLine("[ERROR] No empty positions found in world!");
+            return new Vector3(Size / 2f, heightOffset, Size / 2f);
+        }
+
+        public bool HasLineOfSight(Vector3 from, Vector3 to)
+        {
+            Vector3 direction = Vector3.Normalize(to - from);
+            float distance = Vector3.Distance(from, to);
+            float step = 0.1f;
+
+            for (float t = 0; t < distance; t += step)
+            {
+                Vector3 point = from + direction * t;
+                int x = (int)Math.Floor(point.X);
+                int z = (int)Math.Floor(point.Z);
+
+                if (IsBlocked(x, z))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
     }
 }
