@@ -1,4 +1,3 @@
-
 using System;
 using System.Numerics;
 using Raylib_cs;
@@ -26,6 +25,7 @@ namespace ToolUse.Core.RaylibThreeD
 
         // Система отслеживания исследованных клеток
         private HashSet<(int x, int z)> ExploredCells { get; } = new HashSet<(int, int)>();
+        private HashSet<(int x, int z)> VisuallyExploredCells { get; } = new HashSet<(int, int)>();
 
         // Для совместимости с 2D версией
         public int X => (int)Math.Round(Position.X);
@@ -56,16 +56,66 @@ namespace ToolUse.Core.RaylibThreeD
 
         // Методы для работы с исследованными клетками
         public int GetExploredCount() => ExploredCells.Count;
+        public int GetVisuallyExploredCount() => VisuallyExploredCells.Count;
+        public int GetTotalExploredCount() => ExploredCells.Count + VisuallyExploredCells.Count;
 
         public bool HasExplored(int x, int z) => ExploredCells.Contains((x, z));
+        public bool HasVisuallyExplored(int x, int z) => VisuallyExploredCells.Contains((x, z));
+        public bool HasExploredAnyway(int x, int z) => ExploredCells.Contains((x, z)) || VisuallyExploredCells.Contains((x, z));
 
         public void ResetExploration()
         {
             ExploredCells.Clear();
+            VisuallyExploredCells.Clear();
             if (IsSeeker)
             {
                 ExploredCells.Add(((int)Math.Round(Position.X), (int)Math.Round(Position.Z)));
             }
+        }
+
+        // Новый метод для обновления визуального исследования
+        public int UpdateVisualExploration(World3D world)
+        {
+            if (!IsSeeker) return 0;
+
+            int newCellsExplored = 0;
+            int segments = 60;
+            float startAngle = Rotation.Y - VisionAngle / 2f;
+            float endAngle = Rotation.Y + VisionAngle / 2f;
+
+            // Проходим по всем лучам в конусе зрения
+            for (int i = 0; i <= segments; i++)
+            {
+                float angle = startAngle + (endAngle - startAngle) * i / segments;
+                float radians = angle * MathF.PI / 180f;
+                Vector3 direction = new Vector3(MathF.Cos(radians), 0, MathF.Sin(radians));
+
+                // Трассируем луч с мелким шагом
+                float step = 0.2f;
+                for (float t = step; t <= VisionRadius; t += step)
+                {
+                    Vector3 point = Position + direction * t;
+                    int gridX = (int)Math.Floor(point.X);
+                    int gridZ = (int)Math.Floor(point.Z);
+
+                    // Проверяем границы мира
+                    if (point.X < 0 || point.X >= world.Size || point.Z < 0 || point.Z >= world.Size)
+                        break;
+
+                    // Если попали в стену, останавливаем трассировку этого луча
+                    if (world.IsBlocked(gridX, gridZ))
+                        break;
+
+                    // Если клетка еще не исследована визуально и не исследована физически
+                    if (!VisuallyExploredCells.Contains((gridX, gridZ)) && !ExploredCells.Contains((gridX, gridZ)))
+                    {
+                        VisuallyExploredCells.Add((gridX, gridZ));
+                        newCellsExplored++;
+                    }
+                }
+            }
+
+            return newCellsExplored;
         }
 
         public bool MoveWithCollisionAvoidance(World3D world, float deltaTime, Agent3D other = null)
@@ -137,10 +187,15 @@ namespace ToolUse.Core.RaylibThreeD
             // Путь свободен, двигаемся
             Position = newPosition;
 
-            // Добавляем новую клетку как исследованную для seeker'а
+            // Добавляем новую клетку как исследованную для seeker'а (физическое исследование)
             if (IsSeeker)
             {
-                ExploredCells.Add(((int)Math.Round(Position.X), (int)Math.Round(Position.Z)));
+                int gridX = (int)Math.Round(Position.X);
+                int gridZ = (int)Math.Round(Position.Z);
+                ExploredCells.Add((gridX, gridZ));
+                
+                // Удаляем из визуально исследованных, если была там (физическое исследование приоритетнее)
+                VisuallyExploredCells.Remove((gridX, gridZ));
             }
 
             return true;

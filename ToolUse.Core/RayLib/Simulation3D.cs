@@ -199,6 +199,7 @@ namespace ToolUse.Core.RaylibThreeD
             Vector3 seekerOldPos = Seeker.Position;
             Vector3 hiderOldPos = Hider.Position;
             int exploredBefore = Seeker.GetExploredCount();
+            int visuallyExploredBefore = Seeker.GetVisuallyExploredCount();
 
             _adapter.ApplyAction(Seeker, seekerAction);
             _adapter.ApplyAction(Hider, hiderAction);
@@ -206,20 +207,35 @@ namespace ToolUse.Core.RaylibThreeD
             if (seekerAction == 2) Seeker.MoveWithCollisionAvoidance(World, deltaTime, Hider);
             if (hiderAction == 2) Hider.MoveWithCollisionAvoidance(World, deltaTime, Seeker);
 
+            // Обновляем визуальное исследование
+            int newVisuallyExploredCells = Seeker.UpdateVisualExploration(World);
+            
             int exploredAfter = Seeker.GetExploredCount();
-            int newCellsExplored = exploredAfter - exploredBefore;
+            int visuallyExploredAfter = Seeker.GetVisuallyExploredCount();
+            
+            int newPhysicallyExploredCells = exploredAfter - exploredBefore;
+            int totalNewCells = newPhysicallyExploredCells + newVisuallyExploredCells;
 
             float distance = Vector3.Distance(Seeker.Position, Hider.Position);
 
             float seekerReward = IsHiderVisible ? Config.Seeker.RewardWhenHiderVisible : Config.Seeker.RewardWhenHiderHidden;
             float hiderReward = IsHiderVisible ? Config.Hider.RewardWhenVisible : Config.Hider.RewardWhenHidden;
 
-            if (newCellsExplored > 0)
+            // Награда за исследование (физическое и визуальное)
+            if (totalNewCells > 0)
             {
-                float explorationBonus = newCellsExplored * Config.Seeker.ExplorationBonusPerCell;
+                float explorationBonus = totalNewCells * Config.Seeker.ExplorationBonusPerCell;
                 seekerReward += explorationBonus;
                 ExplorationScore += explorationBonus;
                 SeekerScore += explorationBonus * Config.Seeker.ExplorationScoreMultiplier;
+                
+                // Дополнительная награда за физическое исследование
+                if (newPhysicallyExploredCells > 0)
+                {
+                    float physicalBonus = newPhysicallyExploredCells * Config.Seeker.ExplorationBonusPerCell * 0.5f;
+                    seekerReward += physicalBonus;
+                    SeekerScore += physicalBonus;
+                }
             }
 
             if (Config.Seeker.ProximityRewardEnabled && distance <= Config.Seeker.MaxProximityDistance)
@@ -382,7 +398,7 @@ namespace ToolUse.Core.RaylibThreeD
 
         private void DrawHUD()
         {
-            Raylib.DrawRectangle(5, 5, 320, 340, Raylib.ColorAlpha(Color.Black, 0.7f));
+            Raylib.DrawRectangle(5, 5, 320, 360, Raylib.ColorAlpha(Color.Black, 0.7f));
 
             int y = 10;
             Raylib.DrawText($"Session: {Session} / Total: {TotalSessions}", 10, y, 20, Color.White);
@@ -398,7 +414,14 @@ namespace ToolUse.Core.RaylibThreeD
             Raylib.DrawRectangleLines(180, y + 5, 130, 10, Color.White);
             y += 25;
 
-            Raylib.DrawText($"Explored: {Seeker.GetExploredCount()}", 10, y, 20, Color.Purple);
+            // Показываем детализированную информацию об исследовании
+            Raylib.DrawText($"Physical: {Seeker.GetExploredCount()}", 10, y, 18, Color.Yellow);
+            y += 22;
+    
+            Raylib.DrawText($"Visual: {Seeker.GetVisuallyExploredCount()}", 10, y, 18, Color.Orange);
+            y += 22;
+    
+            Raylib.DrawText($"Total: {Seeker.GetTotalExploredCount()}", 10, y, 18, Color.Purple);
             y += 25;
 
             Raylib.DrawText($"Exploration Score: {ExplorationScore:F1}", 10, y, 18, Color.Purple);
@@ -411,40 +434,17 @@ namespace ToolUse.Core.RaylibThreeD
             y += 25;
 
             float distance = Vector3.Distance(Seeker.Position, Hider.Position);
-            Color distanceColor = distance < 5f ? Color.Red : distance < 10f ? Color.Yellow : Color.White;
-            Raylib.DrawText($"Distance: {distance:F1}", 10, y, 18, distanceColor);
-            y += 25;
+            Raylib.DrawText($"Distance: {distance:F1}", 10, y, 18, Color.Gray);
+            y += 22;
 
-            Color visibilityColor = IsHiderVisible ? Color.Gold : Color.Gray;
-            string visibilityText = IsHiderVisible ? "VISIBLE!" : "Hidden";
-            Raylib.DrawText($"Hider: {visibilityText}", 10, y, 20, visibilityColor);
+            string visibilityText = IsHiderVisible ? "VISIBLE" : "HIDDEN";
+            Color visibilityColor = IsHiderVisible ? Color.Red : Color.Green;
+            Raylib.DrawText($"Hider: {visibilityText}", 10, y, 18, visibilityColor);
+            y += 22;
 
-            if (IsHiderVisible && (int)(Timer * 2) % 2 == 0)
+            if (_isHiderCaught)
             {
-                Raylib.DrawRectangle(120, y, 15, 15, Color.Gold);
-            }
-            y += 25;
-
-            Raylib.DrawText($"Vision Cones: {(_showVisionCones ? "ON" : "OFF")}", 10, y, 18,
-                _showVisionCones ? Color.Lime : Color.Gray);
-            y += 25;
-
-            Raylib.DrawText($"Grid: {(_showGrid ? "ON" : "OFF")}", 10, y, 18,
-                _showGrid ? Color.Lime : Color.Gray);
-            y += 25;
-
-            Raylib.DrawText($"Camera: {(_followAgent ? "Follow" : "Free")}", 10, y, 18,
-                _followAgent ? Color.Lime : Color.Yellow);
-            y += 25;
-
-            Raylib.DrawText("=== Scoring Info ===", 10, y, 16, Color.White);
-            y += 20;
-
-            if (Config.Seeker.ProximityRewardEnabled)
-            {
-                Raylib.DrawText($"Proximity Bonus: {(distance <= Config.Seeker.MaxProximityDistance ? "Active" : "Inactive")}",
-                    10, y, 14, distance <= Config.Seeker.MaxProximityDistance ? Color.Green : Color.Gray);
-                y += 18;
+                Raylib.DrawText("CAUGHT!", 10, y, 24, Color.Red);
             }
         }
 
