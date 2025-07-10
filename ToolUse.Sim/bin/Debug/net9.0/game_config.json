@@ -1,14 +1,14 @@
 {
-  "SessionDurationSeconds": 600.0,
+  "SessionDurationSeconds": 30.0,
   "ShowSessionTime": true,
   "TimeFormat": "{0:F1}s / {1:F0}s",
   "FramesForCatch": 60,
   "World": {
     "GridSize2D": 40,
-    "GridSize3D": 40,
-    "CellSize2D": 16,
-    "CellSize3D": 1.0,
-    "WallHeight3D": 2.0,
+    "GridSize3D": 20,
+    "CellSize2D": 10,
+    "CellSize3D": 1,
+    "WallHeight3D": 2,
     "RoomSize": 8,
     "ShowGrid": true,
     "ShowShadows": true

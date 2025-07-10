@@ -86,17 +86,17 @@ namespace ToolUse.Core.RaylibThreeD
             World = new World3D(worldSize);
             World.GenerateStaticGrid();
 
-            // Улучшенная генерация seeker
+            // Улучшенная генерация seeker - агенты размещаются на полу (Y = 0)
             if (seeker == null)
             {
-                Vector3 seekerPos = World.GetRandomEmptyPosition(1.0f);
+                Vector3 seekerPos = World.GetRandomEmptyPosition(0f); // ✅ Изменено с 1.0f на 0f
                 // Дополнительная проверка для seeker
                 int seekerX = (int)Math.Floor(seekerPos.X);
                 int seekerZ = (int)Math.Floor(seekerPos.Z);
                 if (World.IsBlocked(seekerX, seekerZ))
                 {
                     Console.WriteLine("[WARNING] Seeker generated in blocked position, finding new position...");
-                    seekerPos = World.GetRandomEmptyPosition(1.0f);
+                    seekerPos = World.GetRandomEmptyPosition(0f); // ✅ Изменено с 1.0f на 0f
                 }
                 Seeker = new Agent3D(seekerPos, true, Raylib.GetRandomValue(0, 359));
             }
@@ -129,7 +129,7 @@ namespace ToolUse.Core.RaylibThreeD
     
             while (attempts < maxAttempts)
             {
-                Vector3 hiderPos = World.GetRandomEmptyPosition(1.0f);
+                Vector3 hiderPos = World.GetRandomEmptyPosition(0f); // ✅ Изменено с 1.0f на 0f
         
                 // Проверяем, что позиция действительно свободна
                 int x = (int)Math.Floor(hiderPos.X);
@@ -147,7 +147,7 @@ namespace ToolUse.Core.RaylibThreeD
             // Если не получилось найти позицию с нужным расстоянием, 
             // просто берем любую свободную позицию
             Console.WriteLine("[WARNING] Could not find hider position with required distance, using any empty position");
-            Vector3 fallbackPos = World.GetRandomEmptyPosition(1.0f);
+            Vector3 fallbackPos = World.GetRandomEmptyPosition(0f); // ✅ Изменено с 1.0f на 0f
             return new Agent3D(fallbackPos, false, Raylib.GetRandomValue(0, 359));
         }
 
@@ -311,8 +311,8 @@ namespace ToolUse.Core.RaylibThreeD
 
             World.GenerateStaticGrid();
     
-            // Улучшенная генерация позиций агентов
-            Vector3 seekerPos = World.GetRandomEmptyPosition(1.0f);
+            // Улучшенная генерация позиций агентов - на полу (Y = 0)
+            Vector3 seekerPos = World.GetRandomEmptyPosition(0f); // ✅ Изменено с 1.0f на 0f
     
             // Дополнительная проверка для seeker
             int seekerX = (int)Math.Floor(seekerPos.X);
@@ -320,18 +320,18 @@ namespace ToolUse.Core.RaylibThreeD
             if (World.IsBlocked(seekerX, seekerZ))
             {
                 Console.WriteLine("[WARNING] Seeker generated in blocked position, finding new position...");
-                seekerPos = World.GetRandomEmptyPosition(1.0f);
+                seekerPos = World.GetRandomEmptyPosition(0f); // ✅ Изменено с 1.0f на 0f
             }
     
             Seeker.Position = seekerPos;
             Seeker.Direction = Raylib.GetRandomValue(0, 359);
 
-            // Улучшенная генерация позиции hider
-            Vector3 hiderPosition = World.GetRandomEmptyPosition(1.0f);
+            // Улучшенная генерация позиции hider - на полу (Y = 0)
+            Vector3 hiderPosition = World.GetRandomEmptyPosition(0f); // ✅ Изменено с 1.0f на 0f
             int attempts = 0;
             while (attempts < 50 && Vector3.Distance(seekerPos, hiderPosition) < 15f)
             {
-                hiderPosition = World.GetRandomEmptyPosition(1.0f);
+                hiderPosition = World.GetRandomEmptyPosition(0f); // ✅ Изменено с 1.0f на 0f
                 attempts++;
             }
     
@@ -341,7 +341,7 @@ namespace ToolUse.Core.RaylibThreeD
             if (World.IsBlocked(hiderX, hiderZ))
             {
                 Console.WriteLine("[WARNING] Hider generated in blocked position, finding new position...");
-                hiderPosition = World.GetRandomEmptyPosition(1.0f);
+                hiderPosition = World.GetRandomEmptyPosition(0f); // ✅ Изменено с 1.0f на 0f
             }
 
             Hider.Position = hiderPosition;

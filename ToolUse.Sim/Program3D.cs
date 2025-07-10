@@ -165,11 +165,12 @@ namespace ToolUse.Sim
                 var world = new World3D(gridSize);
                 world.GenerateStaticGrid();
 
-                Vector3 seekerPos = world.GetRandomEmptyPosition(1f);
+                // Используем 0f вместо 1f для heightOffset, чтобы агенты были на полу
+                Vector3 seekerPos = world.GetRandomEmptyPosition(0f);
                 Vector3 hiderPos;
                 do
                 {
-                    hiderPos = world.GetRandomEmptyPosition(1f);
+                    hiderPos = world.GetRandomEmptyPosition(0f);
                 } while (Vector3.Distance(seekerPos, hiderPos) < 10f);
 
                 var newSeeker = new Agent3D(seekerPos, true, Raylib.GetRandomValue(0, 359));
