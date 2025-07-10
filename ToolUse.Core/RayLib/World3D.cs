@@ -1,3 +1,4 @@
+
 // ToolUse.Core/3D_Raylib/World3D.cs
 using System;
 using System.Numerics;
@@ -25,8 +26,8 @@ namespace ToolUse.Core.RaylibThreeD
             
             // Загружаем параметры из конфигурации
             var config = GameConfig.Load();
-            CellSize = config.World.CellSize3D;
-            WallHeight = config.World.WallHeight3D;
+            CellSize = config.World.CellSize;
+            WallHeight = config.World.WallHeight;
             RoomSize = config.World.RoomSize;
             
             GenerateStaticGrid();

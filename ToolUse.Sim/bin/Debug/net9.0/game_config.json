@@ -1,40 +1,44 @@
 {
-  "SessionDurationSeconds": 30.0,
-  "ShowSessionTime": true,
-  "TimeFormat": "{0:F1}s / {1:F0}s",
-  "FramesForCatch": 60,
   "World": {
-    "GridSize2D": 40,
-    "GridSize3D": 20,
-    "CellSize2D": 10,
-    "CellSize3D": 1,
-    "WallHeight3D": 2,
-    "RoomSize": 8,
-    "ShowGrid": true,
-    "ShowShadows": true
+    "GridSize": 20,
+    "CellSize": 1.0,
+    "WallHeight": 2.0,
+    "RoomSize": 8
   },
   "Seeker": {
+    "RewardWhenHiderVisible": 1.0,
+    "RewardWhenHiderHidden": -0.01,
+    "ExplorationBonusPerCell": 0.5,
+    "ExplorationScoreMultiplier": 1.0,
     "PointsPerSecondWhenHiderVisible": 10.0,
-    "PointsPerSecondWhenHiderHidden": 0.0,
-    "RewardWhenHiderVisible": 10.0,
-    "RewardWhenHiderHidden": -0.05,
-    "ExplorationBonusPerCell": 1.0,
-    "ExplorationScoreMultiplier": 2.0,
+    "PointsPerSecondWhenHiderHidden": 0.1,
     "ProximityRewardEnabled": true,
-    "ProximityRewardMultiplier": 5.0,
-    "MaxProximityDistance": 15.0,
+    "MaxProximityDistance": 10.0,
+    "ProximityRewardMultiplier": 2.0,
     "MovementRewardEnabled": true,
     "MovementRewardPerSecond": 0.1,
     "IdlePenaltyEnabled": true,
-    "IdlePenaltyPerSecond": -0.2
+    "IdlePenaltyPerSecond": -0.05,
+    "DistanceRewardEnabled": true,
+    "MinSafeDistance": 5.0,
+    "DistanceRewardMultiplier": 1.0
   },
   "Hider": {
-    "PointsPerSecondWhenVisible": -2.0,
+    "RewardWhenVisible": -0.5,
+    "RewardWhenHidden": 0.1,
+    "PointsPerSecondWhenVisible": -1.0,
     "PointsPerSecondWhenHidden": 1.0,
-    "RewardWhenVisible": -10.0,
-    "RewardWhenHidden": 0.2,
+    "ProximityRewardEnabled": true,
+    "MaxProximityDistance": 10.0,
+    "ProximityRewardMultiplier": 2.0,
+    "MovementRewardEnabled": true,
+    "MovementRewardPerSecond": 0.1,
+    "IdlePenaltyEnabled": true,
+    "IdlePenaltyPerSecond": -0.05,
     "DistanceRewardEnabled": true,
-    "DistanceRewardMultiplier": 2.0,
-    "MinSafeDistance": 10.0
-  }
+    "MinSafeDistance": 5.0,
+    "DistanceRewardMultiplier": 1.0
+  },
+  "SessionDurationSeconds": 30.0,
+  "FramesForCatch": 180
 }

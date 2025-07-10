@@ -1,22 +1,24 @@
 using System;
 using System.Numerics;
 using Raylib_cs;
-
 using System.Collections.Generic;
+
 namespace ToolUse.Core.RaylibThreeD
 {
     public class Agent3D
     {
         public Vector3 Position { get; set; }
         public Vector3 Rotation { get; set; }
+        
         // Свойство для более удобного доступа к направлению (угол по оси Y)
         public float Direction
         {
             get => Rotation.Y;
             set => Rotation = new Vector3(Rotation.X, value, Rotation.Z);
         }
-        public float VisionRadius { get; set; } = 8.0f;  // Увеличиваем радиус обзора
-        public float VisionAngle { get; set; } = 90.0f; // Расширяем угол обзора
+        
+        public float VisionRadius { get; set; } = 8.0f;
+        public float VisionAngle { get; set; } = 90.0f;
         public bool IsSeeker { get; set; }
         public Raylib_cs.Color Color { get; set; }
         public float Speed { get; set; } = 2.0f;
@@ -24,7 +26,6 @@ namespace ToolUse.Core.RaylibThreeD
         // Система отслеживания исследованных клеток
         private HashSet<(int x, int z)> ExploredCells { get; } = new HashSet<(int, int)>();
 
-        
         // Для совместимости с 2D версией
         public int X => (int)Math.Round(Position.X);
         public int Y => (int)Math.Round(Position.Z); // В 3D Z соответствует Y из 2D
@@ -50,30 +51,6 @@ namespace ToolUse.Core.RaylibThreeD
             // Нормализуем угол в диапазоне 0-360
             if (Rotation.Y >= 360f) Rotation = new Vector3(Rotation.X, Rotation.Y - 360f, Rotation.Z);
             if (Rotation.Y < 0f) Rotation = new Vector3(Rotation.X, Rotation.Y + 360f, Rotation.Z);
-        }
-
-        public void MoveForward(World3D world, float deltaTime)
-        {
-            float radians = Rotation.Y * MathF.PI / 180f;
-            Vector3 forward = new Vector3(
-                MathF.Cos(radians) * Speed * deltaTime,
-                0,
-                MathF.Sin(radians) * Speed * deltaTime
-            );
-            
-            Vector3 newPosition = Position + forward;
-            
-            // Проверяем коллизии
-            if (!world.IsBlocked((int)newPosition.X, (int)newPosition.Z))
-            {
-                Position = newPosition;
-
-                // Добавляем новую клетку как исследованную для seeker'а
-                if (IsSeeker)
-                {
-                    ExploredCells.Add(((int)Math.Round(Position.X), (int)Math.Round(Position.Z)));
-                }
-            }
         }
 
         // Методы для работы с исследованными клетками
@@ -190,12 +167,9 @@ namespace ToolUse.Core.RaylibThreeD
             float angleDiff = Math.Abs(angleToOther - currentDirection);
             if (angleDiff > 180f) angleDiff = 360f - angleDiff;
 
-            // Отладочная информация
-            //Console.WriteLine($"Distance: {distance:F2}, AngleToOther: {angleToOther:F2}, Direction: {currentDirection:F2}, AngleDiff: {angleDiff:F2}, Threshold: {VisionAngle/2f:F2}");
-    
             if (angleDiff > VisionAngle / 2f) return false;
 
-            // Проверяем линию видимости - ИСПРАВЛЕНИЕ ЗДЕСЬ
+            // Проверяем линию видимости
             return world.HasLineOfSight(this.Position, other.Position);
         }
 
@@ -210,40 +184,17 @@ namespace ToolUse.Core.RaylibThreeD
                 8, 
                 Color
             );
-
-            // Рисуем направление взгляда - делаем его длиннее и толще для лучшей видимости
-            //float radians = Rotation.Y * MathF.PI / 180f;
-            /*Vector3 forward = new Vector3(
-                MathF.Cos(radians) * 2.0f,  // Увеличиваем длину
-                0.1f,
-                MathF.Sin(radians) * 2.0f   // Увеличиваем длину
-            );
-            
-            Vector3 startPos = Position + new Vector3(0, 0.8f, 0);
-            Vector3 endPos = startPos + forward;*/
-            
-            // Рисуем толстую желтую линию
-            
-            
-            // Добавляем еще несколько линий рядом для "толщины"
-            /*Raylib.DrawLine3D(startPos + new Vector3(0.05f, 0, 0), endPos + new Vector3(0.05f, 0, 0), Raylib_cs.Color.Yellow);
-            Raylib.DrawLine3D(startPos + new Vector3(-0.05f, 0, 0), endPos + new Vector3(-0.05f, 0, 0), Raylib_cs.Color.Yellow);
-            Raylib.DrawLine3D(startPos + new Vector3(0, 0, 0.05f), endPos + new Vector3(0, 0, 0.05f), Raylib_cs.Color.Yellow);
-            Raylib.DrawLine3D(startPos + new Vector3(0, 0, -0.05f), endPos + new Vector3(0, 0, -0.05f), Raylib_cs.Color.Yellow);
-        */
         }
-
-       
         
         public void DrawVisionCone(World3D world, Raylib_cs.Color? visionColor = null)
         {
             Raylib_cs.Color coneColor = visionColor ?? new Raylib_cs.Color(255, 255, 0, 80);
     
-            int segments = 40; // Увеличиваем количество сегментов для более гладкого конуса
+            int segments = 40;
             float startAngle = Rotation.Y - VisionAngle / 2f;
             float endAngle = Rotation.Y + VisionAngle / 2f;
 
-            Vector3 agentPos = Position + new Vector3(0, 0.05f, 0); // Немного приподнимаем над землей
+            Vector3 agentPos = Position + new Vector3(0, 0.05f, 0);
 
             // Собираем все точки для полигона
             List<Vector3> points = new List<Vector3>();
@@ -255,7 +206,6 @@ namespace ToolUse.Core.RaylibThreeD
                 float angle = startAngle + (endAngle - startAngle) * i / segments;
                 float radians = angle * MathF.PI / 180f;
         
-                // Используем правильную систему координат
                 Vector3 direction = new Vector3(MathF.Cos(radians), 0, MathF.Sin(radians));
                 Vector3 rayEnd = GetRayEndPoint(Position, direction, VisionRadius, world);
                 points.Add(rayEnd + new Vector3(0, 0.05f, 0));
@@ -281,8 +231,6 @@ namespace ToolUse.Core.RaylibThreeD
             }
     
             Raylib.EndBlendMode();
-    
-            // Убираем линии контура - теперь только заливка!
         }
 
         private Vector3 GetRayEndPoint(Vector3 start, Vector3 direction, float maxDistance, World3D world)

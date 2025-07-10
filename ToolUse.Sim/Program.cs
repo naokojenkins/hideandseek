@@ -2,353 +2,343 @@
 using System.IO;
 using System.Numerics;
 using System.Collections.Generic;
-using System.Linq;
+using System.Reflection;
+using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Raylib_cs;
 using ToolUse.Core;
 using ToolUse.Core.RL;
 using ToolUse.Core.Config;
-using ToolUse.Sim;
-using RColor = Raylib_cs.Color;
+using ToolUse.Core.RaylibThreeD;
 
-class Program
+namespace ToolUse.Sim
 {
-    static GameConfig config;
-    static int cellSize, gridSize;
-    static int fieldSize;
-    static int screenW, screenH;
-    const int padY = 0;
-
-    const float sessSec = 60f;
-    const int FPS = 20;
-    static int maxFrames;
-
-    static JsonSerializerSettings jsonSettings = new()
+    class Program
     {
-        TypeNameHandling = TypeNameHandling.None,
-        MetadataPropertyHandling = MetadataPropertyHandling.Ignore
-    };
+        static GameConfig config;
+        static int gridSize;
+        const int screenW = 1024;
+        const int screenH = 768;
+        const int FPS = 60;
+        const int SAVE_INTERVAL = 10;
 
-    static QTable seekerQ = new(), hiderQ = new();
-    static QAgent seekerRL = new(seekerQ, 0.1f);
-    static QAgent hiderRL = new(hiderQ, 0.1f);
+        static readonly string TablesDir = Path.Combine(
+            Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".",
+            "qtables");
 
-    static World world;
-    static Agent seeker = null!; // Инициализация в Reset()
-    static Agent hider = null!;  // Инициализация в Reset()
+        const string seekerFile = "qtable_seeker.json";
+        const string hiderFile = "qtable_hider.json";
 
-    static int session = 0, frame = 0, caughtFrames = 0;
-    static float timer = 0f;
-    static bool caught = false;
-
-    static float sumSeeker = 0f, sumHider = 0f;
-
-    enum Act { RotL, RotR, Fwd }
-
-    static void Main()
-    {
-        Console.WriteLine("Choose simulation mode:");
-        Console.WriteLine("1. 2D Simulation");
-        Console.WriteLine("2. 3D Simulation");
-        Console.Write("Enter your choice (1 or 2): ");
-
-        string choice = Console.ReadLine();
-
-        if (choice == "2")
+        static readonly JsonSerializerSettings jsonSettings = new()
         {
-            // Run 3D simulation
-            Program3D.Run();
-            return;
+            TypeNameHandling = TypeNameHandling.None,
+            MetadataPropertyHandling = MetadataPropertyHandling.Ignore
+        };
+
+        static readonly QTable seekerQ = new();
+        static readonly QTable hiderQ = new();
+
+        static Simulation3D simulation = null!;
+        static Agent3D seeker = null!;
+        static Agent3D hider = null!;
+
+        static int session = 0;
+        static DateTime lastSaveTime = DateTime.Now;
+        static bool isExiting = false;
+
+        static System.Action? sessionCompletedHandler = null;
+
+        public static void Main(string[] args)
+        {
+            Run();
         }
 
-        // Default to 2D simulation
-        // Загружаем конфигурацию
-        config = GameConfig.Load();
-        Console.WriteLine($"[DEBUG] Loaded 2D config: GridSize={config.World.GridSize2D}, CellSize={config.World.CellSize2D}");
-
-        // Инициализируем размеры из конфигурации
-        gridSize = config.World.GridSize2D;
-        cellSize = config.World.CellSize2D;
-        fieldSize = cellSize * gridSize;
-        screenW = fieldSize;
-        screenH = fieldSize + padY + 40;
-        maxFrames = (int)(sessSec * FPS);
-
-        // Создаем мир с размером из конфигурации
-        world = new World(gridSize);
-
-        LoadTable("qtable_seeker.json", seekerQ);
-        LoadTable("qtable_hider.json", hiderQ);
-
-        Raylib.InitWindow(screenW, screenH, "Tool Use – multi-agent (2D)");
-        Raylib.SetTargetFPS(FPS);
-
-        world.GenerateStaticGrid();
-        Reset();
-
-        while (!Raylib.WindowShouldClose())
+        public static void Run()
         {
-            frame++;
-            timer += 1f / FPS;
+            config = GameConfig.Load();
+            Console.WriteLine($"[DEBUG] Loaded config: GridSize={config.World.GridSize}, CellSize={config.World.CellSize}");
+            Console.WriteLine($"[DEBUG] SessionDurationSeconds = {config.SessionDurationSeconds}");
 
-            var sSeek = new State(seeker.X, seeker.Y, hider.X, hider.Y, seeker.CanSee(hider, world));
-            var sHide = new State(hider.X, hider.Y, seeker.X, seeker.Y, seeker.CanSee(hider, world));
+            gridSize = config.World.GridSize;
 
-            var aS = (Act)seekerRL.ChooseAction(sSeek);
-            var aH = (Act)hiderRL.ChooseAction(sHide);
+            Directory.CreateDirectory(TablesDir);
 
-            // Запоминаем количество исследованных клеток до движения
-            int exploredBefore = seeker.GetExploredCount();
+            Console.WriteLine("Загрузка Q-таблиц...");
+            LoadTable(seekerFile, seekerQ);
+            LoadTable(hiderFile, hiderQ);
+            Console.WriteLine($"Загружено: Seeker={seekerQ.Export().Count}, Hider={hiderQ.Export().Count} записей");
+            
+            // Создаем временный экземпляр для инициализации статического счетчика
+            var tempSimulation = new Simulation3D(gridSize, 
+                new Agent3D(new Vector3(1, 0, 1), true, 0), 
+                new Agent3D(new Vector3(2, 0, 2), false, 0), 
+                seekerQ, hiderQ);
+            
+            Console.WriteLine($"Общий счетчик сессий: {Simulation3D.TotalSessions}");
 
-            DoAction(seeker, aS);
-            DoAction(hider, aH);
+            Raylib.InitWindow(screenW, screenH, "ToolUse – 3D Hide & Seek");
+            Raylib.SetTargetFPS(FPS);
+            Raylib.SetConfigFlags(ConfigFlags.Msaa4xHint);
 
-            // Проверяем, исследовал ли seeker новые клетки
-            int exploredAfter = seeker.GetExploredCount();
-            int newCellsExplored = exploredAfter - exploredBefore;
-
-            bool visible = seeker.CanSee(hider, world);
-
-            float rS = 0, rH = 0;
-
-            // Награда за исследование новых клеток (используем значения из конфигурации)
-            if (newCellsExplored > 0)
+            try
             {
-                float explorationBonus = newCellsExplored * config.Seeker.ExplorationBonusPerCell;
-                rS += explorationBonus;
+                Reset();
 
-                // Добавляем к итоговому счету seeker'а
-                sumSeeker += explorationBonus * config.Seeker.ExplorationScoreMultiplier;
-            }
-
-            if (visible)
-            {
-                rS += config.Seeker.RewardWhenHiderVisible;
-                rH += config.Hider.RewardWhenVisible;
-                if (++caughtFrames >= FPS * 10)
+                while (!Raylib.WindowShouldClose() && !isExiting)
                 {
-                    rS += 1;
-                    rH -= 1;
-                    caught = true;
-                }
-            }
-            else
-            {
-                rS += config.Seeker.RewardWhenHiderHidden;
-                rH += config.Hider.RewardWhenHidden;
-                caughtFrames = 0;
-            }
-
-            sumSeeker += rS;
-            sumHider += rH;
-
-            var sS2 = new State(seeker.X, seeker.Y, hider.X, hider.Y, visible);
-            var sH2 = new State(hider.X, hider.Y, seeker.X, seeker.Y, visible);
-
-            seekerRL.Learn(sSeek, (int)aS, rS, sS2);
-            hiderRL.Learn(sHide, (int)aH, rH, sH2);
-
-            if (caught || frame >= maxFrames) Reset();
-
-            Raylib.BeginDrawing();
-            Raylib.ClearBackground(RColor.RayWhite);
-
-            DrawWorld();
-            DrawAgents();
-            DrawHUD();
-
-            Raylib.EndDrawing();
-        }
-
-        SaveTable("qtable_seeker.json", seekerQ);
-        SaveTable("qtable_hider.json", hiderQ);
-        Raylib.CloseWindow();
-    }
-
-    static void Reset()
-    {
-        session++;
-        frame = 0;
-        timer = 0f;
-        caught = false;
-        caughtFrames = 0;
-        sumSeeker = 0f;
-        sumHider = 0f;
-
-        // 1. Сначала сохраняем таблицы, чтобы сохранить опыт предыдущей сессии
-        if (session > 1)
-        {
-            SaveTable("qtable_seeker.json", seekerQ);
-            SaveTable("qtable_hider.json", hiderQ);
-        }
-
-        // 2. Теперь загружаем обновлённые таблицы (включая только что сохранённые)
-        LoadTable("qtable_seeker.json", seekerQ);
-        LoadTable("qtable_hider.json", hiderQ);
-
-        // 3. Генерируем новую карту и агентов
-        world.GenerateStaticGrid();
-
-        // Создаем искателя
-        do
-        {
-            seeker = new Agent(Raylib.GetRandomValue(0, gridSize - 1), Raylib.GetRandomValue(0, gridSize - 1), true, 0);
-        }
-        while (world.IsBlocked(seeker.X, seeker.Y));
-
-        // Создаем прятку
-        do
-        {
-            hider = new Agent(Raylib.GetRandomValue(0, gridSize - 1), Raylib.GetRandomValue(0, gridSize - 1), false, 180);
-        }
-        while (world.IsBlocked(hider.X, hider.Y));
-
-        // Сбрасываем исследованные клетки для новой сессии
-        seeker.ResetExploration();
-    }
-
-    static void DoAction(Agent ag, Act act)
-    {
-        switch (act)
-        {
-            case Act.RotL: ag.Rotate(-15f); break;
-            case Act.RotR: ag.Rotate(+15f); break;
-            case Act.Fwd: ag.MoveForward(world); break;
-        }
-    }
-
-    static void DrawWorld()
-    {
-        for (int gx = 0; gx < gridSize; gx++)
-        for (int gy = 0; gy < gridSize; gy++)
-        {
-            var t = world.Grid[gx, gy];
-            RColor f = t switch
-            {
-                TileType.Empty => RColor.LightGray,
-                TileType.Wall => RColor.DarkGray,
-                _ => RColor.Brown
-            };
-            Raylib.DrawRectangle(gx * cellSize, gy * cellSize, cellSize, cellSize, f);
-            Raylib.DrawRectangleLines(gx * cellSize, gy * cellSize, cellSize, cellSize, RColor.Black);
-        }
-    }
-
-    static void DrawAgents()
-    {
-        DrawCone(seeker, new RColor(173, 216, 230, 80));
-        DrawAgent(seeker, RColor.Blue);
-
-        var visible = seeker.CanSee(hider, world);
-        var color = visible ? RColor.Yellow : RColor.Green;
-        DrawCone(hider, new RColor(0, 255, 0, 40));
-        DrawAgent(hider, color);
-    }
-
-    static void DrawAgent(Agent ag, RColor color)
-    {
-        int pad = 4, sz = cellSize - 2 * pad;
-        Raylib.DrawRectangle(ag.X * cellSize + pad, ag.Y * cellSize + pad, sz, sz, color);
-    }
-
-    static void DrawCone(Agent ag, RColor col) =>
-        DrawFilledVisionCone(ag, cellSize, col, world);
-
-    static void DrawHUD()
-    {
-        Raylib.DrawRectangle(0, 0, fieldSize, 12, RColor.White);
-        int x = 10, y = 2, fs = 8;
-        Raylib.DrawText($"Session: {session}  Time: {timer:F0}s  Grid: {gridSize}x{gridSize}", x, y, fs, RColor.Black);
-
-        Raylib.DrawText($"Seeker: {sumSeeker:F1} | Explored: {seeker.GetExploredCount()}", x + 20, y + 645, fs, RColor.Blue);
-        Raylib.DrawLine(20, 659, fieldSize, 659, RColor.Black);
-        Raylib.DrawText($"Hider: {sumHider:F1}", x + 20, y + 660, fs, RColor.Green);
-    }
-
-    static void DrawFilledVisionCone(Agent agent, int cell, RColor col, World w,
-                                 float stepDeg = 1f, float stepPix = 2f, float thick = 3f)
-    {
-        Vector2 c = new(agent.X * cell + cell / 2, agent.Y * cell + cell / 2);
-        float maxR = cell * agent.VisionRadius;
-        float a0 = agent.Angle - agent.VisionAngle / 2;
-        float a1 = agent.Angle + agent.VisionAngle / 2;
-
-        Raylib.BeginBlendMode(BlendMode.Alpha);
-        for (float ang = a0; ang <= a1; ang += stepDeg)
-        {
-            float r = ang * MathF.PI / 180f;
-            float dx = MathF.Cos(r), dy = MathF.Sin(r), dist = 0;
-
-            while (dist < maxR)
-            {
-                int gx = (int)((c.X + dx * dist) / cell);
-                int gy = (int)((c.Y + dy * dist) / cell);
-                if (!w.IsInside(gx, gy) || w.Grid[gx, gy] == TileType.Wall)
-                {
-                    dist -= stepPix;
-                    break;
-                }
-                dist += stepPix;
-            }
-
-            Vector2 tip = new(c.X + dx * dist, c.Y + dy * dist);
-            Raylib.DrawLineEx(c, tip, thick, col);
-        }
-        Raylib.EndBlendMode();
-    }
-
-    static void LoadTable(string path, QTable q)
-    {
-        if (!File.Exists(path)) return;
-        try
-        {
-            var map = JsonConvert.DeserializeObject<Dictionary<string, float[]>>(File.ReadAllText(path), jsonSettings);
-            if (map != null)
-            {
-                var current = q.Export();
-
-                foreach (var kvp in map)
-                {
-                    current[kvp.Key] = kvp.Value;
-                }
-
-                q.LoadFrom(current);
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Ошибка загрузки файла {path}: {ex.Message}");
-        }
-    }
-
-    static void SaveTable(string path, QTable q)
-    {
-        try
-        {
-            var combined = new Dictionary<string, float[]>();
-
-            if (File.Exists(path))
-            {
-                var existing = JsonConvert.DeserializeObject<Dictionary<string, float[]>>(File.ReadAllText(path), jsonSettings);
-                if (existing != null)
-                {
-                    foreach (var kvp in existing)
+                    try
                     {
-                        combined[kvp.Key] = kvp.Value;
+                        simulation?.HandleInput();
+                        simulation?.Update(1f / FPS);
+
+                        Raylib.BeginDrawing();
+                        Raylib.ClearBackground(Color.RayWhite);
+                        simulation?.Draw();
+                        
+                        Raylib.EndDrawing();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[ERROR] Ошибка в игровом цикле: {ex.Message}");
+                        break;
                     }
                 }
             }
-
-            foreach (var kvp in q.Export())
+            catch (Exception ex)
             {
-                combined[kvp.Key] = kvp.Value;
+                Console.WriteLine($"[ERROR] Критическая ошибка: {ex.Message}");
+            }
+            finally
+            {
+                Shutdown();
+            }
+        }
+
+        static void Shutdown()
+        {
+            if (isExiting) return;
+            isExiting = true;
+
+            Console.WriteLine("Завершение программы...");
+
+            try
+            {
+                if (simulation != null && sessionCompletedHandler != null)
+                {
+                    simulation.OnSessionCompleted -= sessionCompletedHandler;
+                    sessionCompletedHandler = null;
+                }
+
+                Console.WriteLine("Финальное сохранение...");
+                SaveBothTablesSync();
+                
+                Simulation3D.ForceSaveTotalSessions();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] Ошибка при сохранении: {ex.Message}");
             }
 
-            File.WriteAllText(path, JsonConvert.SerializeObject(combined, Formatting.None, jsonSettings));
+            try
+            {
+                if (Raylib.IsWindowReady())
+                {
+                    Raylib.CloseWindow();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] Ошибка при закрытии Raylib: {ex.Message}");
+            }
+
+            Console.WriteLine($"Программа завершена. Всего сессий за историю: {Simulation3D.TotalSessions}");
         }
-        catch (Exception ex)
+
+        static void Reset()
         {
-            Console.WriteLine($"Ошибка сохранения файла {path}: {ex.Message}");
+            if (isExiting) return;
+
+            session++;
+            
+            Console.WriteLine($"[DEBUG] Сессия #{session} (общий #{Simulation3D.TotalSessions + 1}) начата");
+
+            try
+            {
+                var world = new World3D(gridSize);
+                world.GenerateStaticGrid();
+
+                Vector3 seekerPos = world.GetRandomEmptyPosition(0f);
+                Vector3 hiderPos;
+                do
+                {
+                    hiderPos = world.GetRandomEmptyPosition(0f);
+                } while (Vector3.Distance(seekerPos, hiderPos) < 10f);
+
+                var newSeeker = new Agent3D(seekerPos, true, Raylib.GetRandomValue(0, 359));
+                var newHider = new Agent3D(hiderPos, false, Raylib.GetRandomValue(0, 359));
+
+                
+                if (simulation == null)
+                {
+                    simulation = new Simulation3D(gridSize, newSeeker, newHider, seekerQ, hiderQ);
+                }
+                else
+                {
+                    simulation.Reset(newSeeker, newHider);
+                }
+
+                if (sessionCompletedHandler != null)
+                {
+                    simulation.OnSessionCompleted -= sessionCompletedHandler;
+                }
+
+                sessionCompletedHandler = () =>
+                {
+                    if (isExiting) return;
+
+                    Console.WriteLine($"[DEBUG] Сессия #{session} (общий #{Simulation3D.TotalSessions}) завершена");
+                    
+                    if (session % SAVE_INTERVAL == 0)
+                    {
+                        SaveBothTablesAsync();
+                        // Принудительно сохраняем счетчик сессий периодически
+                        Simulation3D.ForceSaveTotalSessions();
+                    }
+                    
+                    Task.Run(() =>
+                    {
+                        System.Threading.Thread.Sleep(100);
+                        if (!isExiting)
+                        {
+                            Reset();
+                        }
+                    });
+                };
+
+                simulation.OnSessionCompleted += sessionCompletedHandler;
+
+                seeker = newSeeker;
+                hider = newHider;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] Ошибка в Reset(): {ex.Message}");
+            }
+        }
+
+        static string PathTo(string file) => Path.Combine(TablesDir, file);
+
+        public static void LoadTable(string file, QTable q)
+        {
+            string path = PathTo(file);
+            if (!File.Exists(path))
+            {
+                Console.WriteLine($"[DEBUG] Файл не найден: {file}");
+                return;
+            }
+
+            try
+            {
+                string json = File.ReadAllText(path);
+                var data = JsonConvert.DeserializeObject<Dictionary<string, float[]>>(json, jsonSettings);
+                if (data == null || data.Count == 0)
+                {
+                    Console.WriteLine($"[DEBUG] Файл пуст: {file}");
+                    return;
+                }
+
+                q.LoadFrom(data);
+                Console.WriteLine($"[DEBUG] Загружено {data.Count} записей из {file}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] Ошибка загрузки {file}: {ex.Message}");
+            }
+        }
+
+        public static async void SaveBothTablesAsync()
+        {
+            if (isExiting) return;
+            
+            try
+            {
+                await Task.Run(() =>
+                {
+                    SaveBothTablesSync();
+                });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] Ошибка асинхронного сохранения: {ex.Message}");
+            }
+        }
+
+        public static void SaveBothTablesSync()
+        {
+            if (isExiting) return;
+
+            try
+            {
+                SaveTableSync(seekerFile, seekerQ);
+                SaveTableSync(hiderFile, hiderQ);
+                
+                Console.WriteLine($"[DEBUG] Обе таблицы сохранены успешно");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] Ошибка сохранения обеих таблиц: {ex.Message}");
+            }
+        }
+
+        public static void SaveTableSync(string file, QTable q)
+        {
+            string path = PathTo(file);
+            try
+            {
+                var current = q.Export();
+                
+                if (current.Count == 0)
+                {
+                    Console.WriteLine($"[WARNING] Пустая таблица для {file}");
+                    return;
+                }
+
+                var combined = new Dictionary<string, float[]>();
+
+                if (File.Exists(path))
+                {
+                    try
+                    {
+                        string existingJson = File.ReadAllText(path);
+                        var existing = JsonConvert.DeserializeObject<Dictionary<string, float[]>>(existingJson, jsonSettings);
+                        if (existing != null)
+                        {
+                            foreach (var kvp in existing)
+                            {
+                                combined[kvp.Key] = kvp.Value;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[WARNING] Не удалось загрузить существующие данные из {file}: {ex.Message}");
+                    }
+                }
+
+                foreach (var kvp in current)
+                {
+                    combined[kvp.Key] = kvp.Value;
+                }
+
+                string json = JsonConvert.SerializeObject(combined, Formatting.None, jsonSettings);
+                File.WriteAllText(path, json);
+                
+                Console.WriteLine($"[DEBUG] Синхронно сохранено {combined.Count} записей в {file}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] Ошибка синхронного сохранения {file}: {ex.Message}");
+            }
         }
     }
 }

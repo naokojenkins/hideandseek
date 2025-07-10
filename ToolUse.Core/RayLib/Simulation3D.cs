@@ -6,6 +6,7 @@ using Newtonsoft.Json;
 using Raylib_cs;
 using ToolUse.Core.RL;
 using ToolUse.Core.Config;
+using ToolUse.Core.RayLib;
 
 namespace ToolUse.Core.RaylibThreeD
 {
@@ -24,7 +25,6 @@ namespace ToolUse.Core.RaylibThreeD
 
         public GameConfig Config { get; private set; }
 
-        // ✅ Добавлено событие
         public event System.Action OnSessionCompleted;
 
         private QAgent _seekerAgent;
@@ -37,7 +37,7 @@ namespace ToolUse.Core.RaylibThreeD
         private bool _showGrid = true;
 
         public int Session { get; private set; } = 1;
-        public static int TotalSessions { get; private set; } = 0; // Общий счетчик сессий
+        public static int TotalSessions { get; private set; } = 0;
         public float Timer { get; private set; } = 0f;
         public float SeekerScore { get; private set; } = 0f;
         public float HiderScore { get; private set; } = 0f;
@@ -47,11 +47,10 @@ namespace ToolUse.Core.RaylibThreeD
         private float _lastVisibilityCheck = 0f;
         private const float _visibilityCheckInterval = 0.05f;
 
-        // Файл для хранения общего счетчика сессий
         private static readonly string SessionCounterFile = Path.Combine(
             Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".",
             "qtables",
-            "total_sessions_3d.json");
+            "total_sessions.json");
 
         private static readonly JsonSerializerSettings JsonSettings = new()
         {
@@ -70,7 +69,6 @@ namespace ToolUse.Core.RaylibThreeD
 
         static Simulation3D()
         {
-            // Загружаем общий счетчик сессий при первом обращении к классу
             LoadTotalSessions();
         }
 
@@ -86,17 +84,15 @@ namespace ToolUse.Core.RaylibThreeD
             World = new World3D(worldSize);
             World.GenerateStaticGrid();
 
-            // Улучшенная генерация seeker - агенты размещаются на полу (Y = 0)
             if (seeker == null)
             {
-                Vector3 seekerPos = World.GetRandomEmptyPosition(0f); // ✅ Изменено с 1.0f на 0f
-                // Дополнительная проверка для seeker
+                Vector3 seekerPos = World.GetRandomEmptyPosition(0f);
                 int seekerX = (int)Math.Floor(seekerPos.X);
                 int seekerZ = (int)Math.Floor(seekerPos.Z);
                 if (World.IsBlocked(seekerX, seekerZ))
                 {
                     Console.WriteLine("[WARNING] Seeker generated in blocked position, finding new position...");
-                    seekerPos = World.GetRandomEmptyPosition(0f); // ✅ Изменено с 1.0f на 0f
+                    seekerPos = World.GetRandomEmptyPosition(0f);
                 }
                 Seeker = new Agent3D(seekerPos, true, Raylib.GetRandomValue(0, 359));
             }
@@ -105,7 +101,6 @@ namespace ToolUse.Core.RaylibThreeD
                 Seeker = seeker;
             }
 
-            // Улучшенная генерация hider
             if (hider == null)
             {
                 Hider = GenerateHiderPosition(Seeker.Position);
@@ -129,9 +124,8 @@ namespace ToolUse.Core.RaylibThreeD
     
             while (attempts < maxAttempts)
             {
-                Vector3 hiderPos = World.GetRandomEmptyPosition(0f); // ✅ Изменено с 1.0f на 0f
+                Vector3 hiderPos = World.GetRandomEmptyPosition(0f);
         
-                // Проверяем, что позиция действительно свободна
                 int x = (int)Math.Floor(hiderPos.X);
                 int z = (int)Math.Floor(hiderPos.Z);
         
@@ -144,10 +138,8 @@ namespace ToolUse.Core.RaylibThreeD
                 attempts++;
             }
     
-            // Если не получилось найти позицию с нужным расстоянием, 
-            // просто берем любую свободную позицию
             Console.WriteLine("[WARNING] Could not find hider position with required distance, using any empty position");
-            Vector3 fallbackPos = World.GetRandomEmptyPosition(0f); // ✅ Изменено с 1.0f на 0f
+            Vector3 fallbackPos = World.GetRandomEmptyPosition(0f);
             return new Agent3D(fallbackPos, false, Raylib.GetRandomValue(0, 359));
         }
 
@@ -300,7 +292,7 @@ namespace ToolUse.Core.RaylibThreeD
         public void Restart()
         {
             Session++;
-            TotalSessions++; // Увеличиваем общий счетчик
+            TotalSessions++;
     
             Timer = 0f;
             SeekerScore = 0f;
@@ -311,37 +303,33 @@ namespace ToolUse.Core.RaylibThreeD
 
             World.GenerateStaticGrid();
     
-            // Улучшенная генерация позиций агентов - на полу (Y = 0)
-            Vector3 seekerPos = World.GetRandomEmptyPosition(0f); // ✅ Изменено с 1.0f на 0f
+            Vector3 seekerPos = World.GetRandomEmptyPosition(0f);
     
-            // Дополнительная проверка для seeker
             int seekerX = (int)Math.Floor(seekerPos.X);
             int seekerZ = (int)Math.Floor(seekerPos.Z);
             if (World.IsBlocked(seekerX, seekerZ))
             {
                 Console.WriteLine("[WARNING] Seeker generated in blocked position, finding new position...");
-                seekerPos = World.GetRandomEmptyPosition(0f); // ✅ Изменено с 1.0f на 0f
+                seekerPos = World.GetRandomEmptyPosition(0f);
             }
     
             Seeker.Position = seekerPos;
             Seeker.Direction = Raylib.GetRandomValue(0, 359);
 
-            // Улучшенная генерация позиции hider - на полу (Y = 0)
-            Vector3 hiderPosition = World.GetRandomEmptyPosition(0f); // ✅ Изменено с 1.0f на 0f
+            Vector3 hiderPosition = World.GetRandomEmptyPosition(0f);
             int attempts = 0;
             while (attempts < 50 && Vector3.Distance(seekerPos, hiderPosition) < 15f)
             {
-                hiderPosition = World.GetRandomEmptyPosition(0f); // ✅ Изменено с 1.0f на 0f
+                hiderPosition = World.GetRandomEmptyPosition(0f);
                 attempts++;
             }
     
-            // Дополнительная проверка для hider
             int hiderX = (int)Math.Floor(hiderPosition.X);
             int hiderZ = (int)Math.Floor(hiderPosition.Z);
             if (World.IsBlocked(hiderX, hiderZ))
             {
                 Console.WriteLine("[WARNING] Hider generated in blocked position, finding new position...");
-                hiderPosition = World.GetRandomEmptyPosition(0f); // ✅ Изменено с 1.0f на 0f
+                hiderPosition = World.GetRandomEmptyPosition(0f);
             }
 
             Hider.Position = hiderPosition;
@@ -349,17 +337,14 @@ namespace ToolUse.Core.RaylibThreeD
 
             Seeker.ResetExploration();
 
-            // Сохраняем общий счетчик каждые 10 сессий
             if (TotalSessions % 10 == 0)
             {
                 SaveTotalSessions();
             }
 
-            // ✅ Вызываем событие завершения сессии
             OnSessionCompleted?.Invoke();
         }
 
-        // Добавляем метод Reset для совместимости с Program3D
         public void Reset(Agent3D newSeeker, Agent3D newHider)
         {
             Seeker = newSeeker;
@@ -400,7 +385,6 @@ namespace ToolUse.Core.RaylibThreeD
             Raylib.DrawRectangle(5, 5, 320, 340, Raylib.ColorAlpha(Color.Black, 0.7f));
 
             int y = 10;
-            // Показываем оба счетчика сессий
             Raylib.DrawText($"Session: {Session} / Total: {TotalSessions}", 10, y, 20, Color.White);
             y += 25;
 
@@ -478,12 +462,10 @@ namespace ToolUse.Core.RaylibThreeD
             if (Raylib.IsKeyPressed(KeyboardKey.R)) Restart();
         }
 
-        // Методы для работы с общим счетчиком сессий
         private static void LoadTotalSessions()
         {
             try
             {
-                // Создаем директорию, если её нет
                 string directory = Path.GetDirectoryName(SessionCounterFile);
                 if (!Directory.Exists(directory))
                 {
@@ -530,13 +512,11 @@ namespace ToolUse.Core.RaylibThreeD
             }
         }
 
-        // Метод для принудительного сохранения счетчика (например, при завершении программы)
         public static void ForceSaveTotalSessions()
         {
             SaveTotalSessions();
         }
 
-        // Класс для хранения данных счетчика сессий
         private class SessionCounterData
         {
             public int TotalSessions { get; set; }
