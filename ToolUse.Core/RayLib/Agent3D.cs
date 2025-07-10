@@ -1,3 +1,4 @@
+
 using System;
 using System.Numerics;
 using Raylib_cs;
@@ -190,7 +191,7 @@ namespace ToolUse.Core.RaylibThreeD
         {
             Raylib_cs.Color coneColor = visionColor ?? new Raylib_cs.Color(255, 255, 0, 80);
     
-            int segments = 40;
+            int segments = 60; // Увеличиваем количество сегментов для более гладкого конуса
             float startAngle = Rotation.Y - VisionAngle / 2f;
             float endAngle = Rotation.Y + VisionAngle / 2f;
 
@@ -200,14 +201,14 @@ namespace ToolUse.Core.RaylibThreeD
             List<Vector3> points = new List<Vector3>();
             points.Add(agentPos); // Центр конуса
 
-            // Добавляем точки по дуге
+            // Добавляем точки по дуге с улучшенным алгоритмом определения столкновений
             for (int i = 0; i <= segments; i++)
             {
                 float angle = startAngle + (endAngle - startAngle) * i / segments;
                 float radians = angle * MathF.PI / 180f;
         
                 Vector3 direction = new Vector3(MathF.Cos(radians), 0, MathF.Sin(radians));
-                Vector3 rayEnd = GetRayEndPoint(Position, direction, VisionRadius, world);
+                Vector3 rayEnd = GetPreciseRayEndPoint(Position, direction, VisionRadius, world);
                 points.Add(rayEnd + new Vector3(0, 0.05f, 0));
             }
 
@@ -222,7 +223,7 @@ namespace ToolUse.Core.RaylibThreeD
                 Vector3 p3 = points[i + 1];  // Следующая точка
         
                 // Проверяем, что точки не совпадают
-                if (Vector3.Distance(p1, p2) > 0.1f && Vector3.Distance(p2, p3) > 0.1f && Vector3.Distance(p1, p3) > 0.1f)
+                if (Vector3.Distance(p1, p2) > 0.01f && Vector3.Distance(p2, p3) > 0.01f && Vector3.Distance(p1, p3) > 0.01f)
                 {
                     // Рисуем треугольник с обеих сторон для лучшей видимости
                     Raylib.DrawTriangle3D(p1, p2, p3, coneColor);
@@ -233,32 +234,89 @@ namespace ToolUse.Core.RaylibThreeD
             Raylib.EndBlendMode();
         }
 
-        private Vector3 GetRayEndPoint(Vector3 start, Vector3 direction, float maxDistance, World3D world)
+        private Vector3 GetPreciseRayEndPoint(Vector3 start, Vector3 direction, float maxDistance, World3D world)
         {
-            Vector3 rayEnd = start + direction * maxDistance;
-
-            // Проверяем коллизии по пути с шагом
-            float step = 0.5f;
-            for (float t = step; t <= maxDistance; t += step)
+            // Используем более точный алгоритм трассировки луча
+            float step = 0.05f; // Уменьшаем шаг для более точного определения коллизий
+            Vector3 currentPos = start;
+            Vector3 lastValidPos = start;
+            
+            for (float t = 0; t <= maxDistance; t += step)
             {
-                Vector3 point = start + direction * t;
+                currentPos = start + direction * t;
                 
                 // Проверяем границы мира
-                if (point.X < 0 || point.X >= world.Size || point.Z < 0 || point.Z >= world.Size)
+                if (currentPos.X < 0 || currentPos.X >= world.Size || 
+                    currentPos.Z < 0 || currentPos.Z >= world.Size)
                 {
-                    rayEnd = start + direction * (t - step);
-                    break;
+                    // Находим точную точку пересечения с границей
+                    return GetBoundaryIntersection(start, direction, lastValidPos, currentPos, world);
                 }
                 
-                // Проверяем коллизии
-                if (world.IsBlocked((int)point.X, (int)point.Z))
+                int gridX = (int)Math.Floor(currentPos.X);
+                int gridZ = (int)Math.Floor(currentPos.Z);
+                
+                // Проверяем коллизии с стенами
+                if (world.IsBlocked(gridX, gridZ))
                 {
-                    rayEnd = start + direction * (t - step);
-                    break;
+                    // Находим точную точку пересечения со стеной
+                    return GetWallIntersection(start, direction, lastValidPos, currentPos, world);
                 }
+                
+                lastValidPos = currentPos;
             }
 
-            return rayEnd;
+            return start + direction * maxDistance;
+        }
+
+        private Vector3 GetBoundaryIntersection(Vector3 start, Vector3 direction, Vector3 lastValid, Vector3 firstInvalid, World3D world)
+        {
+            // Бинарный поиск для точного определения пересечения с границей
+            Vector3 low = lastValid;
+            Vector3 high = firstInvalid;
+            
+            for (int i = 0; i < 10; i++) // 10 итераций достаточно для хорошей точности
+            {
+                Vector3 mid = (low + high) * 0.5f;
+                
+                if (mid.X >= 0 && mid.X < world.Size && mid.Z >= 0 && mid.Z < world.Size)
+                {
+                    low = mid;
+                }
+                else
+                {
+                    high = mid;
+                }
+            }
+            
+            return low;
+        }
+
+        private Vector3 GetWallIntersection(Vector3 start, Vector3 direction, Vector3 lastValid, Vector3 firstInvalid, World3D world)
+        {
+            // Бинарный поиск для точного определения пересечения со стеной
+            Vector3 low = lastValid;
+            Vector3 high = firstInvalid;
+            
+            for (int i = 0; i < 10; i++) // 10 итераций достаточно для хорошей точности
+            {
+                Vector3 mid = (low + high) * 0.5f;
+                
+                int gridX = (int)Math.Floor(mid.X);
+                int gridZ = (int)Math.Floor(mid.Z);
+                
+                if (gridX >= 0 && gridX < world.Size && gridZ >= 0 && gridZ < world.Size && 
+                    !world.IsBlocked(gridX, gridZ))
+                {
+                    low = mid;
+                }
+                else
+                {
+                    high = mid;
+                }
+            }
+            
+            return low;
         }
     }
 }
