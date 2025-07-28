@@ -9,7 +9,6 @@ namespace ToolUse.Core.RaylibThreeD
     {
         public Vector3 Position { get; set; }
         public Vector3 Rotation { get; set; }
-
         public float Direction
         {
             get => Rotation.Y;
@@ -21,12 +20,15 @@ namespace ToolUse.Core.RaylibThreeD
         public bool IsSeeker { get; set; }
         public Color Color { get; set; }
         public float Speed { get; set; } = 2.0f;
+        public float AgentRadius { get; set; } = 0.3f; // Радиус для коллизий
 
+        // Клетки, физически посещённые
         private HashSet<(int x, int z)> ExploredCells { get; } = new();
+        // Клетки, которые были хотя бы раз видимы
         private HashSet<(int x, int z)> VisuallyExploredCells { get; } = new();
 
-        private static int ToGridX(float x) => (int)Math.Floor(x);
-        private static int ToGridZ(float z) => (int)Math.Floor(z);
+        private static int ToGridX(float x) => (int)MathF.Floor(x);
+        private static int ToGridZ(float z) => (int)MathF.Floor(z);
         private static (int x, int z) ToGridCoords(Vector3 position) => (ToGridX(position.X), ToGridZ(position.Z));
 
         public int GridX => ToGridX(Position.X);
@@ -38,8 +40,8 @@ namespace ToolUse.Core.RaylibThreeD
             IsSeeker = isSeeker;
             Rotation = new Vector3(0, initialRotation, 0);
             Color = isSeeker
-                ? new Color(0, 121, 241, 255) // BLUE
-                : new Color(0, 228, 48, 255); // GREEN
+                ? new Color(0, 121, 241, 255)    // BLUE
+                : new Color(0, 228, 48, 255);    // GREEN
 
             if (IsSeeker)
             {
@@ -56,7 +58,12 @@ namespace ToolUse.Core.RaylibThreeD
 
         public int GetExploredCount() => ExploredCells.Count;
         public int GetVisuallyExploredCount() => VisuallyExploredCells.Count;
-        public int GetTotalExploredCount() => ExploredCells.Count + VisuallyExploredCells.Count;
+        public int GetTotalExploredCount()
+        {
+            var union = new HashSet<(int, int)>(ExploredCells);
+            union.UnionWith(VisuallyExploredCells);
+            return union.Count;
+        }
 
         public bool HasExplored(int x, int z) => ExploredCells.Contains((x, z));
         public bool HasVisuallyExplored(int x, int z) => VisuallyExploredCells.Contains((x, z));
@@ -72,6 +79,10 @@ namespace ToolUse.Core.RaylibThreeD
             }
         }
 
+        /// <summary>
+        /// Обновляет визуально исследованные клетки.
+        /// Возвращает количество новых клеток, которые впервые увидены агентом.
+        /// </summary>
         public int UpdateVisualExploration(World3D world)
         {
             if (!IsSeeker) return 0;
@@ -100,6 +111,7 @@ namespace ToolUse.Core.RaylibThreeD
                     if (world.IsBlocked(gridX, gridZ))
                         break;
 
+                    // Клетка не должна быть исследована ни физически, ни визуально
                     if (!VisuallyExploredCells.Contains((gridX, gridZ)) && !ExploredCells.Contains((gridX, gridZ)))
                     {
                         VisuallyExploredCells.Add((gridX, gridZ));
@@ -107,8 +119,27 @@ namespace ToolUse.Core.RaylibThreeD
                     }
                 }
             }
-
             return newCellsExplored;
+        }
+
+        /// <summary>
+        /// Проверка коллизии с учетом радиуса агента.
+        /// </summary>
+        private bool IsPositionBlocked(Vector3 pos, float radius, World3D world)
+        {
+            int numChecks = 8;
+            for (int i = 0; i < numChecks; i++)
+            {
+                float angle = (float)(2 * Math.PI * i / numChecks);
+                float checkX = pos.X + MathF.Cos(angle) * radius;
+                float checkZ = pos.Z + MathF.Sin(angle) * radius;
+                int gridX = ToGridX(checkX);
+                int gridZ = ToGridZ(checkZ);
+
+                if (world.IsBlocked(gridX, gridZ))
+                    return true;
+            }
+            return false;
         }
 
         public bool MoveWithCollisionAvoidance(World3D world, float deltaTime, Agent3D other = null)
@@ -122,38 +153,38 @@ namespace ToolUse.Core.RaylibThreeD
 
             Vector3 newPosition = Position + forward;
 
-            if (world.IsBlocked(ToGridX(newPosition.X), ToGridZ(newPosition.Z)))
+            // Проверка коллизии с учетом радиуса
+            if (IsPositionBlocked(newPosition, AgentRadius, world))
             {
                 bool foundPath = false;
                 for (int attempt = 1; attempt <= 8; attempt++)
                 {
                     float angleOffset = (attempt % 2 == 0) ? attempt * 15 : -attempt * 15;
                     float testAngle = (Rotation.Y + angleOffset) % 360;
-
                     float testRadians = testAngle * MathF.PI / 180f;
                     Vector3 testDirection = new Vector3(
                         MathF.Cos(testRadians) * Speed * deltaTime,
                         0,
                         MathF.Sin(testRadians) * Speed * deltaTime
                     );
-
                     Vector3 testPosition = Position + testDirection;
 
-                    if (!world.IsBlocked(ToGridX(testPosition.X), ToGridZ(testPosition.Z)))
+                    if (!IsPositionBlocked(testPosition, AgentRadius, world))
                     {
                         Rotate(Math.Sign(angleOffset) * 10);
                         foundPath = true;
                         break;
                     }
                 }
-
                 return foundPath;
             }
 
+            // Проверка столкновения с другим агентом, если задан
             if (other != null)
             {
                 float distanceToOther = Vector3.Distance(newPosition, other.Position);
-                if (distanceToOther < 0.8f)
+                float minAgentDist = AgentRadius + other.AgentRadius;
+                if (distanceToOther < minAgentDist)
                 {
                     Vector3 avoidDirection = Vector3.Normalize(Position - other.Position);
                     float avoidAngle = MathF.Atan2(avoidDirection.Z, avoidDirection.X) * 180f / MathF.PI;
@@ -173,8 +204,8 @@ namespace ToolUse.Core.RaylibThreeD
             if (IsSeeker)
             {
                 var gridCoords = ToGridCoords(Position);
+                // Только добавляем, никогда не удаляем из Visual!
                 ExploredCells.Add(gridCoords);
-                VisuallyExploredCells.Remove(gridCoords);
             }
 
             return true;
@@ -187,7 +218,6 @@ namespace ToolUse.Core.RaylibThreeD
 
             Vector3 toOther = Vector3.Normalize(other.Position - Position);
             float angleToOther = MathF.Atan2(toOther.Z, toOther.X) * 180f / MathF.PI;
-
             if (angleToOther < 0) angleToOther += 360f;
 
             float currentDirection = Rotation.Y;
@@ -205,9 +235,9 @@ namespace ToolUse.Core.RaylibThreeD
         public void Draw()
         {
             Raylib.DrawCapsule(
-                Position + new Vector3(0, 0, 0),
+                Position,
                 Position + new Vector3(0, 1.5f, 0),
-                0.3f,
+                AgentRadius,
                 8,
                 8,
                 Color
@@ -217,6 +247,7 @@ namespace ToolUse.Core.RaylibThreeD
         public void DrawVisionCone(World3D world, Color? visionColor = null)
         {
             Color coneColor = visionColor ?? new Color(255, 255, 0, 80);
+
             int segments = 60;
             float startAngle = Rotation.Y - VisionAngle / 2f;
             float endAngle = Rotation.Y + VisionAngle / 2f;
@@ -230,14 +261,12 @@ namespace ToolUse.Core.RaylibThreeD
             {
                 float angle = startAngle + (endAngle - startAngle) * i / segments;
                 float radians = angle * MathF.PI / 180f;
-
                 Vector3 direction = new Vector3(MathF.Cos(radians), 0, MathF.Sin(radians));
                 Vector3 rayEnd = GetPreciseRayEndPoint(Position, direction, VisionRadius, world);
                 points.Add(rayEnd + new Vector3(0, 0.05f, 0));
             }
 
             Raylib.BeginBlendMode(BlendMode.Alpha);
-
             for (int i = 1; i < points.Count - 1; i++)
             {
                 Vector3 p1 = points[0];
@@ -250,7 +279,6 @@ namespace ToolUse.Core.RaylibThreeD
                     Raylib.DrawTriangle3D(p1, p3, p2, coneColor);
                 }
             }
-
             Raylib.EndBlendMode();
         }
 
@@ -263,7 +291,6 @@ namespace ToolUse.Core.RaylibThreeD
             for (float t = 0; t <= maxDistance; t += step)
             {
                 currentPos = start + direction * t;
-
                 if (currentPos.X < 0 || currentPos.X >= world.Size ||
                     currentPos.Z < 0 || currentPos.Z >= world.Size)
                 {
@@ -277,10 +304,8 @@ namespace ToolUse.Core.RaylibThreeD
                 {
                     return GetWallIntersection(start, direction, lastValidPos, currentPos, world);
                 }
-
                 lastValidPos = currentPos;
             }
-
             return start + direction * maxDistance;
         }
 
@@ -302,7 +327,6 @@ namespace ToolUse.Core.RaylibThreeD
                     high = mid;
                 }
             }
-
             return low;
         }
 
@@ -327,7 +351,6 @@ namespace ToolUse.Core.RaylibThreeD
                     high = mid;
                 }
             }
-
             return low;
         }
     }

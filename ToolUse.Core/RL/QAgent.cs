@@ -12,6 +12,8 @@ namespace ToolUse.Core.RL
         private readonly float _gamma;
         private readonly float _epsilon;
 
+        private static readonly int ActionCount = 3;
+
         public QAgent(QTable table, float alpha = 0.1f, float gamma = 0.9f, float epsilon = 0.1f)
         {
             _table = table;
@@ -20,21 +22,23 @@ namespace ToolUse.Core.RL
             _epsilon = epsilon;
         }
 
-        public void UpdateAgent(Agent3D agent)
-        {
-            // Метод зарезервирован для расширения
-        }
-
         public int ChooseAction(State state)
         {
             var values = _table.Get(state);
 
-            if (Random.Shared.NextDouble() < _epsilon)
+            if (new Random().NextDouble() < _epsilon)
             {
-                return Random.Shared.Next(0, 4);
+                return new Random().Next(0, ActionCount);
             }
 
-            return Array.IndexOf(values, values.Max());
+            float max = values.Max();
+            var bestActions = values
+                .Select((v, idx) => (v, idx))
+                .Where(pair => Math.Abs(pair.v - max) < 1e-6)
+                .Select(pair => pair.idx)
+                .ToArray();
+
+            return bestActions[new Random().Next(bestActions.Length)];
         }
 
         public void Learn(State oldState, int action, float reward, State newState)
@@ -47,13 +51,6 @@ namespace ToolUse.Core.RL
 
             oldValues[action] = newValue;
             _table.Set(oldState, oldValues);
-        }
-
-        private int GetTableId()
-        {
-            var type = _table.GetType();
-            var field = type.GetField("_id", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            return (int)(field?.GetValue(_table) ?? -1);
         }
     }
 }

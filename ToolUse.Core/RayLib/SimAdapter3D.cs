@@ -45,6 +45,7 @@ namespace ToolUse.Core.RaylibThreeD
 
         public void ApplyAction(Agent3D agent, int action)
         {
+            // 0 - поворот влево, 1 - вправо, 2 - вперед
             switch (action)
             {
                 case 0:
@@ -54,7 +55,7 @@ namespace ToolUse.Core.RaylibThreeD
                     agent.Rotate(+30f);
                     break;
                 case 2:
-                    // Движение вперед обрабатывается отдельно
+                    // движение вперед отдельно
                     break;
             }
         }
