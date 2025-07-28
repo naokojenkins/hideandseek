@@ -31,12 +31,9 @@ namespace ToolUse.Core.RaylibThreeD
         private HashSet<(int x, int z)> ExploredCells { get; } = new();
         private HashSet<(int x, int z)> VisuallyExploredCells { get; } = new();
 
-        private int _worldSize = 64; // По умолчанию, можно обновлять через InitWorldSize
+        private int _worldSize = 64; // По умолчанию
 
-        public void InitWorldSize(int size)
-        {
-            _worldSize = size;
-        }
+        public void InitWorldSize(int size) => _worldSize = size;
 
         private static int ToGridX(float x, int size) => Math.Clamp((int)Math.Floor(x), 0, size - 1);
         private static int ToGridZ(float z, int size) => Math.Clamp((int)Math.Floor(z), 0, size - 1);
@@ -202,7 +199,7 @@ namespace ToolUse.Core.RaylibThreeD
                 if (!ExploredCells.Contains(gridCoords))
                 {
                     ExploredCells.Add(gridCoords);
-                    VisuallyExploredCells.Remove(gridCoords); // Только если было visual — теперь стало physical
+                    // VisuallyExploredCells.Remove(gridCoords); // Удаление не требуется — для накопительной статистики
                 }
             }
 

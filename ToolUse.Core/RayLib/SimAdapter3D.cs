@@ -1,7 +1,7 @@
 using ToolUse.Core.RL;
 using ToolUse.Core.RaylibThreeD;
 
-namespace ToolUse.Core.RaylibThreeD
+namespace ToolUse.Core.RayLib
 {
     public class SimAdapter3D
     {
@@ -18,22 +18,26 @@ namespace ToolUse.Core.RaylibThreeD
 
         public State GetSeekerState()
         {
+            int sector = (int)(MathF.Round(_seeker.Direction / 45f) % 8);
             return new State(
                 _seeker.GridX,
                 _seeker.GridZ,
                 _hider.GridX,
                 _hider.GridZ,
+                sector,
                 IsVisible()
             );
         }
 
         public State GetHiderState()
         {
+            int sector = (int)(MathF.Round(_hider.Direction / 45f) % 8);
             return new State(
                 _hider.GridX,
                 _hider.GridZ,
                 _seeker.GridX,
                 _seeker.GridZ,
+                sector,
                 IsVisible()
             );
         }
@@ -45,7 +49,6 @@ namespace ToolUse.Core.RaylibThreeD
 
         public void ApplyAction(Agent3D agent, int action)
         {
-            // 0 - поворот влево, 1 - вправо, 2 - вперед
             switch (action)
             {
                 case 0:
@@ -55,7 +58,7 @@ namespace ToolUse.Core.RaylibThreeD
                     agent.Rotate(+30f);
                     break;
                 case 2:
-                    // движение вперед отдельно
+                    // Вперёд (движение происходит отдельно)
                     break;
             }
         }

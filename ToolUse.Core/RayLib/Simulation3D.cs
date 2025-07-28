@@ -6,6 +6,7 @@ using Newtonsoft.Json;
 using Raylib_cs;
 using ToolUse.Core.RL;
 using ToolUse.Core.Config;
+using ToolUse.Core.RayLib;
 
 namespace ToolUse.Core.RaylibThreeD
 {
@@ -17,13 +18,8 @@ namespace ToolUse.Core.RaylibThreeD
         public bool IsHiderCaught => _isHiderCaught;
         private float sessionDurationSeconds;
 
-        public void SetSessionDuration(float seconds)
-        {
-            sessionDurationSeconds = seconds;
-        }
-
+        public void SetSessionDuration(float seconds) => sessionDurationSeconds = seconds;
         public GameConfig Config { get; private set; }
-
         public event Action? OnSessionCompleted;
 
         private QAgent _seekerAgent;
@@ -121,23 +117,18 @@ namespace ToolUse.Core.RaylibThreeD
         {
             int maxAttempts = 100;
             int attempts = 0;
-    
             while (attempts < maxAttempts)
             {
                 Vector3 hiderPos = World.GetRandomEmptyPosition(0f);
-        
                 int x = (int)Math.Floor(hiderPos.X);
                 int z = (int)Math.Floor(hiderPos.Z);
-        
                 if (World.IsInside(x, z) && !World.IsBlocked(x, z) && 
                     Vector3.Distance(seekerPos, hiderPos) >= 15f)
                 {
                     return new Agent3D(hiderPos, false, Raylib.GetRandomValue(0, 359));
                 }
-        
                 attempts++;
             }
-    
             Console.WriteLine("[WARNING] Could not find hider position with required distance, using any empty position");
             Vector3 fallbackPos = World.GetRandomEmptyPosition(0f);
             return new Agent3D(fallbackPos, false, Raylib.GetRandomValue(0, 359));
@@ -153,7 +144,7 @@ namespace ToolUse.Core.RaylibThreeD
                 FovY = 45.0f,
                 Projection = CameraProjection.Perspective
             };
-            _fixedCameraState = _camera; // На старте фиксированное состояние = дефолтное
+            _fixedCameraState = _camera;
         }
 
         private void UpdateCamera()
@@ -161,9 +152,12 @@ namespace ToolUse.Core.RaylibThreeD
             if (!_followAgent)
             {
                 Raylib.UpdateCamera(ref _camera, CameraMode.Free);
-                _fixedCameraState = _camera; // обновляем сохранённое положение при каждом кадре в свободном режиме
+                _fixedCameraState = _camera; // сохраняем положение
             }
-            // если _followAgent — просто оставляем _camera как есть (позиция фиксирована)
+            else
+            {
+                _camera = _fixedCameraState;
+            }
         }
 
         public void HandleInput()
@@ -173,13 +167,11 @@ namespace ToolUse.Core.RaylibThreeD
                 _followAgent = !_followAgent;
                 if (_followAgent)
                 {
-                    // Фиксируем камеру в текущем положении и освобождаем мышь
                     _fixedCameraState = _camera;
                     Raylib.EnableCursor();
                 }
                 else
                 {
-                    // Возвращаем управление мышью, камера остается в том же положении
                     _camera = _fixedCameraState;
                     Raylib.DisableCursor();
                 }
@@ -440,10 +432,8 @@ namespace ToolUse.Core.RaylibThreeD
 
             Raylib.DrawText($"Physical: {Seeker.GetExploredCount()}", 10, y, 18, new Color(255, 220, 0, 255));
             y += 22;
-    
             Raylib.DrawText($"Visual: {Seeker.GetVisuallyExploredCount()}", 10, y, 18, new Color(255, 170, 30, 255));
             y += 22;
-    
             Raylib.DrawText($"Total: {Seeker.GetTotalExploredCount()}", 10, y, 18, new Color(150, 80, 255, 255));
             y += 25;
 
@@ -521,10 +511,7 @@ namespace ToolUse.Core.RaylibThreeD
             }
         }
 
-        public static void ForceSaveTotalSessions()
-        {
-            SaveTotalSessions();
-        }
+        public static void ForceSaveTotalSessions() => SaveTotalSessions();
 
         private class SessionCounterData
         {
