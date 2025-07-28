@@ -10,10 +10,10 @@ namespace ToolUse.Core.RaylibThreeD
     {
         public TileType[,] Grid { get; }
         public int Size { get; }
-        public float CellSize { get; set; } = 1.0f;
-        public float WallHeight { get; set; } = 2.0f;
-        public Color FloorColor { get; set; } = new Color(200, 200, 200, 255); // LIGHTGRAY
-        public Color WallColor { get; set; } = new Color(80, 80, 80, 255);     // DARKGRAY
+        public float CellSize { get; set; }
+        public float WallHeight { get; set; }
+        public Color FloorColor { get; set; } = new Color(200, 200, 200, 255); // светло-серый
+        public Color WallColor { get; set; } = new Color(80, 80, 80, 255);     // тёмно-серый
         public int RoomSize { get; set; } = 8;
 
         private readonly Random _rng = new();
@@ -22,18 +22,15 @@ namespace ToolUse.Core.RaylibThreeD
         {
             Size = size;
             Grid = new TileType[size, size];
-
             var config = GameConfig.Load();
             CellSize = config.World.CellSize;
             WallHeight = config.World.WallHeight;
             RoomSize = config.World.RoomSize;
-
             if (RoomSize >= Size - 2)
             {
                 RoomSize = Math.Max(4, Size / 4);
                 Console.WriteLine($"[WARNING] RoomSize слишком большой для поля {Size}x{Size}, установлен в {RoomSize}");
             }
-
             GenerateStaticGrid();
         }
 
@@ -45,26 +42,29 @@ namespace ToolUse.Core.RaylibThreeD
 
         public void GenerateStaticGrid()
         {
+            // Все клетки — пустые
             for (int x = 0; x < Size; x++)
                 for (int z = 0; z < Size; z++)
                     Grid[x, z] = TileType.Empty;
 
+            // Рамка стен по краям
             for (int x = 0; x < Size; x++)
             {
                 Grid[x, 0] = TileType.Wall;
                 Grid[x, Size - 1] = TileType.Wall;
             }
-
             for (int z = 0; z < Size; z++)
             {
                 Grid[0, z] = TileType.Wall;
                 Grid[Size - 1, z] = TileType.Wall;
             }
 
+            // Внутренние стены — если поле достаточно большое
             if (Size > RoomSize * 2)
             {
                 int roomsInRow = Size / RoomSize;
 
+                // Горизонтальные стены
                 for (int roomY = 1; roomY < roomsInRow; roomY++)
                 {
                     int z = roomY * RoomSize;
@@ -77,7 +77,6 @@ namespace ToolUse.Core.RaylibThreeD
                     {
                         int gapStart = i * RoomSize + 1;
                         int gapEnd = Math.Min(gapStart + RoomSize - 2, Size - 2);
-
                         if (gapStart < gapEnd)
                         {
                             int gapX = _rng.Next(gapStart, gapEnd);
@@ -88,6 +87,7 @@ namespace ToolUse.Core.RaylibThreeD
                     }
                 }
 
+                // Вертикальные стены
                 for (int roomX = 1; roomX < roomsInRow; roomX++)
                 {
                     int x = roomX * RoomSize;
@@ -100,7 +100,6 @@ namespace ToolUse.Core.RaylibThreeD
                     {
                         int gapStart = i * RoomSize + 1;
                         int gapEnd = Math.Min(gapStart + RoomSize - 2, Size - 2);
-
                         if (gapStart < gapEnd)
                         {
                             int gapZ = _rng.Next(gapStart, gapEnd);
@@ -112,6 +111,7 @@ namespace ToolUse.Core.RaylibThreeD
                 }
             }
 
+            // Для отладки: считаем число свободных клеток
             int emptyCount = 0;
             for (int x = 0; x < Size; x++)
                 for (int z = 0; z < Size; z++)
@@ -122,15 +122,16 @@ namespace ToolUse.Core.RaylibThreeD
 
         public void Draw(bool showShadows = true)
         {
+            // Рисуем пол
             for (int x = 0; x < Size; x++)
             {
                 for (int z = 0; z < Size; z++)
                 {
                     if (Grid[x, z] == TileType.Empty)
                     {
-                        Color tileColor = ((x + z) % 2 == 0) ?
-                            Raylib.ColorBrightness(FloorColor, 0.9f) :
-                            Raylib.ColorBrightness(FloorColor, 1.1f);
+                        Color tileColor = ((x + z) % 2 == 0)
+                            ? Brightness(FloorColor, 0.93f)
+                            : Brightness(FloorColor, 1.10f);
 
                         Raylib.DrawCube(
                             new Vector3(x + 0.5f, -0.1f, z + 0.5f),
@@ -141,6 +142,7 @@ namespace ToolUse.Core.RaylibThreeD
                 }
             }
 
+            // Рисуем стены
             for (int x = 0; x < Size; x++)
             {
                 for (int z = 0; z < Size; z++)
@@ -149,19 +151,14 @@ namespace ToolUse.Core.RaylibThreeD
                     {
                         Vector3 wallPosition = new Vector3(x + 0.5f, WallHeight / 2, z + 0.5f);
                         Vector3 wallSize = new Vector3(CellSize, WallHeight, CellSize);
-
                         Raylib.DrawCube(wallPosition, wallSize.X, wallSize.Y, wallSize.Z, WallColor);
-
-                        Color black = new Color(0, 0, 0, 255);
-                        Raylib.DrawCubeWires(wallPosition, wallSize.X, wallSize.Y, wallSize.Z, black);
-
+                        Raylib.DrawCubeWires(wallPosition, wallSize.X, wallSize.Y, wallSize.Z, new Color(0, 0, 0, 255));
                         if (showShadows)
                         {
-                            Color shadow = Raylib.ColorBrightness(WallColor, 0.5f);
                             Raylib.DrawCube(
                                 new Vector3(x + 0.5f, -0.05f, z + 0.5f),
                                 CellSize * 1.1f, 0.1f, CellSize * 1.1f,
-                                shadow
+                                Brightness(WallColor, 0.5f)
                             );
                         }
                     }
@@ -171,38 +168,26 @@ namespace ToolUse.Core.RaylibThreeD
 
         public void DrawGrid()
         {
-            Color darkGray = new Color(80, 80, 80, 255); // DARKGRAY
+            // Сетка на уровне пола
             for (int x = 0; x <= Size; x++)
-            {
                 Raylib.DrawLine3D(
                     new Vector3(x, 0.01f, 0),
                     new Vector3(x, 0.01f, Size),
-                    darkGray
-                );
-            }
-
+                    new Color(60, 60, 60, 255));
             for (int z = 0; z <= Size; z++)
-            {
                 Raylib.DrawLine3D(
                     new Vector3(0, 0.01f, z),
                     new Vector3(Size, 0.01f, z),
-                    darkGray
-                );
-            }
+                    new Color(60, 60, 60, 255));
         }
 
         public Vector3 GetRandomEmptyPosition(float heightOffset = 0f)
         {
             var emptyPositions = new List<Vector2>();
-
             for (int x = 1; x < Size - 1; x++)
-            {
                 for (int z = 1; z < Size - 1; z++)
-                {
                     if (Grid[x, z] == TileType.Empty)
                         emptyPositions.Add(new Vector2(x, z));
-                }
-            }
 
             if (emptyPositions.Count == 0)
             {
@@ -211,29 +196,20 @@ namespace ToolUse.Core.RaylibThreeD
             }
 
             var randomPos = emptyPositions[_rng.Next(emptyPositions.Count)];
-            var result = new Vector3(randomPos.X + 0.5f, heightOffset, randomPos.Y + 0.5f);
-            Console.WriteLine($"[DEBUG] Найдена свободная позиция: ({randomPos.X}, {randomPos.Y}) из {emptyPositions.Count} доступных");
-            return result;
+            return new Vector3(randomPos.X + 0.5f, heightOffset, randomPos.Y + 0.5f);
         }
 
         public Vector3 GetRandomEmptyPositionFarFrom(Vector3 otherPosition, float minDistance, float heightOffset = 0f)
         {
             var emptyPositions = new List<Vector2>();
-
             for (int x = 1; x < Size - 1; x++)
-            {
                 for (int z = 1; z < Size - 1; z++)
-                {
                     if (Grid[x, z] == TileType.Empty)
                     {
                         var pos = new Vector3(x + 0.5f, heightOffset, z + 0.5f);
                         if (Vector3.Distance(pos, otherPosition) >= minDistance)
-                        {
                             emptyPositions.Add(new Vector2(x, z));
-                        }
                     }
-                }
-            }
 
             if (emptyPositions.Count == 0)
             {
@@ -242,11 +218,12 @@ namespace ToolUse.Core.RaylibThreeD
             }
 
             var randomPos = emptyPositions[_rng.Next(emptyPositions.Count)];
-            var result = new Vector3(randomPos.X + 0.5f, heightOffset, randomPos.Y + 0.5f);
-            Console.WriteLine($"[DEBUG] Найдена свободная позиция далеко от другой: ({randomPos.X}, {randomPos.Y}) из {emptyPositions.Count} доступных");
-            return result;
+            return new Vector3(randomPos.X + 0.5f, heightOffset, randomPos.Y + 0.5f);
         }
 
+        /// <summary>
+        /// Линия прямой видимости: возвращает true если нет стены между точками.
+        /// </summary>
         public bool HasLineOfSight(Vector3 from, Vector3 to)
         {
             Vector3 direction = Vector3.Normalize(to - from);
@@ -256,16 +233,22 @@ namespace ToolUse.Core.RaylibThreeD
             for (float t = 0; t < distance; t += step)
             {
                 Vector3 point = from + direction * t;
-                int x = (int)Math.Floor(point.X);
-                int z = (int)Math.Floor(point.Z);
-
+                int x = Math.Clamp((int)MathF.Floor(point.X), 0, Size - 1);
+                int z = Math.Clamp((int)MathF.Floor(point.Z), 0, Size - 1);
                 if (IsBlocked(x, z))
-                {
                     return false;
-                }
             }
-
             return true;
+        }
+
+        // Яркость цвета (новый API: R,G,B,A)
+        private static Color Brightness(Color color, float factor)
+        {
+            byte r = (byte)Math.Clamp((int)(color.R * factor), 0, 255);
+            byte g = (byte)Math.Clamp((int)(color.G * factor), 0, 255);
+            byte b = (byte)Math.Clamp((int)(color.B * factor), 0, 255);
+            byte a = color.A;
+            return new Color(r, g, b, a);
         }
     }
 }

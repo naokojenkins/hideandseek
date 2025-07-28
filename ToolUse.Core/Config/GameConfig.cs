@@ -1,4 +1,3 @@
-
 using System;
 using System.IO;
 using Newtonsoft.Json;
@@ -66,5 +65,11 @@ namespace ToolUse.Core.Config
         public bool DistanceRewardEnabled { get; set; } = true;
         public float MinSafeDistance { get; set; } = 5.0f;
         public float DistanceRewardMultiplier { get; set; } = 1.0f;
+
+        // Новые параметры (используются в Agent3D)
+        public float VisionRadius { get; set; } = 8.0f;
+        public float VisionAngle { get; set; } = 90.0f;
+        public float AgentRadius { get; set; } = 0.3f;
+        public float Speed { get; set; } = 2.0f;
     }
 }

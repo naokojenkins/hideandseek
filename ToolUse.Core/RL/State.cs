@@ -12,16 +12,17 @@ namespace ToolUse.Core.RL
 
         public State(int ax, int ay, int ox, int oy, bool see)
         {
-            AgentX = ax;
-            AgentY = ay;
-            OtherX = ox;
-            OtherY = oy;
+            AgentX = Math.Max(0, ax);
+            AgentY = Math.Max(0, ay);
+            OtherX = Math.Max(0, ox);
+            OtherY = Math.Max(0, oy);
             CanSee = see;
         }
 
         public override string ToString()
         {
-            return $"ax={AgentX},ay={AgentY},ox={OtherX},oy={OtherY},see={CanSee}";
+            string result = $"ax={AgentX},ay={AgentY},ox={OtherX},oy={OtherY},see={CanSee}";
+            return result;
         }
 
         public static State FromString(string s)
@@ -34,11 +35,12 @@ namespace ToolUse.Core.RL
                 int ox = int.Parse(p[2][3..]);
                 int oy = int.Parse(p[3][3..]);
                 bool v = bool.Parse(p[4][4..]);
+
                 return new State(ax, ay, ox, oy, v);
             }
             catch (Exception ex)
             {
-                throw new FormatException($"State.FromString: не удалось разобрать строку '{s}'", ex);
+                throw;
             }
         }
 

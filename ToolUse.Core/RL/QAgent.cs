@@ -11,8 +11,7 @@ namespace ToolUse.Core.RL
         private readonly float _alpha;
         private readonly float _gamma;
         private readonly float _epsilon;
-
-        private static readonly int ActionCount = 3;
+        private static readonly Random _rng = new(); // static!
 
         public QAgent(QTable table, float alpha = 0.1f, float gamma = 0.9f, float epsilon = 0.1f)
         {
@@ -22,23 +21,16 @@ namespace ToolUse.Core.RL
             _epsilon = epsilon;
         }
 
+        public void UpdateAgent(Agent3D agent) { }
+
         public int ChooseAction(State state)
         {
             var values = _table.Get(state);
-
-            if (new Random().NextDouble() < _epsilon)
+            if (_rng.NextDouble() < _epsilon)
             {
-                return new Random().Next(0, ActionCount);
+                return _rng.Next(0, values.Length);
             }
-
-            float max = values.Max();
-            var bestActions = values
-                .Select((v, idx) => (v, idx))
-                .Where(pair => Math.Abs(pair.v - max) < 1e-6)
-                .Select(pair => pair.idx)
-                .ToArray();
-
-            return bestActions[new Random().Next(bestActions.Length)];
+            return Array.IndexOf(values, values.Max());
         }
 
         public void Learn(State oldState, int action, float reward, State newState)
