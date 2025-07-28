@@ -21,14 +21,11 @@ namespace ToolUse.Core.RL
 
         public override string ToString()
         {
-            string result = $"ax={AgentX},ay={AgentY},ox={OtherX},oy={OtherY},see={CanSee}";
-            //Console.WriteLine($"[DEBUG] State.ToString() => {result}");
-            return result;
+            return $"ax={AgentX},ay={AgentY},ox={OtherX},oy={OtherY},see={CanSee}";
         }
 
         public static State FromString(string s)
         {
-            //Console.WriteLine($"[DEBUG] State.FromString() => Parsing '{s}'");
             try
             {
                 var p = s.Split(',');
@@ -37,13 +34,11 @@ namespace ToolUse.Core.RL
                 int ox = int.Parse(p[2][3..]);
                 int oy = int.Parse(p[3][3..]);
                 bool v = bool.Parse(p[4][4..]);
-
                 return new State(ax, ay, ox, oy, v);
             }
             catch (Exception ex)
             {
-                //Console.WriteLine($"[ERROR] State.FromString() => Failed to parse '{s}': {ex.Message}");
-                throw;
+                throw new FormatException($"State.FromString: не удалось разобрать строку '{s}'", ex);
             }
         }
 

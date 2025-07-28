@@ -1,8 +1,9 @@
-namespace ToolUse.Core;
-
-public enum TileType
+namespace ToolUse.Core
 {
-    Empty,
-    Wall,
-    Object
+    public enum TileType
+    {
+        Empty,
+        Wall,
+        Object
+    }
 }

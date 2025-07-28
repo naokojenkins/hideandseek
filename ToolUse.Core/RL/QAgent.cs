@@ -22,16 +22,16 @@ namespace ToolUse.Core.RL
 
         public void UpdateAgent(Agent3D agent)
         {
-            // Логирование отключено
+            // Метод зарезервирован для расширения
         }
 
         public int ChooseAction(State state)
         {
             var values = _table.Get(state);
 
-            if (new Random().NextDouble() < _epsilon)
+            if (Random.Shared.NextDouble() < _epsilon)
             {
-                return new Random().Next(0, 4);
+                return Random.Shared.Next(0, 4);
             }
 
             return Array.IndexOf(values, values.Max());

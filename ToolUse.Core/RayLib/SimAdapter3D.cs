@@ -1,7 +1,7 @@
 using ToolUse.Core.RL;
 using ToolUse.Core.RaylibThreeD;
 
-namespace ToolUse.Core.RayLib
+namespace ToolUse.Core.RaylibThreeD
 {
     public class SimAdapter3D
     {

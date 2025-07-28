@@ -67,13 +67,13 @@ namespace ToolUse.Sim
             LoadTable(seekerFile, seekerQ);
             LoadTable(hiderFile, hiderQ);
             Console.WriteLine($"Загружено: Seeker={seekerQ.Export().Count}, Hider={hiderQ.Export().Count} записей");
-            
+
             // Создаем временный экземпляр для инициализации статического счетчика
-            var tempSimulation = new Simulation3D(gridSize, 
-                new Agent3D(new Vector3(1, 0, 1), true, 0), 
-                new Agent3D(new Vector3(2, 0, 2), false, 0), 
+            var tempSimulation = new Simulation3D(gridSize,
+                new Agent3D(new Vector3(1, 0, 1), true, 0),
+                new Agent3D(new Vector3(2, 0, 2), false, 0),
                 seekerQ, hiderQ);
-            
+
             Console.WriteLine($"Общий счетчик сессий: {Simulation3D.TotalSessions}");
 
             Raylib.InitWindow(screenW, screenH, "ToolUse – 3D Hide & Seek");
@@ -92,9 +92,9 @@ namespace ToolUse.Sim
                         simulation?.Update(1f / FPS);
 
                         Raylib.BeginDrawing();
-                        Raylib.ClearBackground(Color.RayWhite);
+                        Raylib.ClearBackground(new Color(245, 245, 245, 255));
                         simulation?.Draw();
-                        
+
                         Raylib.EndDrawing();
                     }
                     catch (Exception ex)
@@ -131,7 +131,7 @@ namespace ToolUse.Sim
 
                 Console.WriteLine("Финальное сохранение...");
                 SaveBothTablesSync();
-                
+
                 Simulation3D.ForceSaveTotalSessions();
             }
             catch (Exception ex)
@@ -154,12 +154,12 @@ namespace ToolUse.Sim
             Console.WriteLine($"Программа завершена. Всего сессий за историю: {Simulation3D.TotalSessions}");
         }
 
-                static void Reset()
+        static void Reset()
         {
             if (isExiting) return;
 
             session++;
-            
+
             Console.WriteLine($"[DEBUG] Сессия #{session} (общий #{Simulation3D.TotalSessions + 1}) начата");
 
             try
@@ -169,17 +169,16 @@ namespace ToolUse.Sim
 
                 Vector3 seekerPos = world.GetRandomEmptyPosition(0f);
                 Console.WriteLine($"[DEBUG] Seeker позиция: ({seekerPos.X:F1}, {seekerPos.Y:F1}, {seekerPos.Z:F1})");
-                
+
                 Vector3 hiderPos = world.GetRandomEmptyPositionFarFrom(seekerPos, 5f, 0f);
                 Console.WriteLine($"[DEBUG] Hider позиция: ({hiderPos.X:F1}, {hiderPos.Y:F1}, {hiderPos.Z:F1})");
-                
+
                 float actualDistance = Vector3.Distance(seekerPos, hiderPos);
                 Console.WriteLine($"[DEBUG] Расстояние между агентами: {actualDistance:F1}");
 
                 var newSeeker = new Agent3D(seekerPos, true, Raylib.GetRandomValue(0, 359));
                 var newHider = new Agent3D(hiderPos, false, Raylib.GetRandomValue(0, 359));
 
-                
                 if (simulation == null)
                 {
                     simulation = new Simulation3D(gridSize, newSeeker, newHider, seekerQ, hiderQ);
@@ -199,14 +198,13 @@ namespace ToolUse.Sim
                     if (isExiting) return;
 
                     Console.WriteLine($"[DEBUG] Сессия #{session} (общий #{Simulation3D.TotalSessions}) завершена");
-                    
+
                     if (session % SAVE_INTERVAL == 0)
                     {
                         SaveBothTablesAsync();
-                        // Принудительно сохраняем счетчик сессий периодически
                         Simulation3D.ForceSaveTotalSessions();
                     }
-                    
+
                     Task.Run(() =>
                     {
                         System.Threading.Thread.Sleep(100);
@@ -261,7 +259,7 @@ namespace ToolUse.Sim
         public static async void SaveBothTablesAsync()
         {
             if (isExiting) return;
-            
+
             try
             {
                 await Task.Run(() =>
@@ -283,7 +281,7 @@ namespace ToolUse.Sim
             {
                 SaveTableSync(seekerFile, seekerQ);
                 SaveTableSync(hiderFile, hiderQ);
-                
+
                 Console.WriteLine($"[DEBUG] Обе таблицы сохранены успешно");
             }
             catch (Exception ex)
@@ -298,7 +296,7 @@ namespace ToolUse.Sim
             try
             {
                 var current = q.Export();
-                
+
                 if (current.Count == 0)
                 {
                     Console.WriteLine($"[WARNING] Пустая таблица для {file}");
@@ -334,7 +332,7 @@ namespace ToolUse.Sim
 
                 string json = JsonConvert.SerializeObject(combined, Formatting.None, jsonSettings);
                 File.WriteAllText(path, json);
-                
+
                 Console.WriteLine($"[DEBUG] Синхронно сохранено {combined.Count} записей в {file}");
             }
             catch (Exception ex)
