@@ -6,7 +6,6 @@ using Newtonsoft.Json;
 using Raylib_cs;
 using ToolUse.Core.RL;
 using ToolUse.Core.Config;
-using ToolUse.Core.RaylibThreeD;
 
 namespace ToolUse.Core.RaylibThreeD
 {
@@ -25,14 +24,14 @@ namespace ToolUse.Core.RaylibThreeD
 
         public GameConfig Config { get; private set; }
 
-        public event System.Action? OnSessionCompleted;
+        public event Action? OnSessionCompleted;
 
         private QAgent _seekerAgent;
         private QAgent _hiderAgent;
         private readonly SimAdapter3D _adapter;
 
         private Camera3D _camera;
-        private bool _followAgent = true;
+        private bool _cameraLocked = false; // теперь это "фиксирована ли камера"
         private bool _showVisionCones = true;
         private bool _showGrid = true;
 
@@ -145,14 +144,17 @@ namespace ToolUse.Core.RaylibThreeD
 
         private void InitializeCamera()
         {
+            float center = World.Size / 2f;
             _camera = new Camera3D
             {
-                Position = new Vector3(World.Size / 2f, 25f, World.Size / 2f),
-                Target = new Vector3(World.Size / 2f, 0f, World.Size / 2f),
+                Position = new Vector3(center - 16f, 18f, center - 16f), // Сбоку-сверху
+                Target = new Vector3(center, 0f, center),                // Смотрим в центр поля
                 Up = Vector3.UnitY,
-                FovY = 45.0f,
+                FovY = 60f,
                 Projection = CameraProjection.Perspective
             };
+            _cameraLocked = false;
+            Raylib.DisableCursor(); // Свободная камера, мышь захвачена
         }
 
         public void Update(float deltaTime)
@@ -207,6 +209,7 @@ namespace ToolUse.Core.RaylibThreeD
             if (seekerAction == 2) Seeker.MoveWithCollisionAvoidance(World, deltaTime, Hider);
             if (hiderAction == 2) Hider.MoveWithCollisionAvoidance(World, deltaTime, Seeker);
 
+            // Обновляем визуальное исследование
             int newVisuallyExploredCells = Seeker.UpdateVisualExploration(World);
 
             int exploredAfter = Seeker.GetExploredCount();
@@ -220,6 +223,7 @@ namespace ToolUse.Core.RaylibThreeD
             float seekerReward = IsHiderVisible ? Config.Seeker.RewardWhenHiderVisible : Config.Seeker.RewardWhenHiderHidden;
             float hiderReward = IsHiderVisible ? Config.Hider.RewardWhenVisible : Config.Hider.RewardWhenHidden;
 
+            // Награда за исследование (физическое и визуальное)
             if (totalNewCells > 0)
             {
                 float explorationBonus = totalNewCells * Config.Seeker.ExplorationBonusPerCell;
@@ -227,6 +231,7 @@ namespace ToolUse.Core.RaylibThreeD
                 ExplorationScore += explorationBonus;
                 SeekerScore += explorationBonus * Config.Seeker.ExplorationScoreMultiplier;
 
+                // Дополнительная награда за физическое исследование
                 if (newPhysicallyExploredCells > 0)
                 {
                     float physicalBonus = newPhysicallyExploredCells * Config.Seeker.ExplorationBonusPerCell * 0.5f;
@@ -275,15 +280,11 @@ namespace ToolUse.Core.RaylibThreeD
 
         private void UpdateCamera()
         {
-            if (_followAgent)
-            {
-                _camera.Target = Seeker.Position;
-                _camera.Position = Seeker.Position + new Vector3(-10f, 8f, -10f);
-            }
-            else
+            if (!_cameraLocked)
             {
                 Raylib.UpdateCamera(ref _camera, CameraMode.Free);
             }
+            // если _cameraLocked — ничего не делаем, камера остаётся в текущем положении
         }
 
         private void UpdateScores(float deltaTime)
@@ -298,6 +299,8 @@ namespace ToolUse.Core.RaylibThreeD
                 HiderScore += Config.Hider.PointsPerSecondWhenHidden * deltaTime;
                 SeekerScore += Config.Seeker.PointsPerSecondWhenHiderHidden * deltaTime;
             }
+
+            ExplorationScore += 0f;
         }
 
         public void Restart()
@@ -381,13 +384,9 @@ namespace ToolUse.Core.RaylibThreeD
                 Hider.Draw();
                 if (_showVisionCones)
                 {
-                    Color yellowAlpha = new Color(255, 255, 0, 100);
-                    Color blueAlpha = new Color(0, 121, 241, 80);
-                    Color greenAlpha = new Color(0, 228, 48, 80);
-
-                    Color seekerConeColor = IsHiderVisible ? yellowAlpha : blueAlpha;
+                    Color seekerConeColor = IsHiderVisible ? new Color(255, 255, 0, 100) : new Color(0, 0, 255, 80);
                     Seeker.DrawVisionCone(World, seekerConeColor);
-                    Hider.DrawVisionCone(World, greenAlpha);
+                    Hider.DrawVisionCone(World, new Color(0, 255, 0, 80));
                 }
             }
             Raylib.EndMode3D();
@@ -397,62 +396,52 @@ namespace ToolUse.Core.RaylibThreeD
 
         private void DrawHUD()
         {
-            Color blackAlpha = Raylib.ColorAlpha(new Color(0, 0, 0, 255), 0.7f);
-            Raylib.DrawRectangle(5, 5, 320, 360, blackAlpha);
+            Raylib.DrawRectangle(5, 5, 320, 360, new Color(0, 0, 0, 180));
 
             int y = 10;
-            Color white = new Color(255, 255, 255, 255);
-            Color red = new Color(230, 41, 55, 255);
-            Color blue = new Color(0, 121, 241, 255);
-            Color green = new Color(0, 228, 48, 255);
-            Color yellow = new Color(253, 249, 0, 255);
-            Color orange = new Color(255, 161, 0, 255);
-            Color purple = new Color(200, 122, 255, 255);
-            Color gray = new Color(130, 130, 130, 255);
-
-            Raylib.DrawText($"Session: {Session} / Total: {TotalSessions}", 10, y, 20, white);
+            Raylib.DrawText($"Session: {Session} / Total: {TotalSessions}", 10, y, 20, new Color(255,255,255,255));
             y += 25;
 
-            Color timeColor = Timer > (Config.SessionDurationSeconds * 0.9f) ? red : white;
+            Color timeColor = Timer > (Config.SessionDurationSeconds * 0.9f) ? new Color(230,41,55,255) : new Color(255,255,255,255);
             Raylib.DrawText($"Time: {Timer:F1}s / {Config.SessionDurationSeconds:F0}s", 10, y, 20, timeColor);
             y += 25;
 
-            Raylib.DrawText($"Seeker: {SeekerScore:F1}", 10, y, 20, blue);
+            Raylib.DrawText($"Seeker: {SeekerScore:F1}", 10, y, 20, new Color(0,121,241,255));
             float seekerPercent = SeekerScore / Config.SessionDurationSeconds * 100f;
-            Raylib.DrawRectangle(180, y + 5, (int)(100 * Math.Min(seekerPercent / 100f, 1.0f)), 10, blue);
-            Raylib.DrawRectangleLines(180, y + 5, 130, 10, white);
+            Raylib.DrawRectangle(180, y + 5, (int)(100 * Math.Min(seekerPercent / 100f, 1.0f)), 10, new Color(0,121,241,255));
+            Raylib.DrawRectangleLines(180, y + 5, 130, 10, new Color(255,255,255,255));
             y += 25;
 
-            Raylib.DrawText($"Physical: {Seeker.GetExploredCount()}", 10, y, 18, yellow);
+            Raylib.DrawText($"Physical: {Seeker.GetExploredCount()}", 10, y, 18, new Color(255, 203, 0, 255)); // YELLOW
             y += 22;
 
-            Raylib.DrawText($"Visual: {Seeker.GetVisuallyExploredCount()}", 10, y, 18, orange);
+            Raylib.DrawText($"Visual: {Seeker.GetVisuallyExploredCount()}", 10, y, 18, new Color(255, 161, 0, 255)); // ORANGE
             y += 22;
 
-            Raylib.DrawText($"Total: {Seeker.GetTotalExploredCount()}", 10, y, 18, purple);
+            Raylib.DrawText($"Total: {Seeker.GetTotalExploredCount()}", 10, y, 18, new Color(135, 60, 190, 255)); // PURPLE
             y += 25;
 
-            Raylib.DrawText($"Exploration Score: {ExplorationScore:F1}", 10, y, 18, purple);
+            Raylib.DrawText($"Exploration Score: {ExplorationScore:F1}", 10, y, 18, new Color(135, 60, 190, 255)); // PURPLE
             y += 25;
 
-            Raylib.DrawText($"Hider: {HiderScore:F1}", 10, y, 20, green);
+            Raylib.DrawText($"Hider: {HiderScore:F1}", 10, y, 20, new Color(0,228,48,255));
             float hiderPercent = HiderScore / Config.SessionDurationSeconds * 100f;
-            Raylib.DrawRectangle(180, y + 5, (int)(100 * Math.Min(hiderPercent / 100f, 1.0f)), 10, green);
-            Raylib.DrawRectangleLines(180, y + 5, 130, 10, white);
+            Raylib.DrawRectangle(180, y + 5, (int)(100 * Math.Min(hiderPercent / 100f, 1.0f)), 10, new Color(0,228,48,255));
+            Raylib.DrawRectangleLines(180, y + 5, 130, 10, new Color(255,255,255,255));
             y += 25;
 
             float distance = Vector3.Distance(Seeker.Position, Hider.Position);
-            Raylib.DrawText($"Distance: {distance:F1}", 10, y, 18, gray);
+            Raylib.DrawText($"Distance: {distance:F1}", 10, y, 18, new Color(128,128,128,255));
             y += 22;
 
             string visibilityText = IsHiderVisible ? "VISIBLE" : "HIDDEN";
-            Color visibilityColor = IsHiderVisible ? red : green;
+            Color visibilityColor = IsHiderVisible ? new Color(230,41,55,255) : new Color(0,228,48,255);
             Raylib.DrawText($"Hider: {visibilityText}", 10, y, 18, visibilityColor);
             y += 22;
 
             if (_isHiderCaught)
             {
-                Raylib.DrawText("CAUGHT!", 10, y, 24, red);
+                Raylib.DrawText("CAUGHT!", 10, y, 24, new Color(230,41,55,255));
             }
         }
 
@@ -460,9 +449,15 @@ namespace ToolUse.Core.RaylibThreeD
         {
             if (Raylib.IsKeyPressed(KeyboardKey.F))
             {
-                _followAgent = !_followAgent;
-                if (!_followAgent) Raylib.DisableCursor();
-                else Raylib.EnableCursor();
+                _cameraLocked = !_cameraLocked;
+                if (_cameraLocked)
+                {
+                    Raylib.EnableCursor(); // Открепить мышь
+                }
+                else
+                {
+                    Raylib.DisableCursor(); // Захватить мышь обратно для CameraMode.Free
+                }
             }
 
             if (Raylib.IsKeyPressed(KeyboardKey.V)) _showVisionCones = !_showVisionCones;
