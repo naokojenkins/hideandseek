@@ -6,7 +6,7 @@ using Newtonsoft.Json;
 using Raylib_cs;
 using ToolUse.Core.RL;
 using ToolUse.Core.Config;
-using ToolUse.Core.RayLib;
+using ToolUse.Core.RaylibThreeD;
 
 namespace ToolUse.Core.RaylibThreeD
 {
@@ -16,19 +16,20 @@ namespace ToolUse.Core.RaylibThreeD
         public Agent3D Seeker { get; set; }
         public Agent3D Hider { get; set; }
         public bool IsHiderCaught => _isHiderCaught;
-        private float sessionDurationSeconds;
 
+        private float sessionDurationSeconds;
         public void SetSessionDuration(float seconds) => sessionDurationSeconds = seconds;
+
         public GameConfig Config { get; private set; }
         public event Action? OnSessionCompleted;
 
-        private QAgent _seekerAgent;
-        private QAgent _hiderAgent;
+        private DQNAgent _seekerAgent;
+        private DQNAgent _hiderAgent;
         private readonly SimAdapter3D _adapter;
 
         private Camera3D _camera;
         private Camera3D _fixedCameraState;
-        private bool _followAgent = false; // старт — свободная камера
+        private bool _followAgent = false;
         private bool _showVisionCones = true;
         private bool _showGrid = true;
 
@@ -63,6 +64,12 @@ namespace ToolUse.Core.RaylibThreeD
         private bool _isHiderCaught = false;
         private int _caughtFrames = 0;
 
+        // DQN state memory for both agents
+        private float[] _prevSeekerState;
+        private float[] _prevHiderState;
+        private long _prevSeekerAction;
+        private long _prevHiderAction;
+
         static Simulation3D()
         {
             LoadTotalSessions();
@@ -72,8 +79,8 @@ namespace ToolUse.Core.RaylibThreeD
             int worldSize,
             Agent3D seeker,
             Agent3D hider,
-            QTable seekerQ,
-            QTable hiderQ,
+            DQNAgent seekerAgent,
+            DQNAgent hiderAgent,
             string configPath = "game_config.json")
         {
             Config = GameConfig.Load(configPath);
@@ -86,10 +93,7 @@ namespace ToolUse.Core.RaylibThreeD
                 int seekerX = (int)Math.Floor(seekerPos.X);
                 int seekerZ = (int)Math.Floor(seekerPos.Z);
                 if (World.IsBlocked(seekerX, seekerZ))
-                {
-                    Console.WriteLine("[WARNING] Seeker generated in blocked position, finding new position...");
                     seekerPos = World.GetRandomEmptyPosition(0f);
-                }
                 Seeker = new Agent3D(seekerPos, true, Raylib.GetRandomValue(0, 359));
             }
             else
@@ -106,9 +110,8 @@ namespace ToolUse.Core.RaylibThreeD
                 Hider = hider;
             }
 
-            _seekerAgent = new QAgent(seekerQ, 0.1f, 0.1f, 0.9f);
-            _hiderAgent = new QAgent(hiderQ, 0.1f, 0.1f, 0.9f);
-
+            _seekerAgent = seekerAgent ?? throw new ArgumentNullException(nameof(seekerAgent));
+            _hiderAgent  = hiderAgent  ?? throw new ArgumentNullException(nameof(hiderAgent));
             _adapter = new SimAdapter3D(World, Seeker, Hider);
             InitializeCamera();
         }
@@ -122,14 +125,13 @@ namespace ToolUse.Core.RaylibThreeD
                 Vector3 hiderPos = World.GetRandomEmptyPosition(0f);
                 int x = (int)Math.Floor(hiderPos.X);
                 int z = (int)Math.Floor(hiderPos.Z);
-                if (World.IsInside(x, z) && !World.IsBlocked(x, z) && 
+                if (World.IsInside(x, z) && !World.IsBlocked(x, z) &&
                     Vector3.Distance(seekerPos, hiderPos) >= 15f)
                 {
                     return new Agent3D(hiderPos, false, Raylib.GetRandomValue(0, 359));
                 }
                 attempts++;
             }
-            Console.WriteLine("[WARNING] Could not find hider position with required distance, using any empty position");
             Vector3 fallbackPos = World.GetRandomEmptyPosition(0f);
             return new Agent3D(fallbackPos, false, Raylib.GetRandomValue(0, 359));
         }
@@ -152,7 +154,7 @@ namespace ToolUse.Core.RaylibThreeD
             if (!_followAgent)
             {
                 Raylib.UpdateCamera(ref _camera, CameraMode.Free);
-                _fixedCameraState = _camera; // сохраняем положение
+                _fixedCameraState = _camera;
             }
             else
             {
@@ -217,90 +219,65 @@ namespace ToolUse.Core.RaylibThreeD
 
         private void UpdateRLAgents(float deltaTime)
         {
+            // Получаем состояния
             var seekerState = _adapter.GetSeekerState();
-            int seekerAction = _seekerAgent.ChooseAction(seekerState);
+            var hiderState  = _adapter.GetHiderState();
 
-            var hiderState = _adapter.GetHiderState();
-            int hiderAction = _hiderAgent.ChooseAction(hiderState);
+            float[] seekerFeatures = StateToFeatures(seekerState);
+            float[] hiderFeatures  = StateToFeatures(hiderState);
 
-            Vector3 seekerOldPos = Seeker.Position;
-            Vector3 hiderOldPos = Hider.Position;
-            int exploredBefore = Seeker.GetExploredCount();
-            int visuallyExploredBefore = Seeker.GetVisuallyExploredCount();
+            var seekerAction = _seekerAgent.ChooseAction(seekerFeatures);
+            var hiderAction  = _hiderAgent.ChooseAction(hiderFeatures);
 
+            // DQN: если есть предыдущие состояния — учим агента
+            if (_prevSeekerState != null)
+            {
+                float seekerReward = ComputeSeekerReward();
+                _seekerAgent.Store(_prevSeekerState, _prevSeekerAction, seekerReward, seekerFeatures, _isHiderCaught);
+                _seekerAgent.Learn();
+            }
+            if (_prevHiderState != null)
+            {
+                float hiderReward = ComputeHiderReward();
+                _hiderAgent.Store(_prevHiderState, _prevHiderAction, hiderReward, hiderFeatures, _isHiderCaught);
+                _hiderAgent.Learn();
+            }
+
+            // Выполнить действия
             _adapter.ApplyAction(Seeker, seekerAction);
             _adapter.ApplyAction(Hider, hiderAction);
 
             if (seekerAction == 2) Seeker.MoveWithCollisionAvoidance(World, deltaTime, Hider);
             if (hiderAction == 2) Hider.MoveWithCollisionAvoidance(World, deltaTime, Seeker);
 
-            // Обновляем визуальное исследование
-            int newVisuallyExploredCells = Seeker.UpdateVisualExploration(World);
-            
-            int exploredAfter = Seeker.GetExploredCount();
-            int visuallyExploredAfter = Seeker.GetVisuallyExploredCount();
-            
-            int newPhysicallyExploredCells = exploredAfter - exploredBefore;
-            int totalNewCells = newPhysicallyExploredCells + newVisuallyExploredCells;
+            Seeker.UpdateVisualExploration(World);
 
-            float distance = Vector3.Distance(Seeker.Position, Hider.Position);
+            // Обновить память
+            _prevSeekerState = seekerFeatures;
+            _prevHiderState  = hiderFeatures;
+            _prevSeekerAction = seekerAction;
+            _prevHiderAction  = hiderAction;
+        }
 
-            float seekerReward = IsHiderVisible ? Config.Seeker.RewardWhenHiderVisible : Config.Seeker.RewardWhenHiderHidden;
-            float hiderReward = IsHiderVisible ? Config.Hider.RewardWhenVisible : Config.Hider.RewardWhenHidden;
+        private static float[] StateToFeatures(State s)
+        {
+            return new float[] {
+                s.AgentX / 40f,
+                s.AgentY / 40f,
+                s.OtherX / 40f,
+                s.OtherY / 40f,
+                s.Direction / 8f,
+                s.CanSee ? 1f : 0f
+            };
+        }
 
-            // Награда за исследование (физическое и визуальное)
-            if (totalNewCells > 0)
-            {
-                float explorationBonus = totalNewCells * Config.Seeker.ExplorationBonusPerCell;
-                seekerReward += explorationBonus;
-                ExplorationScore += explorationBonus;
-                SeekerScore += explorationBonus * Config.Seeker.ExplorationScoreMultiplier;
-                
-                // Дополнительная награда за физическое исследование
-                if (newPhysicallyExploredCells > 0)
-                {
-                    float physicalBonus = newPhysicallyExploredCells * Config.Seeker.ExplorationBonusPerCell * 0.5f;
-                    seekerReward += physicalBonus;
-                    SeekerScore += physicalBonus;
-                }
-            }
-
-            if (Config.Seeker.ProximityRewardEnabled && distance <= Config.Seeker.MaxProximityDistance)
-            {
-                float proximityReward = (Config.Seeker.MaxProximityDistance - distance) / Config.Seeker.MaxProximityDistance;
-                proximityReward *= Config.Seeker.ProximityRewardMultiplier * deltaTime;
-                seekerReward += proximityReward;
-                SeekerScore += proximityReward;
-            }
-
-            if (Config.Seeker.MovementRewardEnabled)
-            {
-                float seekerMovement = Vector3.Distance(seekerOldPos, Seeker.Position);
-                if (seekerMovement > 0.1f)
-                {
-                    float movementReward = Config.Seeker.MovementRewardPerSecond * deltaTime;
-                    seekerReward += movementReward;
-                    SeekerScore += movementReward;
-                }
-                else if (Config.Seeker.IdlePenaltyEnabled)
-                {
-                    float idlePenalty = Config.Seeker.IdlePenaltyPerSecond * deltaTime;
-                    seekerReward += idlePenalty;
-                    SeekerScore += idlePenalty;
-                }
-            }
-
-            if (Config.Hider.DistanceRewardEnabled && distance >= Config.Hider.MinSafeDistance)
-            {
-                float distanceReward = (distance - Config.Hider.MinSafeDistance) / Config.Hider.MinSafeDistance;
-                distanceReward = Math.Min(distanceReward, 1.0f);
-                distanceReward *= Config.Hider.DistanceRewardMultiplier * deltaTime;
-                hiderReward += distanceReward;
-                HiderScore += distanceReward;
-            }
-
-            _seekerAgent.Learn(seekerState, seekerAction, seekerReward, _adapter.GetSeekerState());
-            _hiderAgent.Learn(hiderState, hiderAction, hiderReward, _adapter.GetHiderState());
+        private float ComputeSeekerReward()
+        {
+            return IsHiderVisible ? Config.Seeker.RewardWhenHiderVisible : Config.Seeker.RewardWhenHiderHidden;
+        }
+        private float ComputeHiderReward()
+        {
+            return IsHiderVisible ? Config.Hider.RewardWhenVisible : Config.Hider.RewardWhenHidden;
         }
 
         private void UpdateScores(float deltaTime)
@@ -308,22 +285,20 @@ namespace ToolUse.Core.RaylibThreeD
             if (IsHiderVisible)
             {
                 SeekerScore += Config.Seeker.PointsPerSecondWhenHiderVisible * deltaTime;
-                HiderScore += Config.Hider.PointsPerSecondWhenVisible * deltaTime;
+                HiderScore  += Config.Hider.PointsPerSecondWhenVisible * deltaTime;
             }
             else
             {
-                HiderScore += Config.Hider.PointsPerSecondWhenHidden * deltaTime;
+                HiderScore  += Config.Hider.PointsPerSecondWhenHidden * deltaTime;
                 SeekerScore += Config.Seeker.PointsPerSecondWhenHiderHidden * deltaTime;
             }
-
-            ExplorationScore += 0f;
         }
 
         public void Restart()
         {
             Session++;
             TotalSessions++;
-    
+
             Timer = 0f;
             SeekerScore = 0f;
             HiderScore = 0f;
@@ -332,17 +307,13 @@ namespace ToolUse.Core.RaylibThreeD
             _caughtFrames = 0;
 
             World.GenerateStaticGrid();
-    
+
             Vector3 seekerPos = World.GetRandomEmptyPosition(0f);
-    
             int seekerX = (int)Math.Floor(seekerPos.X);
             int seekerZ = (int)Math.Floor(seekerPos.Z);
             if (World.IsBlocked(seekerX, seekerZ))
-            {
-                Console.WriteLine("[WARNING] Seeker generated in blocked position, finding new position...");
                 seekerPos = World.GetRandomEmptyPosition(0f);
-            }
-    
+
             Seeker.Position = seekerPos;
             Seeker.Direction = Raylib.GetRandomValue(0, 359);
 
@@ -353,19 +324,20 @@ namespace ToolUse.Core.RaylibThreeD
                 hiderPosition = World.GetRandomEmptyPosition(0f);
                 attempts++;
             }
-    
             int hiderX = (int)Math.Floor(hiderPosition.X);
             int hiderZ = (int)Math.Floor(hiderPosition.Z);
             if (World.IsBlocked(hiderX, hiderZ))
-            {
-                Console.WriteLine("[WARNING] Hider generated in blocked position, finding new position...");
                 hiderPosition = World.GetRandomEmptyPosition(0f);
-            }
 
             Hider.Position = hiderPosition;
             Hider.Direction = Raylib.GetRandomValue(0, 359);
 
             Seeker.ResetExploration();
+
+            _prevSeekerState = null;
+            _prevHiderState = null;
+            _prevSeekerAction = 0;
+            _prevHiderAction = 0;
 
             if (TotalSessions % 10 == 0)
             {
@@ -379,7 +351,7 @@ namespace ToolUse.Core.RaylibThreeD
         {
             Seeker = newSeeker;
             Hider = newHider;
-            
+
             Timer = 0f;
             SeekerScore = 0f;
             HiderScore = 0f;
@@ -388,6 +360,11 @@ namespace ToolUse.Core.RaylibThreeD
             _caughtFrames = 0;
 
             Seeker.ResetExploration();
+
+            _prevSeekerState = null;
+            _prevHiderState = null;
+            _prevSeekerAction = 0;
+            _prevHiderAction = 0;
         }
 
         public void Draw()
@@ -415,50 +392,35 @@ namespace ToolUse.Core.RaylibThreeD
         private void DrawHUD()
         {
             Raylib.DrawRectangle(5, 5, 320, 360, new Color(0, 0, 0, 180));
-
             int y = 10;
-            Raylib.DrawText($"Session: {Session} / Total: {TotalSessions}", 10, y, 20, Color.White);
-            y += 25;
-
+            Raylib.DrawText($"Session: {Session} / Total: {TotalSessions}", 10, y, 20, Color.White); y += 25;
             Color timeColor = Timer > (Config.SessionDurationSeconds * 0.9f) ? Color.Red : Color.White;
-            Raylib.DrawText($"Time: {Timer:F1}s / {Config.SessionDurationSeconds:F0}s", 10, y, 20, timeColor);
-            y += 25;
+            Raylib.DrawText($"Time: {Timer:F1}s / {Config.SessionDurationSeconds:F0}s", 10, y, 20, timeColor); y += 25;
 
             Raylib.DrawText($"Seeker: {SeekerScore:F1}", 10, y, 20, new Color(60, 120, 255, 255));
             float seekerPercent = SeekerScore / Config.SessionDurationSeconds * 100f;
             Raylib.DrawRectangle(180, y + 5, (int)(100 * Math.Min(seekerPercent / 100f, 1.0f)), 10, new Color(60, 120, 255, 255));
-            Raylib.DrawRectangleLines(180, y + 5, 130, 10, Color.White);
-            y += 25;
+            Raylib.DrawRectangleLines(180, y + 5, 130, 10, Color.White); y += 25;
 
-            Raylib.DrawText($"Physical: {Seeker.GetExploredCount()}", 10, y, 18, new Color(255, 220, 0, 255));
-            y += 22;
-            Raylib.DrawText($"Visual: {Seeker.GetVisuallyExploredCount()}", 10, y, 18, new Color(255, 170, 30, 255));
-            y += 22;
-            Raylib.DrawText($"Total: {Seeker.GetTotalExploredCount()}", 10, y, 18, new Color(150, 80, 255, 255));
-            y += 25;
-
-            Raylib.DrawText($"Exploration Score: {ExplorationScore:F1}", 10, y, 18, new Color(120, 70, 255, 255));
-            y += 25;
+            Raylib.DrawText($"Physical: {Seeker.GetExploredCount()}", 10, y, 18, new Color(255, 220, 0, 255)); y += 22;
+            Raylib.DrawText($"Visual: {Seeker.GetVisuallyExploredCount()}", 10, y, 18, new Color(255, 170, 30, 255)); y += 22;
+            Raylib.DrawText($"Total: {Seeker.GetTotalExploredCount()}", 10, y, 18, new Color(150, 80, 255, 255)); y += 25;
+            Raylib.DrawText($"Exploration Score: {ExplorationScore:F1}", 10, y, 18, new Color(120, 70, 255, 255)); y += 25;
 
             Raylib.DrawText($"Hider: {HiderScore:F1}", 10, y, 20, new Color(40, 200, 60, 255));
             float hiderPercent = HiderScore / Config.SessionDurationSeconds * 100f;
             Raylib.DrawRectangle(180, y + 5, (int)(100 * Math.Min(hiderPercent / 100f, 1.0f)), 10, new Color(40, 200, 60, 255));
-            Raylib.DrawRectangleLines(180, y + 5, 130, 10, Color.White);
-            y += 25;
+            Raylib.DrawRectangleLines(180, y + 5, 130, 10, Color.White); y += 25;
 
             float distance = Vector3.Distance(Seeker.Position, Hider.Position);
-            Raylib.DrawText($"Distance: {distance:F1}", 10, y, 18, new Color(120, 120, 120, 255));
-            y += 22;
+            Raylib.DrawText($"Distance: {distance:F1}", 10, y, 18, new Color(120, 120, 120, 255)); y += 22;
 
             string visibilityText = IsHiderVisible ? "VISIBLE" : "HIDDEN";
             Color visibilityColor = IsHiderVisible ? Color.Red : new Color(0, 200, 60, 255);
-            Raylib.DrawText($"Hider: {visibilityText}", 10, y, 18, visibilityColor);
-            y += 22;
+            Raylib.DrawText($"Hider: {visibilityText}", 10, y, 18, visibilityColor); y += 22;
 
             if (_isHiderCaught)
-            {
                 Raylib.DrawText("CAUGHT!", 10, y, 24, Color.Red);
-            }
         }
 
         private static void LoadTotalSessions()
@@ -467,27 +429,18 @@ namespace ToolUse.Core.RaylibThreeD
             {
                 string directory = Path.GetDirectoryName(SessionCounterFile);
                 if (!Directory.Exists(directory))
-                {
                     Directory.CreateDirectory(directory);
-                }
 
                 if (!File.Exists(SessionCounterFile))
                 {
                     TotalSessions = 0;
-                    Console.WriteLine("[DEBUG] Файл общего счетчика сессий не найден, начинаем с 0");
                     return;
                 }
-
                 string json = File.ReadAllText(SessionCounterFile);
                 var data = JsonConvert.DeserializeObject<SessionCounterData>(json, JsonSettings);
                 TotalSessions = data?.TotalSessions ?? 0;
-                Console.WriteLine($"[DEBUG] Загружен общий счетчик сессий: {TotalSessions}");
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[ERROR] Ошибка загрузки общего счетчика сессий: {ex.Message}");
-                TotalSessions = 0;
-            }
+            catch { TotalSessions = 0; }
         }
 
         private static void SaveTotalSessions()
@@ -499,16 +452,10 @@ namespace ToolUse.Core.RaylibThreeD
                     TotalSessions = TotalSessions,
                     LastUpdate = DateTime.Now
                 };
-
                 string json = JsonConvert.SerializeObject(data, Formatting.Indented, JsonSettings);
                 File.WriteAllText(SessionCounterFile, json);
-                
-                Console.WriteLine($"[DEBUG] Сохранен общий счетчик сессий: {TotalSessions}");
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[ERROR] Ошибка сохранения общего счетчика сессий: {ex.Message}");
-            }
+            catch { }
         }
 
         public static void ForceSaveTotalSessions() => SaveTotalSessions();

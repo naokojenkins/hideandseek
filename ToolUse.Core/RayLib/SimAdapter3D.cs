@@ -1,7 +1,7 @@
 using ToolUse.Core.RL;
 using ToolUse.Core.RaylibThreeD;
 
-namespace ToolUse.Core.RayLib
+namespace ToolUse.Core.RaylibThreeD
 {
     public class SimAdapter3D
     {
@@ -47,7 +47,7 @@ namespace ToolUse.Core.RayLib
             return _seeker.CanSee(_hider, _world);
         }
 
-        public void ApplyAction(Agent3D agent, int action)
+        public void ApplyAction(Agent3D agent, long action)
         {
             switch (action)
             {

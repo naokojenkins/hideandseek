@@ -43,6 +43,22 @@ namespace ToolUse.Core.RL
             }
         }
 
+        /// <summary>
+        /// Для нейросети: преобразование состояния в массив фичей float[]
+        /// </summary>
+        public float[] ToArray()
+        {
+            return new float[]
+            {
+                AgentX,
+                AgentY,
+                OtherX,
+                OtherY,
+                Direction / 360f,  // Нормируем угол до [0,1]
+                CanSee ? 1f : 0f
+            };
+        }
+
         public override bool Equals(object? obj) => obj is State other && Equals(other);
         private bool Equals(State other) =>
             AgentX == other.AgentX &&
