@@ -70,6 +70,16 @@ namespace ToolUse.Core.RaylibThreeD
         private long _prevSeekerAction;
         private long _prevHiderAction;
 
+        // Для учета exploration в наградах
+        private int _prevPhysicalExplored = 0;
+        private int _prevVisualExplored = 0;
+
+        // [CATCH BONUS] Флаг начисления бонуса за поимку
+        private bool _catchBonusGiven = false;
+
+        // Для escape bonus
+        private bool _wasHiderVisiblePrev = false;
+
         static Simulation3D()
         {
             LoadTotalSessions();
@@ -114,6 +124,12 @@ namespace ToolUse.Core.RaylibThreeD
             _hiderAgent  = hiderAgent  ?? throw new ArgumentNullException(nameof(hiderAgent));
             _adapter = new SimAdapter3D(World, Seeker, Hider);
             InitializeCamera();
+
+            // Для первого шага
+            _prevPhysicalExplored = Seeker.GetExploredCount();
+            _prevVisualExplored   = Seeker.GetVisuallyExploredCount();
+            _catchBonusGiven = false; // [CATCH BONUS]
+            _wasHiderVisiblePrev = Seeker.CanSee(Hider, World); // Escape bonus
         }
 
         private Agent3D GenerateHiderPosition(Vector3 seekerPos)
@@ -229,21 +245,11 @@ namespace ToolUse.Core.RaylibThreeD
             var seekerAction = _seekerAgent.ChooseAction(seekerFeatures);
             var hiderAction  = _hiderAgent.ChooseAction(hiderFeatures);
 
-            // DQN: если есть предыдущие состояния — учим агента
-            if (_prevSeekerState != null)
-            {
-                float seekerReward = ComputeSeekerReward();
-                _seekerAgent.Store(_prevSeekerState, _prevSeekerAction, seekerReward, seekerFeatures, _isHiderCaught);
-                _seekerAgent.Learn();
-            }
-            if (_prevHiderState != null)
-            {
-                float hiderReward = ComputeHiderReward();
-                _hiderAgent.Store(_prevHiderState, _prevHiderAction, hiderReward, hiderFeatures, _isHiderCaught);
-                _hiderAgent.Learn();
-            }
+            // === Подсчёт новых исследованных клеток ===
+            int beforePhysical  = Seeker.GetExploredCount();
+            int beforeVisual    = Seeker.GetVisuallyExploredCount();
 
-            // Выполнить действия
+            // Выполнить действия (до обновления визуального исследования, чтобы захватить новые клетки)
             _adapter.ApplyAction(Seeker, seekerAction);
             _adapter.ApplyAction(Hider, hiderAction);
 
@@ -252,11 +258,53 @@ namespace ToolUse.Core.RaylibThreeD
 
             Seeker.UpdateVisualExploration(World);
 
+            int afterPhysical   = Seeker.GetExploredCount();
+            int afterVisual     = Seeker.GetVisuallyExploredCount();
+
+            int newPhysical = afterPhysical - beforePhysical;
+            int newVisual   = afterVisual   - beforeVisual;
+            if (newPhysical < 0) newPhysical = 0; // на случай сброса/резета
+            if (newVisual   < 0) newVisual   = 0;
+
+            // === DQN: если есть предыдущие состояния — учим агента, начисляем exploration и catch бонусы ===
+            if (_prevSeekerState != null)
+            {
+                float seekerReward = ComputeSeekerReward();
+                float expPhysBonus   = newPhysical * Config.Seeker.PhysicalExploreReward;
+                float expVisualBonus = newVisual   * Config.Seeker.VisualExploreReward;
+                seekerReward += expPhysBonus + expVisualBonus;
+                ExplorationScore += expPhysBonus + expVisualBonus;
+
+                // [CATCH BONUS]
+                if (_isHiderCaught && !_catchBonusGiven)
+                {
+                    seekerReward += Config.Seeker.CatchBonus;
+                    _catchBonusGiven = true;
+                }
+
+                _seekerAgent.Store(_prevSeekerState, _prevSeekerAction, seekerReward, seekerFeatures, _isHiderCaught);
+                _seekerAgent.Learn();
+            }
+            if (_prevHiderState != null)
+            {
+                float hiderReward = ComputeHiderReward();
+
+                // Escape bonus (только в момент выхода из поля зрения)
+                if (_wasHiderVisiblePrev && !IsHiderVisible)
+                {
+                    hiderReward += Config.Hider.EscapeBonus;
+                }
+
+                _hiderAgent.Store(_prevHiderState, _prevHiderAction, hiderReward, hiderFeatures, _isHiderCaught);
+                _hiderAgent.Learn();
+            }
+
             // Обновить память
             _prevSeekerState = seekerFeatures;
             _prevHiderState  = hiderFeatures;
             _prevSeekerAction = seekerAction;
             _prevHiderAction  = hiderAction;
+            _wasHiderVisiblePrev = IsHiderVisible; // <-- важно для Escape Bonus!
         }
 
         private static float[] StateToFeatures(State s)
@@ -305,6 +353,8 @@ namespace ToolUse.Core.RaylibThreeD
             ExplorationScore = 0f;
             _isHiderCaught = false;
             _caughtFrames = 0;
+            _catchBonusGiven = false;
+            _wasHiderVisiblePrev = false;
 
             World.GenerateStaticGrid();
 
@@ -339,12 +389,9 @@ namespace ToolUse.Core.RaylibThreeD
             _prevSeekerAction = 0;
             _prevHiderAction = 0;
 
-            if (TotalSessions % 10 == 0)
-            {
-                SaveTotalSessions();
-            }
-
-            OnSessionCompleted?.Invoke();
+            // Exploration tracking reset
+            _prevPhysicalExplored = Seeker.GetExploredCount();
+            _prevVisualExplored   = Seeker.GetVisuallyExploredCount();
         }
 
         public void Reset(Agent3D newSeeker, Agent3D newHider)
@@ -358,6 +405,8 @@ namespace ToolUse.Core.RaylibThreeD
             ExplorationScore = 0f;
             _isHiderCaught = false;
             _caughtFrames = 0;
+            _catchBonusGiven = false;
+            _wasHiderVisiblePrev = false;
 
             Seeker.ResetExploration();
 
@@ -365,6 +414,9 @@ namespace ToolUse.Core.RaylibThreeD
             _prevHiderState = null;
             _prevSeekerAction = 0;
             _prevHiderAction = 0;
+
+            _prevPhysicalExplored = Seeker.GetExploredCount();
+            _prevVisualExplored   = Seeker.GetVisuallyExploredCount();
         }
 
         public void Draw()
@@ -391,7 +443,7 @@ namespace ToolUse.Core.RaylibThreeD
 
         private void DrawHUD()
         {
-            Raylib.DrawRectangle(5, 5, 320, 360, new Color(0, 0, 0, 180));
+            Raylib.DrawRectangle(5, 5, 320, 250, new Color(0, 0, 0, 180));
             int y = 10;
             Raylib.DrawText($"Session: {Session} / Total: {TotalSessions}", 10, y, 20, Color.White); y += 25;
             Color timeColor = Timer > (Config.SessionDurationSeconds * 0.9f) ? Color.Red : Color.White;
