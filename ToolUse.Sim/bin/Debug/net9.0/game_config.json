@@ -5,18 +5,30 @@
     "WallHeight": 2.0,
     "RoomSize": 8
   },
+  "DQN": {
+    "Hidden1": 256,
+    "Hidden2": 256,
+    "Gamma": 0.99,
+    "EpsilonStart": 1.0,
+    "EpsilonMin": 0.05,
+    "EpsilonDecay": 0.995,
+    "BatchSize": 64,
+    "ReplayBufferSize": 10000,
+    "LearningRate": 0.0005,
+    "UpdateTargetEvery": 200
+  },
   "Seeker": {
     "RewardWhenHiderVisible": 1.0,
     "RewardWhenHiderHidden": -0.01,
     "PointsPerSecondWhenHiderVisible": 10.0,
     "PointsPerSecondWhenHiderHidden": 0.1,
     "CatchBonus": 10.0,
-    "PhysicalExploreReward": 0.05,
-    "VisualExploreReward": 0.01,
+    "PhysicalExploreReward": 0.1,
+    "VisualExploreReward": 0.02,
     "VisionRadius": 8.0,
     "VisionAngle": 90.0,
     "AgentRadius": 0.3,
-    "Speed": 2.0
+    "Speed": 3.0
   },
   "Hider": {
     "RewardWhenVisible": -0.5,
@@ -25,13 +37,13 @@
     "PointsPerSecondWhenHidden": 1.0,
     "CatchBonus": 0.0,
     "EscapeBonus": 2.0,           
-    "PhysicalExploreReward": 0.0,
-    "VisualExploreReward": 0.0,
+    "PhysicalExploreReward": 0.1,
+    "VisualExploreReward": 0.02,
     "VisionRadius": 8.0,
     "VisionAngle": 90.0,
     "AgentRadius": 0.3,
     "Speed": 2.0
   },
   "SessionDurationSeconds": 30,
-  "FramesForCatch": 10
+  "FramesForCatch": 60
 }

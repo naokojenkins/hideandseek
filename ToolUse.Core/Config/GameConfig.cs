@@ -9,6 +9,7 @@ namespace ToolUse.Core.Config
         public WorldConfig World { get; set; } = new WorldConfig();
         public AgentConfig Seeker { get; set; } = new AgentConfig();
         public AgentConfig Hider { get; set; } = new AgentConfig();
+        public DQNConfig DQN { get; set; } = new DQNConfig();   // Новая секция!
         public float SessionDurationSeconds { get; set; } = 60f;
         public int FramesForCatch { get; set; } = 180;
 
@@ -54,18 +55,27 @@ namespace ToolUse.Core.Config
         public float PointsPerSecondWhenVisible { get; set; } = -1.0f;
         public float PointsPerSecondWhenHidden { get; set; } = 1.0f;
         public float CatchBonus { get; set; } = 10.0f;
-
-        // Новые параметры для награды за исследование:
-        public float PhysicalExploreReward { get; set; } = 0.05f;    // За физ. исследование новой клетки
-        public float VisualExploreReward   { get; set; } = 0.01f;    // За визуальное исследование новой клетки
-
-        // Бонус для Hider за "побег" из поля зрения (выход из видимости):
-        public float EscapeBonus { get; set; } = 2.0f;    // Если был виден, а теперь не виден
-
-        // Новые параметры (используются в Agent3D)
+        public float PhysicalExploreReward { get; set; } = 0.05f;
+        public float VisualExploreReward   { get; set; } = 0.01f;
+        public float EscapeBonus { get; set; } = 2.0f;
         public float VisionRadius { get; set; } = 8.0f;
         public float VisionAngle { get; set; } = 90.0f;
         public float AgentRadius { get; set; } = 0.3f;
         public float Speed { get; set; } = 2.0f;
+    }
+
+    // === Новая секция ===
+    public class DQNConfig
+    {
+        public int Hidden1 { get; set; } = 256;          // Размер первого скрытого слоя
+        public int Hidden2 { get; set; } = 256;          // Размер второго скрытого слоя
+        public float Gamma { get; set; } = 0.99f;
+        public float EpsilonStart { get; set; } = 1.0f;
+        public float EpsilonMin { get; set; } = 0.05f;
+        public float EpsilonDecay { get; set; } = 0.995f;
+        public int BatchSize { get; set; } = 64;
+        public int ReplayBufferSize { get; set; } = 10000;
+        public float LearningRate { get; set; } = 0.0005f;
+        public int UpdateTargetEvery { get; set; } = 200;
     }
 }

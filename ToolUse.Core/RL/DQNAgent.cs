@@ -7,6 +7,7 @@ using TorchSharp;
 using static TorchSharp.torch;
 using static TorchSharp.torch.nn;
 using TorchSharp.Modules;
+using ToolUse.Core.Config;
 
 namespace ToolUse.Core.RL
 {
@@ -36,9 +37,37 @@ namespace ToolUse.Core.RL
         private readonly DQNModel targetModel;
         private readonly torch.optim.Optimizer optimizer;
 
-        private int updateTargetEvery = 200;
+        private int updateTargetEvery;
         private int steps = 0;
 
+        // Новый конструктор — параметры берутся из DQNConfig
+        public DQNAgent(int stateSize, int actionSize, DQNConfig dqnCfg, torch.Device? deviceOverride = null)
+        {
+            this.stateSize = stateSize;
+            this.actionSize = actionSize;
+
+            // DQNConfig параметры
+            this.gamma = dqnCfg.Gamma;
+            this.epsilonStart = dqnCfg.EpsilonStart;
+            this.epsilonMin = dqnCfg.EpsilonMin;
+            this.epsilonDecay = dqnCfg.EpsilonDecay;
+            this.epsilon = dqnCfg.EpsilonStart;
+            this.batchSize = dqnCfg.BatchSize;
+            this.replayBufferSize = dqnCfg.ReplayBufferSize;
+            this.updateTargetEvery = dqnCfg.UpdateTargetEvery;
+
+            device = deviceOverride ?? (torch.cuda.is_available() ? torch.CUDA : torch.CPU);
+
+            model = new DQNModel(stateSize, actionSize, dqnCfg.Hidden1, dqnCfg.Hidden2).to(device);
+            targetModel = new DQNModel(stateSize, actionSize, dqnCfg.Hidden1, dqnCfg.Hidden2).to(device);
+            optimizer = torch.optim.Adam(model.parameters(), dqnCfg.LearningRate);
+
+            buffer = new ReplayBuffer(replayBufferSize);
+
+            UpdateTargetModel();
+        }
+
+        // Для обратной совместимости: старый конструктор
         public DQNAgent(
             int stateSize,
             int actionSize,
@@ -50,27 +79,17 @@ namespace ToolUse.Core.RL
             int batchSize = 64,
             int replayBufferSize = 10000,
             float lr = 0.0005f)
-        {
-            this.stateSize = stateSize;
-            this.actionSize = actionSize;
-            this.gamma = gamma;
-            this.epsilonStart = epsilonStart;
-            this.epsilonMin = epsilonMin;
-            this.epsilonDecay = epsilonDecay;
-            this.epsilon = epsilonStart;
-            this.batchSize = batchSize;
-            this.replayBufferSize = replayBufferSize;
-
-            device = deviceOverride ?? (torch.cuda.is_available() ? torch.CUDA : torch.CPU);
-
-            model = new DQNModel(stateSize, actionSize).to(device);
-            targetModel = new DQNModel(stateSize, actionSize).to(device);
-            optimizer = torch.optim.Adam(model.parameters(), lr);
-
-            buffer = new ReplayBuffer(replayBufferSize);
-
-            UpdateTargetModel();
-        }
+            : this(stateSize, actionSize, new DQNConfig
+            {
+                Gamma = gamma,
+                EpsilonStart = epsilonStart,
+                EpsilonMin = epsilonMin,
+                EpsilonDecay = epsilonDecay,
+                BatchSize = batchSize,
+                ReplayBufferSize = replayBufferSize,
+                LearningRate = lr
+            }, deviceOverride)
+        { }
 
         public long ChooseAction(float[] state)
         {
@@ -129,7 +148,6 @@ namespace ToolUse.Core.RL
             qValues = qValues.to_type(ScalarType.Float32);
 
             var loss = functional.mse_loss(qValues, targets);
-            Console.WriteLine($"[DEBUG] Loss computed: {loss.item<float>()}");
 
             optimizer.zero_grad();
             loss.backward();
@@ -205,11 +223,12 @@ namespace ToolUse.Core.RL
         private readonly Linear fc2;
         private readonly Linear fc3;
 
-        public DQNModel(int inputSize, int outputSize) : base("DQNModel")
+        public DQNModel(int inputSize, int outputSize, int hidden1 = 256, int hidden2 = 256)
+            : base("DQNModel")
         {
-            fc1 = Linear(inputSize, 128);
-            fc2 = Linear(128, 128);
-            fc3 = Linear(128, outputSize);
+            fc1 = Linear(inputSize, hidden1);
+            fc2 = Linear(hidden1, hidden2);
+            fc3 = Linear(hidden2, outputSize);
             RegisterComponents();
         }
 

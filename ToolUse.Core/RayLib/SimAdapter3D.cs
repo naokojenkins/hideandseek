@@ -1,3 +1,4 @@
+using System;
 using ToolUse.Core.RL;
 using ToolUse.Core.RaylibThreeD;
 
@@ -19,26 +20,36 @@ namespace ToolUse.Core.RaylibThreeD
         public State GetSeekerState()
         {
             int sector = (int)(MathF.Round(_seeker.Direction / 45f) % 8);
+
+            // Получаем карту известных стен для seeker (разворачиваем в bool[])
+            bool[] knownWalls = _seeker.GetKnownWallsFlat(_world.Size);
+
             return new State(
                 _seeker.GridX,
                 _seeker.GridZ,
                 _hider.GridX,
                 _hider.GridZ,
                 sector,
-                IsVisible()
+                IsVisible(),
+                knownWalls
             );
         }
 
         public State GetHiderState()
         {
             int sector = (int)(MathF.Round(_hider.Direction / 45f) % 8);
+
+            // Получаем карту известных стен для hider (разворачиваем в bool[])
+            bool[] knownWalls = _hider.GetKnownWallsFlat(_world.Size);
+
             return new State(
                 _hider.GridX,
                 _hider.GridZ,
                 _seeker.GridX,
                 _seeker.GridZ,
                 sector,
-                IsVisible()
+                IsVisible(),
+                knownWalls
             );
         }
 

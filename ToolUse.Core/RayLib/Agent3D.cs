@@ -31,6 +31,9 @@ namespace ToolUse.Core.RaylibThreeD
         private HashSet<(int x, int z)> ExploredCells { get; } = new();
         private HashSet<(int x, int z)> VisuallyExploredCells { get; } = new();
 
+        // === Карта замеченных стен ===
+        public HashSet<(int x, int z)> KnownWalls { get; } = new();
+
         private int _worldSize = 64; // По умолчанию
 
         public void InitWorldSize(int size) => _worldSize = size;
@@ -82,11 +85,13 @@ namespace ToolUse.Core.RaylibThreeD
         public bool HasExplored(int x, int z) => ExploredCells.Contains((x, z));
         public bool HasVisuallyExplored(int x, int z) => VisuallyExploredCells.Contains((x, z));
         public bool HasExploredAnyway(int x, int z) => ExploredCells.Contains((x, z)) || VisuallyExploredCells.Contains((x, z));
+        public bool IsKnownWall(int x, int z) => KnownWalls.Contains((x, z));
 
         public void ResetExploration()
         {
             ExploredCells.Clear();
             VisuallyExploredCells.Clear();
+            KnownWalls.Clear();
             if (IsSeeker)
             {
                 ExploredCells.Add(ToGridCoords(Position));
@@ -94,12 +99,10 @@ namespace ToolUse.Core.RaylibThreeD
         }
 
         /// <summary>
-        /// Обновляет визуальное исследование. Возвращает количество новых уникальных визуально исследованных клеток.
+        /// Обновляет визуальное исследование и запоминает стены. Возвращает количество новых уникальных визуально исследованных клеток.
         /// </summary>
         public int UpdateVisualExploration(World3D world)
         {
-            if (!IsSeeker) return 0;
-
             int newCellsExplored = 0;
             int segments = 60;
             float startAngle = Direction - VisionAngle / 2f;
@@ -122,7 +125,11 @@ namespace ToolUse.Core.RaylibThreeD
                         break;
 
                     if (world.IsBlocked(gridX, gridZ))
+                    {
+                        // === Новый блок: агент видит стену, запоминает координату ===
+                        KnownWalls.Add((gridX, gridZ));
                         break;
+                    }
 
                     // Только если не исследована ни визуально, ни физически
                     if (!VisuallyExploredCells.Contains((gridX, gridZ)) && !ExploredCells.Contains((gridX, gridZ)))
@@ -152,6 +159,11 @@ namespace ToolUse.Core.RaylibThreeD
             // Проверяем, не выйдет ли тело агента за пределы пустых клеток (коллизия по AgentRadius)
             if (!IsPositionValid(newPosition, world))
             {
+                // === Также фиксируем стены после физического столкновения ===
+                var gridCoords = ToGridCoords(newPosition);
+                if (world.IsBlocked(gridCoords.x, gridCoords.z))
+                    KnownWalls.Add(gridCoords);
+
                 // Пробуем повернуть, чтобы обойти препятствие
                 for (int attempt = 1; attempt <= 8; attempt++)
                 {
@@ -199,7 +211,6 @@ namespace ToolUse.Core.RaylibThreeD
                 if (!ExploredCells.Contains(gridCoords))
                 {
                     ExploredCells.Add(gridCoords);
-                    // VisuallyExploredCells.Remove(gridCoords); // Удаление не требуется — для накопительной статистики
                 }
             }
 
@@ -301,6 +312,21 @@ namespace ToolUse.Core.RaylibThreeD
                 lastValidPos = currentPos;
             }
             return start + direction * maxDistance;
+        }
+
+        /// <summary>
+        /// Возвращает известные агенту стены в виде одномерного массива bool[] (для RL State).
+        /// Размер: worldSize * worldSize, порядок: [x + z * worldSize]
+        /// </summary>
+        public bool[] GetKnownWallsFlat(int worldSize)
+        {
+            bool[] arr = new bool[worldSize * worldSize];
+            foreach (var (x, z) in KnownWalls)
+            {
+                if (x >= 0 && x < worldSize && z >= 0 && z < worldSize)
+                    arr[x + z * worldSize] = true;
+            }
+            return arr;
         }
     }
 }

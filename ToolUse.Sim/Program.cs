@@ -48,8 +48,16 @@ namespace ToolUse.Sim
 
             gridSize = config.World.GridSize;
 
-            int stateSize = 6;
+            // --- КОРРЕКТНО вычисляем размер состояния ---
             int actionSize = 3;
+            var world = new World3D(gridSize);
+            world.GenerateStaticGrid();
+            var dummySeeker = new Agent3D(new Vector3(0, 0, 0), true);
+            var dummyHider  = new Agent3D(new Vector3(0, 0, 0), false);
+            var adapter = new SimAdapter3D(world, dummySeeker, dummyHider);
+            var dummyState = adapter.GetSeekerState();
+            int stateSize = dummyState.ToArray().Length;
+
             seekerDQN = new DQNAgent(stateSize, actionSize);
             hiderDQN  = new DQNAgent(stateSize, actionSize);
 
@@ -59,7 +67,7 @@ namespace ToolUse.Sim
 
             Reset();
 
-            Raylib.InitWindow(screenW, screenH, "ToolUse – 3D Hide & Seek (DQN)");
+            Raylib.InitWindow(screenW, screenH, "3D Hide & Seek (DQN)");
             Raylib.SetTargetFPS(FPS);
             Raylib.SetConfigFlags(ConfigFlags.Msaa4xHint);
 
