@@ -40,13 +40,11 @@ namespace ToolUse.Core.RL
         private int updateTargetEvery;
         private int steps = 0;
 
-        // Новый конструктор — параметры берутся из DQNConfig
         public DQNAgent(int stateSize, int actionSize, DQNConfig dqnCfg, torch.Device? deviceOverride = null)
         {
             this.stateSize = stateSize;
             this.actionSize = actionSize;
 
-            // DQNConfig параметры
             this.gamma = dqnCfg.Gamma;
             this.epsilonStart = dqnCfg.EpsilonStart;
             this.epsilonMin = dqnCfg.EpsilonMin;
@@ -67,7 +65,6 @@ namespace ToolUse.Core.RL
             UpdateTargetModel();
         }
 
-        // Для обратной совместимости: старый конструктор
         public DQNAgent(
             int stateSize,
             int actionSize,
@@ -91,9 +88,25 @@ namespace ToolUse.Core.RL
             }, deviceOverride)
         { }
 
+        private void CheckNaN(float[] arr, string tag)
+        {
+            for (int i = 0; i < arr.Length; i++)
+                if (float.IsNaN(arr[i]) || float.IsInfinity(arr[i]))
+                    throw new Exception($"[NaN/Inf] {tag}: Index {i} value {arr[i]}");
+        }
+        private void CheckNaN(torch.Tensor t, string tag)
+        {
+            if (t.isnan().any().item<bool>())
+                throw new Exception($"[NaN/Inf] {tag}: has NaN");
+            if (t.isinf().any().item<bool>())
+                throw new Exception($"[NaN/Inf] {tag}: has Inf");
+        }
+
         public long ChooseAction(float[] state)
         {
+            CheckNaN(state, "ChooseAction:input");
             var input = torch.tensor(state, device: device).reshape(1, stateSize);
+            CheckNaN(input, "ChooseAction:tensor_input");
 
             if (new Random().NextDouble() < epsilon)
                 return new Random().Next(actionSize);
@@ -101,13 +114,21 @@ namespace ToolUse.Core.RL
             using (torch.no_grad())
             {
                 var qVals = model.forward(input);
+                CheckNaN(qVals, "ChooseAction:Q-values");
                 var t = qVals.argmax(Convert.ToInt64(1));
-                return t.item<long>();
+                long action = t.item<long>();
+                if (action < 0 || action >= actionSize)
+                    throw new Exception($"[ChooseAction] Invalid action index: {action}");
+                return action;
             }
         }
 
         public void Store(float[] state, long action, float reward, float[] nextState, bool done)
         {
+            CheckNaN(state, "Store:state");
+            CheckNaN(nextState, "Store:nextState");
+            if (float.IsNaN(reward) || float.IsInfinity(reward))
+                throw new Exception($"[NaN/Inf] Store:reward={reward}");
             buffer.Add(new Experience(state, action, reward, nextState, done));
         }
 
@@ -117,19 +138,28 @@ namespace ToolUse.Core.RL
 
             var batch = buffer.Sample(batchSize);
 
+            foreach (var s in batch.States) CheckNaN(s, "Learn:States");
+            foreach (var ns in batch.NextStates) CheckNaN(ns, "Learn:NextStates");
+
             var states = torch.tensor(JaggedTo2D(batch.States), dtype: ScalarType.Float32, device: device);
             var nextStates = torch.tensor(JaggedTo2D(batch.NextStates), dtype: ScalarType.Float32, device: device);
+
+            CheckNaN(states, "Learn:states tensor");
+            CheckNaN(nextStates, "Learn:nextStates tensor");
 
             var actionsArr = batch.Actions.Select(a => (long)a).ToArray();
             var actions = torch.tensor(actionsArr, dtype: ScalarType.Int64, device: device).unsqueeze(1);
 
             var rewardsArr = batch.Rewards.Select(r => (float)r).ToArray();
+            foreach (var r in rewardsArr) if (float.IsNaN(r) || float.IsInfinity(r)) throw new Exception($"[NaN/Inf] Learn:Reward={r}");
             var rewards = torch.tensor(rewardsArr, dtype: ScalarType.Float32, device: device).unsqueeze(1);
 
             var donesArr = batch.Dones.Select(x => x ? 1.0f : 0.0f).ToArray();
             var dones = torch.tensor(donesArr, dtype: ScalarType.Float32, device: device).unsqueeze(1);
 
             var qModelOutput = model.forward(states);
+            CheckNaN(qModelOutput, "Learn:model.forward(states)");
+
             var qValues = qModelOutput.gather(1, actions);
 
             torch.Tensor nextQTarget;
@@ -138,16 +168,22 @@ namespace ToolUse.Core.RL
             using (torch.no_grad())
             {
                 var nextModelOutput = model.forward(nextStates);
+                CheckNaN(nextModelOutput, "Learn:model.forward(nextStates)");
                 var nextQ = nextModelOutput.argmax(1).to_type(ScalarType.Int64).unsqueeze(1);
                 var targetOut = targetModel.forward(nextStates);
+                CheckNaN(targetOut, "Learn:targetModel.forward(nextStates)");
                 nextQTarget = targetOut.gather(1, nextQ);
+                CheckNaN(nextQTarget, "Learn:nextQTarget");
                 targets = rewards + gamma * nextQTarget * (1 - dones);
             }
+
+            CheckNaN(targets, "Learn:targets");
 
             targets = targets.to_type(ScalarType.Float32);
             qValues = qValues.to_type(ScalarType.Float32);
 
             var loss = functional.mse_loss(qValues, targets);
+            CheckNaN(loss, "Learn:loss");
 
             optimizer.zero_grad();
             loss.backward();
@@ -177,7 +213,6 @@ namespace ToolUse.Core.RL
             return result;
         }
 
-        // ======== Новое: Сохранение и загрузка всего состояния ========
         public void SaveAll(string weightsPath, string statePath)
         {
             model.save(weightsPath);
@@ -214,7 +249,6 @@ namespace ToolUse.Core.RL
                 }
             }
         }
-        // ======== Конец блока сохранения ========
     }
 
     public class DQNModel : Module

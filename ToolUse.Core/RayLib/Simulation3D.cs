@@ -7,6 +7,7 @@ using Raylib_cs;
 using ToolUse.Core.RL;
 using ToolUse.Core.Config;
 using ToolUse.Core.RaylibThreeD;
+using System.Linq;
 
 namespace ToolUse.Core.RaylibThreeD
 {
@@ -79,7 +80,18 @@ namespace ToolUse.Core.RaylibThreeD
             LoadTotalSessions();
         }
 
-// ... остальные поля и код
+        private void CheckNaN(float[] arr, string tag)
+        {
+            for (int i = 0; i < arr.Length; i++)
+                if (float.IsNaN(arr[i]) || float.IsInfinity(arr[i]))
+                    throw new Exception($"[NaN/Inf] {tag}: Index {i} value {arr[i]}");
+        }
+        private void CheckNaN(Vector3 v, string tag)
+        {
+            if (float.IsNaN(v.X) || float.IsNaN(v.Y) || float.IsNaN(v.Z) ||
+                float.IsInfinity(v.X) || float.IsInfinity(v.Y) || float.IsInfinity(v.Z))
+                throw new Exception($"[NaN/Inf] {tag}: {v}");
+        }
 
         public Simulation3D(
             int worldSize,
@@ -111,8 +123,10 @@ namespace ToolUse.Core.RaylibThreeD
             _prevVisualExplored   = Seeker.GetVisuallyExploredCount();
             _catchBonusGiven = false;
             _wasHiderVisiblePrev = Seeker.CanSee(Hider, World);
-        }
 
+            CheckNaN(Seeker.Position, "Simulation3D.ctor:Seeker.Position");
+            CheckNaN(Hider.Position, "Simulation3D.ctor:Hider.Position");
+        }
 
         private void InitializeCamera()
         {
@@ -200,6 +214,11 @@ namespace ToolUse.Core.RaylibThreeD
             var seekerState = _adapter.GetSeekerState();
             var hiderState  = _adapter.GetHiderState();
 
+            CheckNaN(seekerState.ToArray(), "seekerState");
+            CheckNaN(hiderState.ToArray(), "hiderState");
+            if (_prevSeekerState != null) CheckNaN(_prevSeekerState.ToArray(), "prevSeekerState");
+            if (_prevHiderState != null) CheckNaN(_prevHiderState.ToArray(), "prevHiderState");
+
             var seekerAction = _seekerAgent.ChooseAction(seekerState.ToArray());
             var hiderAction  = _hiderAgent.ChooseAction(hiderState.ToArray());
 
@@ -237,6 +256,9 @@ namespace ToolUse.Core.RaylibThreeD
                     _catchBonusGiven = true;
                 }
 
+                if (float.IsNaN(seekerReward) || float.IsInfinity(seekerReward))
+                    throw new Exception($"[NaN/Inf] seekerReward: {seekerReward}");
+
                 _seekerAgent.Store(_prevSeekerState.ToArray(), _prevSeekerAction, seekerReward, seekerState.ToArray(), _isHiderCaught);
                 _seekerAgent.Learn();
             }
@@ -247,6 +269,9 @@ namespace ToolUse.Core.RaylibThreeD
                 {
                     hiderReward += Config.Hider.EscapeBonus;
                 }
+                if (float.IsNaN(hiderReward) || float.IsInfinity(hiderReward))
+                    throw new Exception($"[NaN/Inf] hiderReward: {hiderReward}");
+
                 _hiderAgent.Store(_prevHiderState.ToArray(), _prevHiderAction, hiderReward, hiderState.ToArray(), _isHiderCaught);
                 _hiderAgent.Learn();
             }
@@ -260,11 +285,15 @@ namespace ToolUse.Core.RaylibThreeD
 
         private float ComputeSeekerReward()
         {
-            return IsHiderVisible ? Config.Seeker.RewardWhenHiderVisible : Config.Seeker.RewardWhenHiderHidden;
+            float r = IsHiderVisible ? Config.Seeker.RewardWhenHiderVisible : Config.Seeker.RewardWhenHiderHidden;
+            if (float.IsNaN(r) || float.IsInfinity(r)) throw new Exception($"[NaN/Inf] ComputeSeekerReward: {r}");
+            return r;
         }
         private float ComputeHiderReward()
         {
-            return IsHiderVisible ? Config.Hider.RewardWhenVisible : Config.Hider.RewardWhenHidden;
+            float r = IsHiderVisible ? Config.Hider.RewardWhenVisible : Config.Hider.RewardWhenHidden;
+            if (float.IsNaN(r) || float.IsInfinity(r)) throw new Exception($"[NaN/Inf] ComputeHiderReward: {r}");
+            return r;
         }
 
         private void UpdateScores(float deltaTime)
@@ -279,6 +308,10 @@ namespace ToolUse.Core.RaylibThreeD
                 HiderScore  += Config.Hider.PointsPerSecondWhenHidden * deltaTime;
                 SeekerScore += Config.Seeker.PointsPerSecondWhenHiderHidden * deltaTime;
             }
+            if (float.IsNaN(SeekerScore) || float.IsInfinity(SeekerScore))
+                throw new Exception($"[NaN/Inf] SeekerScore: {SeekerScore}");
+            if (float.IsNaN(HiderScore) || float.IsInfinity(HiderScore))
+                throw new Exception($"[NaN/Inf] HiderScore: {HiderScore}");
         }
 
         public void Restart()
@@ -297,13 +330,7 @@ namespace ToolUse.Core.RaylibThreeD
 
             World.GenerateStaticGrid();
 
-            //Vector3 seekerPos = World.GetRandomEmptyPosition(0f);
             Vector3 seekerPos = World.GetRandomValidAgentPosition(0.3f, 0f);
-            Seeker.Position = seekerPos;
-            Seeker.Direction = Raylib.GetRandomValue(0, 359);
-            Seeker.InitWorldSize(World.Size);
-
-            //Vector3 hiderPosition = World.GetRandomEmptyPosition(0f);
             Vector3 hiderPos = World.GetRandomValidAgentPosition(0.3f, 0f);
             int attempts = 0;
             while (attempts < 50 && Vector3.Distance(seekerPos, hiderPos) < 5f)
@@ -311,6 +338,13 @@ namespace ToolUse.Core.RaylibThreeD
                 hiderPos = World.GetRandomValidAgentPosition(0.3f, 0f);
                 attempts++;
             }
+            CheckNaN(seekerPos, "Restart:seekerPos");
+            CheckNaN(hiderPos, "Restart:hiderPos");
+
+            Seeker.Position = seekerPos;
+            Seeker.Direction = Raylib.GetRandomValue(0, 359);
+            Seeker.InitWorldSize(World.Size);
+
             Hider.Position = hiderPos;
             Hider.Direction = Raylib.GetRandomValue(0, 359);
             Hider.InitWorldSize(World.Size);
@@ -352,6 +386,9 @@ namespace ToolUse.Core.RaylibThreeD
 
             _prevPhysicalExplored = Seeker.GetExploredCount();
             _prevVisualExplored   = Seeker.GetVisuallyExploredCount();
+
+            CheckNaN(Seeker.Position, "Reset:Seeker.Position");
+            CheckNaN(Hider.Position, "Reset:Hider.Position");
         }
 
         public void Draw()

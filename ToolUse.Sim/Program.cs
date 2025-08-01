@@ -147,9 +147,12 @@ namespace ToolUse.Sim
                 var world = new World3D(gridSize);
                 world.GenerateStaticGrid();
 
-                Vector3 seekerPos = world.GetRandomEmptyPosition(0f);
-                Vector3 hiderPos = world.GetRandomEmptyPositionFarFrom(seekerPos, 5f, 0f);
+                //Vector3 seekerPos = world.GetRandomEmptyPosition(0f);
+                //Vector3 hiderPos = world.GetRandomEmptyPositionFarFrom(seekerPos, 5f, 0f);
 
+                Vector3 seekerPos = world.GetRandomValidAgentPosition(0.3f, 0f);
+                Vector3 hiderPos  = world.GetRandomValidAgentPosition(0.3f, 0f);
+                
                 float actualDistance = Vector3.Distance(seekerPos, hiderPos);
 
                 var newSeeker = new Agent3D(seekerPos, true, Raylib.GetRandomValue(0, 359));

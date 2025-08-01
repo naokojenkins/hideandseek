@@ -45,5 +45,5 @@
     "Speed": 2.0
   },
   "SessionDurationSeconds": 30,
-  "FramesForCatch": 60
+  "FramesForCatch": 10
 }
