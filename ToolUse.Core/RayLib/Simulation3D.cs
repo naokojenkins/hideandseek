@@ -297,19 +297,21 @@ namespace ToolUse.Core.RaylibThreeD
 
             World.GenerateStaticGrid();
 
-            Vector3 seekerPos = World.GetRandomEmptyPosition(0f);
+            //Vector3 seekerPos = World.GetRandomEmptyPosition(0f);
+            Vector3 seekerPos = World.GetRandomValidAgentPosition(0.3f, 0f);
             Seeker.Position = seekerPos;
             Seeker.Direction = Raylib.GetRandomValue(0, 359);
             Seeker.InitWorldSize(World.Size);
 
-            Vector3 hiderPosition = World.GetRandomEmptyPosition(0f);
+            //Vector3 hiderPosition = World.GetRandomEmptyPosition(0f);
+            Vector3 hiderPos = World.GetRandomValidAgentPosition(0.3f, 0f);
             int attempts = 0;
-            while (attempts < 50 && Vector3.Distance(seekerPos, hiderPosition) < 15f)
+            while (attempts < 50 && Vector3.Distance(seekerPos, hiderPos) < 5f)
             {
-                hiderPosition = World.GetRandomEmptyPosition(0f);
+                hiderPos = World.GetRandomValidAgentPosition(0.3f, 0f);
                 attempts++;
             }
-            Hider.Position = hiderPosition;
+            Hider.Position = hiderPos;
             Hider.Direction = Raylib.GetRandomValue(0, 359);
             Hider.InitWorldSize(World.Size);
 

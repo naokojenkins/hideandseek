@@ -17,7 +17,40 @@ namespace ToolUse.Core.RaylibThreeD
         public int RoomSize { get; set; } = 8;
 
         private readonly Random _rng = new();
+        public Vector3 GetRandomValidAgentPosition(float agentRadius, float heightOffset = 0f)
+        {
+            var validPositions = new List<Vector2>();
+            for (int x = 1; x < Size - 1; x++)
+            for (int z = 1; z < Size - 1; z++)
+                if (Grid[x, z] == TileType.Empty && IsAreaFree(x + 0.5f, z + 0.5f, agentRadius))
+                    validPositions.Add(new Vector2(x, z));
 
+            if (validPositions.Count == 0)
+            {
+                Console.WriteLine("[ERROR] No valid positions found for agent spawn!");
+                return new Vector3(Size / 2f, heightOffset, Size / 2f);
+            }
+
+            var pos = validPositions[_rng.Next(validPositions.Count)];
+            return new Vector3(pos.X + 0.5f, heightOffset, pos.Y + 0.5f);
+        }
+
+        private bool IsAreaFree(float centerX, float centerZ, float radius)
+        {
+            int steps = 12;
+            for (int i = 0; i < steps; i++)
+            {
+                float angle = (float)(2 * Math.PI * i / steps);
+                float checkX = centerX + MathF.Cos(angle) * radius;
+                float checkZ = centerZ + MathF.Sin(angle) * radius;
+                int gx = Math.Clamp((int)Math.Floor(checkX), 0, Size - 1);
+                int gz = Math.Clamp((int)Math.Floor(checkZ), 0, Size - 1);
+
+                if (!IsInside(gx, gz) || Grid[gx, gz] == TileType.Wall)
+                    return false;
+            }
+            return true;
+        }
         public World3D(int size)
         {
             Size = size;
