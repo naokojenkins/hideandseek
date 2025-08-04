@@ -51,8 +51,13 @@ namespace ToolUse.Core.RL
                 int oy = int.Parse(p[3][3..]);
                 int dir = int.Parse(p[4][4..]);
                 bool v = bool.Parse(p[5][4..]);
-                // KnownWalls не десериализуется для простоты
-                return new State(ax, ay, ox, oy, dir, v);
+                bool[] walls = null;
+                if (p.Length > 6 && p[6].StartsWith("walls="))
+                {
+                    string wallStr = p[6]["walls=".Length..];
+                    walls = wallStr.Select(c => c == '1').ToArray();
+                }
+                return new State(ax, ay, ox, oy, dir, v, walls);
             }
             catch
             {
@@ -63,17 +68,18 @@ namespace ToolUse.Core.RL
         /// <summary>
         /// Для нейросети: преобразование состояния в массив признаков float[]
         /// </summary>
-        public float[] ToArray()
+        public float[] ToArray(int worldSize)
         {
-            var basic = new float[]
+            float[] basic = new[]
             {
-                AgentX,
-                AgentY,
-                OtherX,
-                OtherY,
-                Direction / 360f,
+                AgentX / (float)worldSize,
+                AgentY / (float)worldSize,
+                OtherX / (float)worldSize,
+                OtherY / (float)worldSize,
+                Direction / 8.0f, // Нормализованный сектор (0–7 → 0–1)
                 CanSee ? 1f : 0f
             };
+
             if (KnownWallsFlat != null && KnownWallsFlat.Length > 0)
             {
                 var arr = new float[basic.Length + KnownWallsFlat.Length];
