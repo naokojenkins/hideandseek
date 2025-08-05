@@ -12,11 +12,33 @@ namespace ToolUse.Core.RaylibThreeD
         public int Size { get; }
         public float CellSize { get; set; }
         public float WallHeight { get; set; }
-        public Color FloorColor { get; set; } = new Color(200, 200, 200, 255); // светло-серый
-        public Color WallColor { get; set; } = new Color(80, 80, 80, 255);     // тёмно-серый
-        public int RoomSize { get; set; } = 8;
+        public Color FloorColor { get; set; }
+        public Color WallColor { get; set; }
+        public int RoomSize { get; set; }
 
         private readonly Random _rng = new();
+
+        public World3D(int size)
+        {
+            Size = size;
+            Grid = new TileType[size, size];
+            var config = GameConfig.Instance.World;
+            CellSize = config.CellSize;
+            WallHeight = config.WallHeight;
+            RoomSize = config.RoomSize;
+
+            // Цвета также берём из конфига, если добавлены:
+            FloorColor = new Color(200, 200, 200, 255); // По умолчанию (можно взять из config.FloorColor, если нужно)
+            WallColor  = new Color(80, 80, 80, 255);    // По умолчанию (можно взять из config.WallColor, если нужно)
+
+            if (RoomSize >= Size - 2)
+            {
+                RoomSize = Math.Max(4, Size / 4);
+                Console.WriteLine($"[WARNING] RoomSize слишком большой для поля {Size}x{Size}, установлен в {RoomSize}");
+            }
+            GenerateStaticGrid();
+        }
+
         public Vector3 GetRandomValidAgentPosition(float agentRadius, float heightOffset = 0f)
         {
             var validPositions = new List<Vector2>();
@@ -50,21 +72,6 @@ namespace ToolUse.Core.RaylibThreeD
                     return false;
             }
             return true;
-        }
-        public World3D(int size)
-        {
-            Size = size;
-            Grid = new TileType[size, size];
-            var config = GameConfig.Load();
-            CellSize = config.World.CellSize;
-            WallHeight = config.World.WallHeight;
-            RoomSize = config.World.RoomSize;
-            if (RoomSize >= Size - 2)
-            {
-                RoomSize = Math.Max(4, Size / 4);
-                Console.WriteLine($"[WARNING] RoomSize слишком большой для поля {Size}x{Size}, установлен в {RoomSize}");
-            }
-            GenerateStaticGrid();
         }
 
         public bool IsInside(int x, int z) =>
@@ -201,7 +208,6 @@ namespace ToolUse.Core.RaylibThreeD
 
         public void DrawGrid()
         {
-            // Сетка на уровне пола
             for (int x = 0; x <= Size; x++)
                 Raylib.DrawLine3D(
                     new Vector3(x, 0.01f, 0),
@@ -254,16 +260,12 @@ namespace ToolUse.Core.RaylibThreeD
             return new Vector3(randomPos.X + 0.5f, heightOffset, randomPos.Y + 0.5f);
         }
 
-        /// <summary>
-        /// Линия прямой видимости: возвращает true если нет стены между точками.
-        /// </summary>
         public bool HasLineOfSight(Vector3 from, Vector3 to, float agentRadius = 0.3f)
         {
             Vector3 direction = Vector3.Normalize(to - from);
             float distance = Vector3.Distance(from, to);
-            float step = 0.2f; // Увеличен шаг для ускорения
+            float step = 0.2f;
 
-            // Проверяем линию с небольшим смещением в стороны (для агентов с радиусом)
             Vector3 perpendicular = new Vector3(-direction.Z, 0, direction.X);
             Vector3[] offsets = new[]
             {
@@ -286,7 +288,6 @@ namespace ToolUse.Core.RaylibThreeD
             return true;
         }
 
-        // Яркость цвета (новый API: R,G,B,A)
         private static Color Brightness(Color color, float factor)
         {
             byte r = (byte)Math.Clamp((int)(color.R * factor), 0, 255);

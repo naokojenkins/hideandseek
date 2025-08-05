@@ -30,14 +30,12 @@ namespace ToolUse.Core.RaylibThreeD
         public bool IsSeeker { get; set; }
         public Color Color { get; set; }
 
-        // Система отслеживания исследованных клеток
         private HashSet<(int x, int z)> ExploredCells { get; } = new();
         private HashSet<(int x, int z)> VisuallyExploredCells { get; } = new();
 
-        // === Карта замеченных стен ===
         public HashSet<(int x, int z)> KnownWalls { get; } = new();
 
-        private int _worldSize = 64; // По умолчанию
+        private int _worldSize = 64;
 
         public void InitWorldSize(int size) => _worldSize = size;
 
@@ -50,7 +48,7 @@ namespace ToolUse.Core.RaylibThreeD
 
         public Agent3D(Vector3 position, bool isSeeker, float initialRotation = 0f)
         {
-            var cfg = isSeeker ? GameConfig.Load().Seeker : GameConfig.Load().Hider;
+            var cfg = isSeeker ? GameConfig.Instance.Seeker : GameConfig.Instance.Hider;
             Position = position;
             IsSeeker = isSeeker;
             Rotation = new Vector3(0, NormalizeAngle(initialRotation), 0);
@@ -59,8 +57,8 @@ namespace ToolUse.Core.RaylibThreeD
             Speed = cfg.Speed;
             AgentRadius = cfg.AgentRadius;
             Color = isSeeker
-                ? new Color(0, 121, 241, 255)    // BLUE
-                : new Color(0, 228, 48, 255);    // GREEN
+                ? new Color(0, 121, 241, 255)    // Можно вынести в GameConfig, если понадобится настройка
+                : new Color(0, 228, 48, 255);
 
             if (IsSeeker)
             {
@@ -80,7 +78,6 @@ namespace ToolUse.Core.RaylibThreeD
             Direction += degrees;
         }
 
-        // === Исследование клеток ===
         public int GetExploredCount() => ExploredCells.Count;
         public int GetVisuallyExploredCount() => VisuallyExploredCells.Count;
         public int GetTotalExploredCount() => ExploredCells.Count + VisuallyExploredCells.Count;
@@ -101,9 +98,6 @@ namespace ToolUse.Core.RaylibThreeD
             }
         }
 
-        /// <summary>
-        /// Обновляет визуальное исследование и запоминает стены. Возвращает количество новых уникальных визуально исследованных клеток.
-        /// </summary>
         public int UpdateVisualExploration(World3D world)
         {
             int newCellsExplored = 0;
@@ -143,16 +137,11 @@ namespace ToolUse.Core.RaylibThreeD
             return newCellsExplored;
         }
 
-        /// <summary>
-        /// Движение вперёд с проверкой коллизий. Агент не может заходить своим телом в стены или на другого агента.
-        /// </summary>
         public bool MoveWithCollisionAvoidance(World3D world, float deltaTime, Agent3D other = null)
         {
-            // Проверяем, есть ли в направлении движения известная стена
             var bestDirection = GetBestDirection(world);
             if (bestDirection == Vector3.Zero)
             {
-                // Нет безопасного направления — пытаемся повернуть
                 for (int attempt = 1; attempt <= 8; attempt++)
                 {
                     float angleOffset = (attempt % 2 == 0) ? attempt * 15 : -attempt * 15;
@@ -182,14 +171,12 @@ namespace ToolUse.Core.RaylibThreeD
 
             Vector3 newPosition = Position + forward;
 
-            // Проверяем, не выйдет ли тело агента за пределы пустых клеток (коллизия по AgentRadius)
             if (!IsPositionValid(newPosition, world))
             {
                 var gridCoords = ToGridCoords(newPosition);
                 if (world.IsBlocked(gridCoords.x, gridCoords.z))
                     KnownWalls.Add(gridCoords);
 
-                // Пробуем повернуть, чтобы обойти препятствие
                 for (int attempt = 1; attempt <= 8; attempt++)
                 {
                     float angleOffset = (attempt % 2 == 0) ? attempt * 15 : -attempt * 15;
@@ -210,18 +197,12 @@ namespace ToolUse.Core.RaylibThreeD
                 return false;
             }
 
-            // Проверка столкновения с другим агентом (по AgentRadius)
-            // Проверка столкновения с другим агентом (по AgentRadius)
-            // Проверка столкновения с другим агентом (по AgentRadius)
             if (other != null)
             {
                 float minDist = this.AgentRadius + other.AgentRadius;
                 float currentDist = Vector3.Distance(newPosition, other.Position);
-
-                // Получаем текущий угол агента один раз
                 float currentAngle = Direction;
 
-                // Если это Hider и его видят — убегаем
                 if (!IsSeeker && IsSeenBy(other, world))
                 {
                     Vector3 escapeDir = Vector3.Normalize(Position - other.Position);
@@ -231,11 +212,10 @@ namespace ToolUse.Core.RaylibThreeD
                     if (angleDiff > 180f) angleDiff -= 360f;
                     if (angleDiff < -180f) angleDiff += 360f;
 
-                    Rotate(Math.Sign(angleDiff) * 10f); // Увеличено с 5°
+                    Rotate(Math.Sign(angleDiff) * 10f);
                     return false;
                 }
 
-                // Если сталкиваемся — уворачиваемся
                 if (currentDist < minDist)
                 {
                     Vector3 avoidDir = Vector3.Normalize(Position - other.Position);
@@ -252,7 +232,6 @@ namespace ToolUse.Core.RaylibThreeD
 
             Position = newPosition;
 
-            // Добавляем новую клетку как исследованную (только физически)
             if (IsSeeker)
             {
                 var gridCoords = ToGridCoords(Position);
@@ -267,7 +246,7 @@ namespace ToolUse.Core.RaylibThreeD
 
         public Vector3 GetBestDirection(World3D world)
         {
-            float[] angles = { 0, 15, -15, 30, -30, 45, -45, 90, -90 }; // Увеличено
+            float[] angles = { 0, 15, -15, 30, -30, 45, -45, 90, -90 };
             foreach (var angle in angles)
             {
                 float testAngle = NormalizeAngle(Direction + angle);
@@ -283,16 +262,13 @@ namespace ToolUse.Core.RaylibThreeD
             return Vector3.Zero;
         }
 
-        /// <summary>
-        /// Проверка, что агент полностью помещается в пустой клетке (с учётом радиуса).
-        /// </summary>
         private bool IsPositionValid(Vector3 pos, World3D world)
         {
-            int gridCheckSteps = 16; // Увеличено с 8
+            int gridCheckSteps = 16;
             for (int i = 0; i < gridCheckSteps; i++)
             {
                 float angle = 2 * MathF.PI * i / gridCheckSteps;
-                float checkX = pos.X + MathF.Cos(angle) * AgentRadius * 0.9f; // Уменьшен радиус
+                float checkX = pos.X + MathF.Cos(angle) * AgentRadius * 0.9f;
                 float checkZ = pos.Z + MathF.Sin(angle) * AgentRadius * 0.9f;
                 int gx = ToGridX(checkX, world.Size);
                 int gz = ToGridZ(checkZ, world.Size);
@@ -303,9 +279,6 @@ namespace ToolUse.Core.RaylibThreeD
             return true;
         }
 
-        /// <summary>
-        /// Может ли этот агент видеть другого (угол + расстояние + препятствия)?
-        /// </summary>
         public bool CanSee(Agent3D other, World3D world)
         {
             float distance = Vector3.Distance(Position, other.Position);
@@ -319,15 +292,9 @@ namespace ToolUse.Core.RaylibThreeD
 
             if (angleDiff > VisionAngle / 2f) return false;
 
-            return world.HasLineOfSight(Position, other.Position, AgentRadius); // ✅ Теперь с учётом радиуса
+            return world.HasLineOfSight(Position, other.Position, AgentRadius);
         }
 
-        /// <summary>
-        /// Проверяет, видит ли другой агент этого агента.
-        /// </summary>
-        /// <summary>
-        /// Проверяет, видит ли другой агент этого агента.
-        /// </summary>
         public bool IsSeenBy(Agent3D other, World3D world)
         {
             float distance = Vector3.Distance(other.Position, Position);
@@ -348,7 +315,6 @@ namespace ToolUse.Core.RaylibThreeD
         {
             if (IsSeeker)
             {
-                // Seeker рисуется как обычно
                 Raylib.DrawCapsule(
                     Position,
                     Position + new Vector3(0, 1.5f, 0),
@@ -357,12 +323,7 @@ namespace ToolUse.Core.RaylibThreeD
                 return;
             }
 
-            // Hider получает визуальную реакцию, если его видят
             bool isSeen = false;
-
-            // === Временное решение: передача Seeker и World напрямую ===
-            // Это нужно будет заменить на более правильную реализацию
-            // Например, через ссылку на симуляцию или событие
             if (_seeker != null && _world != null)
             {
                 isSeen = IsSeenBy(_seeker, _world);
@@ -370,7 +331,6 @@ namespace ToolUse.Core.RaylibThreeD
 
             if (isSeen)
             {
-                // === Режим "видимый" — пульсирующий цвет ===
                 float pulse = (float)Math.Sin(Environment.TickCount64 * 0.01) * 0.5f + 0.5f;
                 Color alertColor = new Color(
                     (int)(Color.R + (255 - Color.R) * pulse),
@@ -381,19 +341,20 @@ namespace ToolUse.Core.RaylibThreeD
                 Raylib.DrawCapsule(
                     Position,
                     Position + new Vector3(0, 1.5f, 0),
-                    AgentRadius * 1.3f, // Увеличенный радиус для визуального эффекта
+                    AgentRadius * 1.3f,
                     8, 8, alertColor
                 );
+                DrawVisionCone(_world, new Color(255, 0, 0, 80));
                 _wasSeen = true;
             }
             else
             {
-                // === Режим "невидимый" — обычный рендеринг ===
                 Raylib.DrawCapsule(
                     Position,
                     Position + new Vector3(0, 1.5f, 0),
                     AgentRadius, 8, 8, Color
                 );
+                DrawVisionCone(_world, new Color(0, 255, 0, 80));
                 _wasSeen = false;
             }
         }
@@ -448,10 +409,6 @@ namespace ToolUse.Core.RaylibThreeD
             return start + direction * maxDistance;
         }
 
-        /// <summary>
-        /// Возвращает известные агенту стены в виде одномерного массива bool[] (для RL State).
-        /// Размер: worldSize * worldSize, порядок: [x + z * worldSize]
-        /// </summary>
         public bool[] GetKnownWallsFlat(int worldSize)
         {
             bool[] arr = new bool[worldSize * worldSize];

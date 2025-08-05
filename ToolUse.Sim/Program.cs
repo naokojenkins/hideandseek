@@ -42,7 +42,8 @@ namespace ToolUse.Sim
 
         public static void Run()
         {
-            config = GameConfig.Load();
+            // Используем GameConfig.Instance (гарантированно загружен)
+            config = GameConfig.Instance;
             Console.WriteLine($"[DEBUG] Loaded config: GridSize={config.World.GridSize}, CellSize={config.World.CellSize}");
             Console.WriteLine($"[DEBUG] SessionDurationSeconds = {config.SessionDurationSeconds}");
 
@@ -56,7 +57,7 @@ namespace ToolUse.Sim
             var dummyHider  = new Agent3D(new Vector3(0, 0, 0), false);
             var adapter = new SimAdapter3D(world, dummySeeker, dummyHider);
             var dummyState = adapter.GetSeekerState();
-            int stateSize = dummyState.ToArray(gridSize).Length; // ✅ Передаём gridSize
+            int stateSize = dummyState.ToArray(gridSize).Length;
 
             seekerDQN = new DQNAgent(stateSize, actionSize);
             hiderDQN  = new DQNAgent(stateSize, actionSize);
@@ -147,8 +148,11 @@ namespace ToolUse.Sim
                 var world = new World3D(gridSize);
                 world.GenerateStaticGrid();
 
-                Vector3 seekerPos = world.GetRandomValidAgentPosition(0.3f, 0f);
-                Vector3 hiderPos  = world.GetRandomValidAgentPosition(0.3f, 0f);
+                float seekerRadius = config.Seeker.AgentRadius;
+                float hiderRadius  = config.Hider.AgentRadius;
+
+                Vector3 seekerPos = world.GetRandomValidAgentPosition(seekerRadius, 0f);
+                Vector3 hiderPos  = world.GetRandomValidAgentPosition(hiderRadius, 0f);
 
                 float actualDistance = Vector3.Distance(seekerPos, hiderPos);
 

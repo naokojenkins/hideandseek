@@ -100,9 +100,10 @@ namespace ToolUse.Core.RaylibThreeD
             Agent3D hider,
             DQNAgent seekerAgent,
             DQNAgent hiderAgent,
-            string configPath = "game_config.json")
+            string? configPath = null)
         {
-            Config = GameConfig.Load(configPath);
+            // Теперь используем GameConfig.Instance (все параметры уже загружены)
+            Config = GameConfig.Instance;
             sessionDurationSeconds = Config.SessionDurationSeconds;
 
             World = new World3D(worldSize);
@@ -211,78 +212,78 @@ namespace ToolUse.Core.RaylibThreeD
         }
 
         private void UpdateRLAgents(float deltaTime)
-{
-    var seekerState = _adapter.GetSeekerState();
-    var hiderState  = _adapter.GetHiderState();
-
-    CheckNaN(seekerState.ToArray(World.Size), "seekerState");
-    CheckNaN(hiderState.ToArray(World.Size), "hiderState");
-    if (_prevSeekerState != null) CheckNaN(_prevSeekerState.ToArray(World.Size), "prevSeekerState");
-    if (_prevHiderState != null) CheckNaN(_prevHiderState.ToArray(World.Size), "prevHiderState");
-
-    var seekerAction = _seekerAgent.ChooseAction(seekerState.ToArray(World.Size));
-    var hiderAction  = _hiderAgent.ChooseAction(hiderState.ToArray(World.Size));
-
-    int beforePhysical  = Seeker.GetExploredCount();
-    int beforeVisual    = Seeker.GetVisuallyExploredCount();
-
-    _adapter.ApplyAction(Seeker, seekerAction);
-    _adapter.ApplyAction(Hider, hiderAction);
-
-    if (seekerAction == 2) Seeker.MoveWithCollisionAvoidance(World, deltaTime, Hider);
-    if (hiderAction == 2) Hider.MoveWithCollisionAvoidance(World, deltaTime, Seeker);
-
-    Seeker.UpdateVisualExploration(World);
-    Hider.UpdateVisualExploration(World);
-
-    int afterPhysical   = Seeker.GetExploredCount();
-    int afterVisual     = Seeker.GetVisuallyExploredCount();
-
-    int newPhysical = afterPhysical - beforePhysical;
-    int newVisual   = afterVisual   - beforeVisual;
-    if (newPhysical < 0) newPhysical = 0;
-    if (newVisual   < 0) newVisual   = 0;
-
-    if (_prevSeekerState != null)
-    {
-        float seekerReward = ComputeSeekerReward();
-        float expPhysBonus   = newPhysical * Config.Seeker.PhysicalExploreReward;
-        float expVisualBonus = newVisual   * Config.Seeker.VisualExploreReward;
-        seekerReward += expPhysBonus + expVisualBonus;
-        ExplorationScore += expPhysBonus + expVisualBonus;
-
-        if (_isHiderCaught && !_catchBonusGiven)
         {
-            seekerReward += Config.Seeker.CatchBonus;
-            _catchBonusGiven = true;
+            var seekerState = _adapter.GetSeekerState();
+            var hiderState  = _adapter.GetHiderState();
+
+            CheckNaN(seekerState.ToArray(World.Size), "seekerState");
+            CheckNaN(hiderState.ToArray(World.Size), "hiderState");
+            if (_prevSeekerState != null) CheckNaN(_prevSeekerState.ToArray(World.Size), "prevSeekerState");
+            if (_prevHiderState != null) CheckNaN(_prevHiderState.ToArray(World.Size), "prevHiderState");
+
+            var seekerAction = _seekerAgent.ChooseAction(seekerState.ToArray(World.Size));
+            var hiderAction  = _hiderAgent.ChooseAction(hiderState.ToArray(World.Size));
+
+            int beforePhysical  = Seeker.GetExploredCount();
+            int beforeVisual    = Seeker.GetVisuallyExploredCount();
+
+            _adapter.ApplyAction(Seeker, seekerAction);
+            _adapter.ApplyAction(Hider, hiderAction);
+
+            if (seekerAction == 2) Seeker.MoveWithCollisionAvoidance(World, deltaTime, Hider);
+            if (hiderAction == 2) Hider.MoveWithCollisionAvoidance(World, deltaTime, Seeker);
+
+            Seeker.UpdateVisualExploration(World);
+            Hider.UpdateVisualExploration(World);
+
+            int afterPhysical   = Seeker.GetExploredCount();
+            int afterVisual     = Seeker.GetVisuallyExploredCount();
+
+            int newPhysical = afterPhysical - beforePhysical;
+            int newVisual   = afterVisual   - beforeVisual;
+            if (newPhysical < 0) newPhysical = 0;
+            if (newVisual   < 0) newVisual   = 0;
+
+            if (_prevSeekerState != null)
+            {
+                float seekerReward = ComputeSeekerReward();
+                float expPhysBonus   = newPhysical * Config.Seeker.PhysicalExploreReward;
+                float expVisualBonus = newVisual   * Config.Seeker.VisualExploreReward;
+                seekerReward += expPhysBonus + expVisualBonus;
+                ExplorationScore += expPhysBonus + expVisualBonus;
+
+                if (_isHiderCaught && !_catchBonusGiven)
+                {
+                    seekerReward += Config.Seeker.CatchBonus;
+                    _catchBonusGiven = true;
+                }
+
+                if (float.IsNaN(seekerReward) || float.IsInfinity(seekerReward))
+                    throw new Exception($"[NaN/Inf] seekerReward: {seekerReward}");
+
+                _seekerAgent.Store(_prevSeekerState.ToArray(World.Size), _prevSeekerAction, seekerReward, seekerState.ToArray(World.Size), _isHiderCaught);
+                _seekerAgent.Learn();
+            }
+            if (_prevHiderState != null)
+            {
+                float hiderReward = ComputeHiderReward();
+                if (_wasHiderVisiblePrev && !IsHiderVisible)
+                {
+                    hiderReward += Config.Hider.EscapeBonus;
+                }
+                if (float.IsNaN(hiderReward) || float.IsInfinity(hiderReward))
+                    throw new Exception($"[NaN/Inf] hiderReward: {hiderReward}");
+
+                _hiderAgent.Store(_prevHiderState.ToArray(World.Size), _prevHiderAction, hiderReward, hiderState.ToArray(World.Size), _isHiderCaught);
+                _hiderAgent.Learn();
+            }
+
+            _prevSeekerState = seekerState;
+            _prevHiderState  = hiderState;
+            _prevSeekerAction = seekerAction;
+            _prevHiderAction  = hiderAction;
+            _wasHiderVisiblePrev = IsHiderVisible;
         }
-
-        if (float.IsNaN(seekerReward) || float.IsInfinity(seekerReward))
-            throw new Exception($"[NaN/Inf] seekerReward: {seekerReward}");
-
-        _seekerAgent.Store(_prevSeekerState.ToArray(World.Size), _prevSeekerAction, seekerReward, seekerState.ToArray(World.Size), _isHiderCaught);
-        _seekerAgent.Learn();
-    }
-    if (_prevHiderState != null)
-    {
-        float hiderReward = ComputeHiderReward();
-        if (_wasHiderVisiblePrev && !IsHiderVisible)
-        {
-            hiderReward += Config.Hider.EscapeBonus;
-        }
-        if (float.IsNaN(hiderReward) || float.IsInfinity(hiderReward))
-            throw new Exception($"[NaN/Inf] hiderReward: {hiderReward}");
-
-        _hiderAgent.Store(_prevHiderState.ToArray(World.Size), _prevHiderAction, hiderReward, hiderState.ToArray(World.Size), _isHiderCaught);
-        _hiderAgent.Learn();
-    }
-
-    _prevSeekerState = seekerState;
-    _prevHiderState  = hiderState;
-    _prevSeekerAction = seekerAction;
-    _prevHiderAction  = hiderAction;
-    _wasHiderVisiblePrev = IsHiderVisible;
-}
 
         private float ComputeSeekerReward()
         {
@@ -317,9 +318,10 @@ namespace ToolUse.Core.RaylibThreeD
             {
                 reward += Config.Hider.RewardWhenIncreasingDistance;
             }
+            _lastHiderDistance = currentDistance;
 
             // Награда за укрытие за стеной
-            if (!Seeker.CanSee(Hider, World)) // ✅ Теперь используем World из Simulation3D
+            if (!Seeker.CanSee(Hider, World))
             {
                 reward += Config.Hider.RewardWhenHiddenBehindWall;
             }
@@ -364,12 +366,12 @@ namespace ToolUse.Core.RaylibThreeD
 
             World.GenerateStaticGrid();
 
-            Vector3 seekerPos = World.GetRandomValidAgentPosition(0.3f, 0f);
-            Vector3 hiderPos = World.GetRandomValidAgentPosition(0.3f, 0f);
+            Vector3 seekerPos = World.GetRandomValidAgentPosition(Config.Seeker.AgentRadius, 0f);
+            Vector3 hiderPos = World.GetRandomValidAgentPosition(Config.Hider.AgentRadius, 0f);
             int attempts = 0;
             while (attempts < 50 && Vector3.Distance(seekerPos, hiderPos) < 5f)
             {
-                hiderPos = World.GetRandomValidAgentPosition(0.3f, 0f);
+                hiderPos = World.GetRandomValidAgentPosition(Config.Hider.AgentRadius, 0f);
                 attempts++;
             }
             CheckNaN(seekerPos, "Restart:seekerPos");

@@ -38,7 +38,7 @@ namespace ToolUse.Core.RaylibThreeD
             _hider._seeker = _seeker;
             _hider._world = _world;
 
-            var cfg = GameConfig.Load();
+            var cfg = GameConfig.Instance;
 
             // === Загружаем параметры из GameConfig ===
             _proximityRewardMultiplierSeeker = cfg.Seeker.ProximityRewardMultiplier;

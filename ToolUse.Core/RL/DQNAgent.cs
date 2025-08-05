@@ -30,7 +30,7 @@ namespace ToolUse.Core.RL
         private float epsilon;
         private readonly int batchSize;
         private readonly int replayBufferSize;
-        private readonly ReplayBuffer buffer;
+        private readonly PrioritizedReplayBuffer buffer;
         private readonly torch.Device device;
 
         private readonly DQNModel model;
@@ -39,7 +39,7 @@ namespace ToolUse.Core.RL
 
         private int updateTargetEvery;
         private int steps = 0;
-        private readonly bool useDoubleDQN = true; // ✅ Включаем Double DQN
+        private readonly bool useDoubleDQN = true;
 
         public DQNAgent(int stateSize, int actionSize, DQNConfig dqnCfg, torch.Device? deviceOverride = null)
         {
@@ -61,7 +61,7 @@ namespace ToolUse.Core.RL
             targetModel = new DQNModel(stateSize, actionSize, dqnCfg.Hidden1, dqnCfg.Hidden2).to(device);
             optimizer = torch.optim.Adam(model.parameters(), dqnCfg.LearningRate);
 
-            buffer = new ReplayBuffer(replayBufferSize);
+            buffer = new PrioritizedReplayBuffer(replayBufferSize);
 
             UpdateTargetModel();
         }
@@ -95,6 +95,7 @@ namespace ToolUse.Core.RL
                 if (float.IsNaN(arr[i]) || float.IsInfinity(arr[i]))
                     throw new Exception($"[NaN/Inf] {tag}: Index {i} value {arr[i]}");
         }
+
         private void CheckNaN(torch.Tensor t, string tag)
         {
             if (t.isnan().any().item<bool>())
@@ -137,26 +138,20 @@ namespace ToolUse.Core.RL
         {
             if (buffer.Count < batchSize) return;
 
-            var batch = buffer.Sample(batchSize);
+            var (statesArr, actionsArr, rewardsArr, nextStatesArr, donesArr, weightsArr, indicesArr) = buffer.Sample(batchSize);
 
-            foreach (var s in batch.States) CheckNaN(s, "Learn:States");
-            foreach (var ns in batch.NextStates) CheckNaN(ns, "Learn:NextStates");
+            foreach (var s in statesArr) CheckNaN(s, "Learn:States");
+            foreach (var ns in nextStatesArr) CheckNaN(ns, "Learn:NextStates");
 
-            var states = torch.tensor(JaggedTo2D(batch.States), dtype: ScalarType.Float32, device: device);
-            var nextStates = torch.tensor(JaggedTo2D(batch.NextStates), dtype: ScalarType.Float32, device: device);
+            var states = torch.tensor(JaggedTo2D(statesArr), dtype: ScalarType.Float32, device: device);
+            var nextStates = torch.tensor(JaggedTo2D(nextStatesArr), dtype: ScalarType.Float32, device: device);
 
             CheckNaN(states, "Learn:states tensor");
             CheckNaN(nextStates, "Learn:nextStates tensor");
 
-            var actionsArr = batch.Actions.Select(a => (long)a).ToArray();
             var actions = torch.tensor(actionsArr, dtype: ScalarType.Int64, device: device).unsqueeze(1);
-
-            var rewardsArr = batch.Rewards.Select(r => (float)r).ToArray();
-            foreach (var r in rewardsArr) if (float.IsNaN(r) || float.IsInfinity(r)) throw new Exception($"[NaN/Inf] Learn:Reward={r}");
             var rewards = torch.tensor(rewardsArr, dtype: ScalarType.Float32, device: device).unsqueeze(1);
-
-            var donesArr = batch.Dones.Select(x => x ? 1.0f : 0.0f).ToArray();
-            var dones = torch.tensor(donesArr, dtype: ScalarType.Float32, device: device).unsqueeze(1);
+            var dones = torch.tensor(donesArr.Select(x => x ? 1.0f : 0.0f).ToArray(), dtype: ScalarType.Float32, device: device).unsqueeze(1);
 
             var qModelOutput = model.forward(states);
             CheckNaN(qModelOutput, "Learn:model.forward(states)");
@@ -170,17 +165,14 @@ namespace ToolUse.Core.RL
             {
                 if (useDoubleDQN)
                 {
-                    // ✅ Double DQN: основная модель выбирает действие, целевая — оценивает
-                    var nextModelOutput = model.forward(nextStates);
-                    CheckNaN(nextModelOutput, "Learn:model.forward(nextStates)");
-                    var nextQ = nextModelOutput.argmax(1).to_type(ScalarType.Int64).unsqueeze(1);
+                    // ВАЖНО: следующий блок полностью совместим с gather
+                    var nextQ = model.forward(nextStates).argmax(1).to_type(ScalarType.Int64).unsqueeze(1);
                     var targetOut = targetModel.forward(nextStates);
                     CheckNaN(targetOut, "Learn:targetModel.forward(nextStates)");
                     nextQTarget = targetOut.gather(1, nextQ);
                 }
                 else
                 {
-                    // Обычный DQN
                     var targetOut = targetModel.forward(nextStates);
                     CheckNaN(targetOut, "Learn:targetModel.forward(nextStates)");
                     nextQTarget = targetOut.max(1).values.unsqueeze(1);
@@ -195,12 +187,21 @@ namespace ToolUse.Core.RL
             targets = targets.to_type(ScalarType.Float32);
             qValues = qValues.to_type(ScalarType.Float32);
 
-            var loss = functional.mse_loss(qValues, targets);
+            var loss = functional.mse_loss(qValues, targets, Reduction.None);
+            var weightsTensor = torch.tensor(weightsArr, dtype: ScalarType.Float32, device: device).unsqueeze(1);
+            loss = (loss * weightsTensor).mean();
+
             CheckNaN(loss, "Learn:loss");
 
             optimizer.zero_grad();
             loss.backward();
             optimizer.step();
+
+            using (var errorTensor = (qValues - targets).abs().cpu().flatten())
+            {
+                var errorArray = errorTensor.ToArray_Float();
+                buffer.UpdatePriorities(indicesArr, errorArray);
+            }
 
             steps++;
             if (steps % updateTargetEvery == 0)
@@ -248,6 +249,7 @@ namespace ToolUse.Core.RL
                 targetModel.load(weightsPath);
                 Console.WriteLine($"[DEBUG] Model loaded from {weightsPath}");
             }
+
             if (File.Exists(statePath))
             {
                 var state = JsonConvert.DeserializeObject<DQNAgentState>(File.ReadAllText(statePath));
@@ -268,14 +270,16 @@ namespace ToolUse.Core.RL
     {
         private readonly Linear fc1;
         private readonly Linear fc2;
-        private readonly Linear fc3;
+        private readonly Linear valueStream;
+        private readonly Linear advantageStream;
 
         public DQNModel(int inputSize, int outputSize, int hidden1 = 256, int hidden2 = 256)
             : base("DQNModel")
         {
             fc1 = Linear(inputSize, hidden1);
             fc2 = Linear(hidden1, hidden2);
-            fc3 = Linear(hidden2, outputSize);
+            valueStream = Linear(hidden2, 1);
+            advantageStream = Linear(hidden2, outputSize);
             RegisterComponents();
         }
 
@@ -283,8 +287,9 @@ namespace ToolUse.Core.RL
         {
             x = functional.relu(fc1.forward(x));
             x = functional.relu(fc2.forward(x));
-            x = fc3.forward(x);
-            return x;
+            var value = valueStream.forward(x);
+            var advantage = advantageStream.forward(x);
+            return value + (advantage - advantage.mean(new long[] { 1 }, keepdim: true));
         }
     }
 
@@ -307,37 +312,100 @@ namespace ToolUse.Core.RL
         }
     }
 
-    public class ReplayBuffer : IEnumerable<Experience>
+    public class PrioritizedReplayBuffer : IEnumerable<Experience>
     {
-        private readonly int capacity;
-        private readonly Queue<Experience> buffer = new();
-
-        public ReplayBuffer(int capacity) => this.capacity = capacity;
-        public int Count => buffer.Count;
-        public void Add(Experience exp)
+        private class PrioritizedExperience
         {
-            if (buffer.Count >= capacity)
-                buffer.Dequeue();
-            buffer.Enqueue(exp);
+            public Experience Experience { get; set; }
+            public float Priority { get; set; }
         }
 
-        public (float[][] States, long[] Actions, float[] Rewards, float[][] NextStates, bool[] Dones) Sample(int batchSize)
+        private readonly int capacity;
+        private readonly List<PrioritizedExperience> buffer = new();
+        private readonly float alpha = 0.6f;
+        private readonly float epsilon = 1e-6f;
+
+        public PrioritizedReplayBuffer(int capacity, float alpha = 0.6f)
         {
+            this.capacity = capacity;
+            this.alpha = alpha;
+        }
+
+        public int Count => buffer.Count;
+
+        public void Add(Experience exp, float error = 1.0f)
+        {
+            buffer.Add(new PrioritizedExperience
+            {
+                Experience = exp,
+                Priority = (float)Math.Pow(Math.Abs(error) + epsilon, alpha)
+            });
+
+            if (buffer.Count > capacity)
+                buffer.RemoveAt(0);
+        }
+
+        public (float[][] States, long[] Actions, float[] Rewards, float[][] NextStates, bool[] Dones, float[] Weights, int[] Indices)
+            Sample(int batchSize)
+        {
+            float totalPriority = buffer.Sum(x => x.Priority);
+            float[] probabilities = buffer.Select(x => x.Priority / totalPriority).ToArray();
+
+            var indices = new List<int>();
             var rnd = new Random();
-            var experiences = buffer.OrderBy(_ => rnd.Next()).Take(batchSize).ToArray();
+            for (int i = 0; i < batchSize; i++)
+            {
+                float p = (float)rnd.NextDouble();
+                float cumulative = 0f;
+                int idx = 0;
+                foreach (var prob in probabilities)
+                {
+                    cumulative += prob;
+                    if (cumulative >= p)
+                    {
+                        indices.Add(idx);
+                        break;
+                    }
+                    idx++;
+                }
+            }
+
+            float[] weights = indices.Select(x => (float)Math.Pow(buffer.Count * probabilities[x], -0.4)).ToArray();
+            float maxWeight = weights.Max();
+            weights = weights.Select(w => w / maxWeight).ToArray();
 
             return (
-                experiences.Select(e => e.State).ToArray(),
-                experiences.Select(e => e.Action).ToArray(),
-                experiences.Select(e => e.Reward).ToArray(),
-                experiences.Select(e => e.NextState).ToArray(),
-                experiences.Select(e => e.Done).ToArray()
+                indices.Select(i => buffer[i].Experience.State).ToArray(),
+                indices.Select(i => buffer[i].Experience.Action).ToArray(),
+                indices.Select(i => buffer[i].Experience.Reward).ToArray(),
+                indices.Select(i => buffer[i].Experience.NextState).ToArray(),
+                indices.Select(i => buffer[i].Experience.Done).ToArray(),
+                weights,
+                indices.ToArray()
             );
         }
 
-        public IEnumerator<Experience> GetEnumerator() => buffer.GetEnumerator();
-        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => buffer.GetEnumerator();
+        public IEnumerator<Experience> GetEnumerator() => buffer.Select(x => x.Experience).GetEnumerator();
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => buffer.Select(x => x.Experience).GetEnumerator();
         public void Clear() => buffer.Clear();
-        public List<Experience> ToList() => buffer.ToList();
+        public List<Experience> ToList() => buffer.Select(x => x.Experience).ToList();
+
+        public void UpdatePriorities(int[] indices, float[] errors)
+        {
+            for (int i = 0; i < indices.Length; i++)
+            {
+                int idx = indices[i];
+                float error = errors[i];
+                buffer[idx].Priority = (float)Math.Pow(Math.Abs(error) + epsilon, alpha);
+            }
+        }
+    }
+
+    public static class TensorExtensions
+    {
+        public static float[] ToArray_Float(this torch.Tensor tensor)
+        {
+            return tensor.cpu().data<float>().ToArray();
+        }
     }
 }
