@@ -8,6 +8,9 @@ namespace ToolUse.Core.RaylibThreeD
 {
     public class Agent3D
     {
+        private bool _wasSeen;
+        internal Agent3D _seeker;
+        internal World3D _world;
         public Vector3 Position { get; set; }
         public Vector3 Rotation { get; set; }
 
@@ -144,118 +147,118 @@ namespace ToolUse.Core.RaylibThreeD
         /// Движение вперёд с проверкой коллизий. Агент не может заходить своим телом в стены или на другого агента.
         /// </summary>
         public bool MoveWithCollisionAvoidance(World3D world, float deltaTime, Agent3D other = null)
-{
-    // Проверяем, есть ли в направлении движения известная стена
-    var bestDirection = GetBestDirection(world);
-    if (bestDirection == Vector3.Zero)
-    {
-        // Нет безопасного направления — пытаемся повернуть
-        for (int attempt = 1; attempt <= 8; attempt++)
         {
-            float angleOffset = (attempt % 2 == 0) ? attempt * 15 : -attempt * 15;
-            float testAngle = NormalizeAngle(Direction + angleOffset);
-            float testRadians = testAngle * MathF.PI / 180f;
-            Vector3 testForward = new Vector3(
-                MathF.Cos(testRadians) * Speed * deltaTime,
-                0,
-                MathF.Sin(testRadians) * Speed * deltaTime
-            );
-            Vector3 testPosition = Position + testForward;
-            if (IsPositionValid(testPosition, world))
+            // Проверяем, есть ли в направлении движения известная стена
+            var bestDirection = GetBestDirection(world);
+            if (bestDirection == Vector3.Zero)
             {
-                Rotate(Math.Sign(angleOffset) * 10);
+                // Нет безопасного направления — пытаемся повернуть
+                for (int attempt = 1; attempt <= 8; attempt++)
+                {
+                    float angleOffset = (attempt % 2 == 0) ? attempt * 15 : -attempt * 15;
+                    float testAngle = NormalizeAngle(Direction + angleOffset);
+                    float testRadians = testAngle * MathF.PI / 180f;
+                    Vector3 testForward = new Vector3(
+                        MathF.Cos(testRadians) * Speed * deltaTime,
+                        0,
+                        MathF.Sin(testRadians) * Speed * deltaTime
+                    );
+                    Vector3 testPosition = Position + testForward;
+                    if (IsPositionValid(testPosition, world))
+                    {
+                        Rotate(Math.Sign(angleOffset) * 10);
+                        return false;
+                    }
+                }
                 return false;
             }
-        }
-        return false;
-    }
 
-    float radians = Direction * MathF.PI / 180f;
-    Vector3 forward = new Vector3(
-        MathF.Cos(radians) * Speed * deltaTime,
-        0,
-        MathF.Sin(radians) * Speed * deltaTime
-    );
-
-    Vector3 newPosition = Position + forward;
-
-    // Проверяем, не выйдет ли тело агента за пределы пустых клеток (коллизия по AgentRadius)
-    if (!IsPositionValid(newPosition, world))
-    {
-        var gridCoords = ToGridCoords(newPosition);
-        if (world.IsBlocked(gridCoords.x, gridCoords.z))
-            KnownWalls.Add(gridCoords);
-
-        // Пробуем повернуть, чтобы обойти препятствие
-        for (int attempt = 1; attempt <= 8; attempt++)
-        {
-            float angleOffset = (attempt % 2 == 0) ? attempt * 15 : -attempt * 15;
-            float testAngle = NormalizeAngle(Direction + angleOffset);
-            float testRadians = testAngle * MathF.PI / 180f;
-            Vector3 testForward = new Vector3(
-                MathF.Cos(testRadians) * Speed * deltaTime,
+            float radians = Direction * MathF.PI / 180f;
+            Vector3 forward = new Vector3(
+                MathF.Cos(radians) * Speed * deltaTime,
                 0,
-                MathF.Sin(testRadians) * Speed * deltaTime
+                MathF.Sin(radians) * Speed * deltaTime
             );
-            Vector3 testPosition = Position + testForward;
-            if (IsPositionValid(testPosition, world))
+
+            Vector3 newPosition = Position + forward;
+
+            // Проверяем, не выйдет ли тело агента за пределы пустых клеток (коллизия по AgentRadius)
+            if (!IsPositionValid(newPosition, world))
             {
-                Rotate(Math.Sign(angleOffset) * 10);
+                var gridCoords = ToGridCoords(newPosition);
+                if (world.IsBlocked(gridCoords.x, gridCoords.z))
+                    KnownWalls.Add(gridCoords);
+
+                // Пробуем повернуть, чтобы обойти препятствие
+                for (int attempt = 1; attempt <= 8; attempt++)
+                {
+                    float angleOffset = (attempt % 2 == 0) ? attempt * 15 : -attempt * 15;
+                    float testAngle = NormalizeAngle(Direction + angleOffset);
+                    float testRadians = testAngle * MathF.PI / 180f;
+                    Vector3 testForward = new Vector3(
+                        MathF.Cos(testRadians) * Speed * deltaTime,
+                        0,
+                        MathF.Sin(testRadians) * Speed * deltaTime
+                    );
+                    Vector3 testPosition = Position + testForward;
+                    if (IsPositionValid(testPosition, world))
+                    {
+                        Rotate(Math.Sign(angleOffset) * 10);
+                        return false;
+                    }
+                }
                 return false;
             }
-        }
-        return false;
-    }
 
-    // Проверка столкновения с другим агентом (по AgentRadius)
-    if (other != null)
-    {
-        float minDist = this.AgentRadius + other.AgentRadius;
-        if (Vector3.Distance(newPosition, other.Position) < minDist)
+            // Проверка столкновения с другим агентом (по AgentRadius)
+            if (other != null)
+            {
+                float minDist = this.AgentRadius + other.AgentRadius;
+                if (Vector3.Distance(newPosition, other.Position) < minDist)
+                {
+                    Vector3 avoidDir = Vector3.Normalize(Position - other.Position);
+                    float avoidAngle = MathF.Atan2(avoidDir.Z, avoidDir.X) * 180f / MathF.PI;
+                    float currentAngle = Direction;
+                    float angleDiff = avoidAngle - currentAngle;
+                    if (angleDiff > 180f) angleDiff -= 360f;
+                    if (angleDiff < -180f) angleDiff += 360f;
+                    Rotate(Math.Sign(angleDiff) * 5f);
+                    return false;
+                }
+            }
+
+            Position = newPosition;
+
+            // Добавляем новую клетку как исследованную (только физически)
+            if (IsSeeker)
+            {
+                var gridCoords = ToGridCoords(Position);
+                if (!ExploredCells.Contains(gridCoords))
+                {
+                    ExploredCells.Add(gridCoords);
+                }
+            }
+
+            return true;
+        }
+
+        public Vector3 GetBestDirection(World3D world)
         {
-            Vector3 avoidDir = Vector3.Normalize(Position - other.Position);
-            float avoidAngle = MathF.Atan2(avoidDir.Z, avoidDir.X) * 180f / MathF.PI;
-            float currentAngle = Direction;
-            float angleDiff = avoidAngle - currentAngle;
-            if (angleDiff > 180f) angleDiff -= 360f;
-            if (angleDiff < -180f) angleDiff += 360f;
-            Rotate(Math.Sign(angleDiff) * 5f);
-            return false;
+            float[] angles = { 0, 15, -15, 30, -30, 45, -45 };
+            foreach (var angle in angles)
+            {
+                float testAngle = NormalizeAngle(Direction + angle);
+                float testRadians = testAngle * MathF.PI / 180f;
+                Vector3 testForward = new Vector3(MathF.Cos(testRadians), 0, MathF.Sin(testRadians));
+                Vector3 testPosition = Position + testForward * 1f;
+                var gridCoords = ToGridCoords(testPosition);
+                if (!KnownWalls.Contains(gridCoords) && world.IsInside(gridCoords.x, gridCoords.z))
+                {
+                    return testForward;
+                }
+            }
+            return Vector3.Zero;
         }
-    }
-
-    Position = newPosition;
-
-    // Добавляем новую клетку как исследованную (только физически)
-    if (IsSeeker)
-    {
-        var gridCoords = ToGridCoords(Position);
-        if (!ExploredCells.Contains(gridCoords))
-        {
-            ExploredCells.Add(gridCoords);
-        }
-    }
-
-    return true;
-}
-
-public Vector3 GetBestDirection(World3D world)
-{
-    float[] angles = { 0, 15, -15, 30, -30, 45, -45 };
-    foreach (var angle in angles)
-    {
-        float testAngle = NormalizeAngle(Direction + angle);
-        float testRadians = testAngle * MathF.PI / 180f;
-        Vector3 testForward = new Vector3(MathF.Cos(testRadians), 0, MathF.Sin(testRadians));
-        Vector3 testPosition = Position + testForward * 1f;
-        var gridCoords = ToGridCoords(testPosition);
-        if (!KnownWalls.Contains(gridCoords) && world.IsInside(gridCoords.x, gridCoords.z))
-        {
-            return testForward;
-        }
-    }
-    return Vector3.Zero;
-}
 
         /// <summary>
         /// Проверка, что агент полностью помещается в пустой клетке (с учётом радиуса).
@@ -295,13 +298,80 @@ public Vector3 GetBestDirection(World3D world)
             return world.HasLineOfSight(Position, other.Position);
         }
 
+        /// <summary>
+        /// Проверяет, видит ли другой агент этого агента.
+        /// </summary>
+        /// <summary>
+        /// Проверяет, видит ли другой агент этого агента.
+        /// </summary>
+        public bool IsSeenBy(Agent3D other, World3D world)
+        {
+            float distance = Vector3.Distance(other.Position, Position);
+            if (distance > other.VisionRadius) return false;
+
+            Vector3 toThis = Vector3.Normalize(Position - other.Position);
+            float angleToThis = MathF.Atan2(toThis.Z, toThis.X) * 180f / MathF.PI;
+            if (angleToThis < 0) angleToThis += 360f;
+            float angleDiff = Math.Abs(angleToThis - other.Direction);
+            if (angleDiff > 180f) angleDiff = 360f - angleDiff;
+
+            if (angleDiff > other.VisionAngle / 2f) return false;
+
+            return world.HasLineOfSight(other.Position, Position);
+        }
+
         public void Draw()
         {
-            Raylib.DrawCapsule(
-                Position,
-                Position + new Vector3(0, 1.5f, 0),
-                AgentRadius, 8, 8, Color
-            );
+            if (IsSeeker)
+            {
+                // Seeker рисуется как обычно
+                Raylib.DrawCapsule(
+                    Position,
+                    Position + new Vector3(0, 1.5f, 0),
+                    AgentRadius, 8, 8, Color
+                );
+                return;
+            }
+
+            // Hider получает визуальную реакцию, если его видят
+            bool isSeen = false;
+
+            // === Временное решение: передача Seeker и World напрямую ===
+            // Это нужно будет заменить на более правильную реализацию
+            // Например, через ссылку на симуляцию или событие
+            if (_seeker != null && _world != null)
+            {
+                isSeen = IsSeenBy(_seeker, _world);
+            }
+
+            if (isSeen)
+            {
+                // === Режим "видимый" — пульсирующий цвет ===
+                float pulse = (float)Math.Sin(Environment.TickCount64 * 0.01) * 0.5f + 0.5f;
+                Color alertColor = new Color(
+                    (int)(Color.R + (255 - Color.R) * pulse),
+                    (int)(Color.G * (1 - pulse)),
+                    (int)(Color.B * (1 - pulse)),
+                    255
+                );
+                Raylib.DrawCapsule(
+                    Position,
+                    Position + new Vector3(0, 1.5f, 0),
+                    AgentRadius * 1.3f, // Увеличенный радиус для визуального эффекта
+                    8, 8, alertColor
+                );
+                _wasSeen = true;
+            }
+            else
+            {
+                // === Режим "невидимый" — обычный рендеринг ===
+                Raylib.DrawCapsule(
+                    Position,
+                    Position + new Vector3(0, 1.5f, 0),
+                    AgentRadius, 8, 8, Color
+                );
+                _wasSeen = false;
+            }
         }
 
         public void DrawVisionCone(World3D world, Color? visionColor = null)
@@ -368,26 +438,5 @@ public Vector3 GetBestDirection(World3D world)
             }
             return arr;
         }
-
-        /// <summary>
-        /// Возвращает безопасное направление, если известно, иначе Vector3.Zero
-        /// </summary>
-        // public Vector3 GetBestDirection(World3D world)
-        // {
-        //     float[] angles = { 0, 15, -15, 30, -30, 45, -45 };
-        //     foreach (var angle in angles)
-        //     {
-        //         float testAngle = NormalizeAngle(Direction + angle);
-        //         float testRadians = testAngle * MathF.PI / 180f;
-        //         Vector3 testForward = new Vector3(MathF.Cos(testRadians), 0, MathF.Sin(testRadians));
-        //         Vector3 testPosition = Position + testForward * 1f;
-        //         var gridCoords = ToGridCoords(testPosition);
-        //         if (!KnownWalls.Contains(gridCoords) && world.IsInside(gridCoords.x, gridCoords.z))
-        //         {
-        //             return testForward;
-        //         }
-        //     }
-        //     return Vector3.Zero;
-        // }
     }
 }

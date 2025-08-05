@@ -13,6 +13,7 @@ namespace ToolUse.Core.RaylibThreeD
 {
     public class Simulation3D
     {
+        private float _lastHiderDistance = 0f;
         public World3D World { get; }
         public Agent3D Seeker { get; set; }
         public Agent3D Hider { get; set; }
@@ -291,9 +292,42 @@ namespace ToolUse.Core.RaylibThreeD
         }
         private float ComputeHiderReward()
         {
-            float r = IsHiderVisible ? Config.Hider.RewardWhenVisible : Config.Hider.RewardWhenHidden;
-            if (float.IsNaN(r) || float.IsInfinity(r)) throw new Exception($"[NaN/Inf] ComputeHiderReward: {r}");
-            return r;
+            float reward = 0f;
+
+            // Базовая награда за укрытие
+            if (IsHiderVisible)
+            {
+                reward -= Config.Hider.RewardWhenVisible;
+            }
+            else
+            {
+                reward += Config.Hider.RewardWhenHidden;
+            }
+
+            // Штраф за то, что его видит Seeker
+            var hiderState = _adapter.GetHiderState();
+            if (hiderState.IsSeenBySeeker)
+            {
+                reward -= Config.Hider.RewardWhenSeenBySeeker;
+            }
+
+            // Награда за увеличение расстояния
+            float currentDistance = Vector3.Distance(Seeker.Position, Hider.Position);
+            if (currentDistance > _lastHiderDistance)
+            {
+                reward += Config.Hider.RewardWhenIncreasingDistance;
+            }
+
+            // Награда за укрытие за стеной
+            if (!Seeker.CanSee(Hider, World)) // ✅ Теперь используем World из Simulation3D
+            {
+                reward += Config.Hider.RewardWhenHiddenBehindWall;
+            }
+
+            if (float.IsNaN(reward) || float.IsInfinity(reward))
+                throw new Exception($"[NaN/Inf] ComputeHiderReward: {reward}");
+
+            return reward;
         }
 
         private void UpdateScores(float deltaTime)

@@ -9,19 +9,20 @@ namespace ToolUse.Core.RaylibThreeD
         private readonly World3D _world;
         private readonly Agent3D _seeker;
         private readonly Agent3D _hider;
+        
 
         public SimAdapter3D(World3D world, Agent3D seeker, Agent3D hider)
         {
             _world = world;
             _seeker = seeker;
             _hider = hider;
+            _hider._seeker = _seeker;
+            _hider._world = _world;
         }
 
         public State GetSeekerState()
         {
             int sector = (int)(MathF.Round(_seeker.Direction / 45f) % 8);
-
-            // Получаем карту известных стен для seeker (разворачиваем в bool[])
             bool[] knownWalls = _seeker.GetKnownWallsFlat(_world.Size);
 
             return new State(
@@ -31,16 +32,16 @@ namespace ToolUse.Core.RaylibThreeD
                 _hider.GridZ,
                 sector,
                 IsVisible(),
-                knownWalls
+                knownWalls,
+                false // seeker не проверяет, видят ли его
             );
         }
 
         public State GetHiderState()
         {
             int sector = (int)(MathF.Round(_hider.Direction / 45f) % 8);
-
-            // Получаем карту известных стен для hider (разворачиваем в bool[])
             bool[] knownWalls = _hider.GetKnownWallsFlat(_world.Size);
+            bool isSeenBySeeker = _hider.IsSeenBy(_seeker, _world); // ✅ Теперь передаём и _world
 
             return new State(
                 _hider.GridX,
@@ -49,7 +50,8 @@ namespace ToolUse.Core.RaylibThreeD
                 _seeker.GridZ,
                 sector,
                 IsVisible(),
-                knownWalls
+                knownWalls,
+                isSeenBySeeker // ✅ Теперь корректно
             );
         }
 
@@ -63,10 +65,10 @@ namespace ToolUse.Core.RaylibThreeD
             switch (action)
             {
                 case 0:
-                    agent.Rotate(-30f);
+                    agent.Rotate(-10f); // ✅ Уменьшено с -30°
                     break;
                 case 1:
-                    agent.Rotate(+30f);
+                    agent.Rotate(+10f); // ✅ Уменьшено с +30°
                     break;
                 case 2:
                     // Вперёд (движение происходит отдельно)

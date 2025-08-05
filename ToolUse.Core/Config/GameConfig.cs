@@ -46,18 +46,28 @@ namespace ToolUse.Core.Config
 
     public class AgentConfig
     {
+        // === Базовые награды ===
         public float RewardWhenHiderVisible { get; set; } = 1.0f;
         public float RewardWhenHiderHidden { get; set; } = -0.01f;
         public float RewardWhenVisible { get; set; } = -0.5f;
         public float RewardWhenHidden { get; set; } = 0.1f;
+
+        // === Дополнительные награды для Hider ===
+        public float RewardWhenSeenBySeeker { get; set; } = 0.3f;            // ✅ Новое
+        public float RewardWhenIncreasingDistance { get; set; } = 0.05f;      // ✅ Новое
+        public float RewardWhenHiddenBehindWall { get; set; } = 0.15f;        // ✅ Новое
+
+        // === Бонусы и баллы ===
         public float PointsPerSecondWhenHiderVisible { get; set; } = 10.0f;
         public float PointsPerSecondWhenHiderHidden { get; set; } = 0.1f;
         public float PointsPerSecondWhenVisible { get; set; } = -1.0f;
         public float PointsPerSecondWhenHidden { get; set; } = 1.0f;
         public float CatchBonus { get; set; } = 10.0f;
-        public float PhysicalExploreReward { get; set; } = 0.05f;
-        public float VisualExploreReward   { get; set; } = 0.01f;
         public float EscapeBonus { get; set; } = 2.0f;
+
+        // === Параметры агента ===
+        public float PhysicalExploreReward { get; set; } = 0.05f;
+        public float VisualExploreReward { get; set; } = 0.01f;
         public float VisionRadius { get; set; } = 8.0f;
         public float VisionAngle { get; set; } = 90.0f;
         public float AgentRadius { get; set; } = 0.3f;
