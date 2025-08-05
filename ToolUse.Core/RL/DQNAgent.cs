@@ -39,6 +39,7 @@ namespace ToolUse.Core.RL
 
         private int updateTargetEvery;
         private int steps = 0;
+        private readonly bool useDoubleDQN = true; // ✅ Включаем Double DQN
 
         public DQNAgent(int stateSize, int actionSize, DQNConfig dqnCfg, torch.Device? deviceOverride = null)
         {
@@ -167,12 +168,24 @@ namespace ToolUse.Core.RL
 
             using (torch.no_grad())
             {
-                var nextModelOutput = model.forward(nextStates);
-                CheckNaN(nextModelOutput, "Learn:model.forward(nextStates)");
-                var nextQ = nextModelOutput.argmax(1).to_type(ScalarType.Int64).unsqueeze(1);
-                var targetOut = targetModel.forward(nextStates);
-                CheckNaN(targetOut, "Learn:targetModel.forward(nextStates)");
-                nextQTarget = targetOut.gather(1, nextQ);
+                if (useDoubleDQN)
+                {
+                    // ✅ Double DQN: основная модель выбирает действие, целевая — оценивает
+                    var nextModelOutput = model.forward(nextStates);
+                    CheckNaN(nextModelOutput, "Learn:model.forward(nextStates)");
+                    var nextQ = nextModelOutput.argmax(1).to_type(ScalarType.Int64).unsqueeze(1);
+                    var targetOut = targetModel.forward(nextStates);
+                    CheckNaN(targetOut, "Learn:targetModel.forward(nextStates)");
+                    nextQTarget = targetOut.gather(1, nextQ);
+                }
+                else
+                {
+                    // Обычный DQN
+                    var targetOut = targetModel.forward(nextStates);
+                    CheckNaN(targetOut, "Learn:targetModel.forward(nextStates)");
+                    nextQTarget = targetOut.max(1).values.unsqueeze(1);
+                }
+
                 CheckNaN(nextQTarget, "Learn:nextQTarget");
                 targets = rewards + gamma * nextQTarget * (1 - dones);
             }
