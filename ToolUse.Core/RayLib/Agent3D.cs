@@ -211,17 +211,40 @@ namespace ToolUse.Core.RaylibThreeD
             }
 
             // Проверка столкновения с другим агентом (по AgentRadius)
+            // Проверка столкновения с другим агентом (по AgentRadius)
+            // Проверка столкновения с другим агентом (по AgentRadius)
             if (other != null)
             {
                 float minDist = this.AgentRadius + other.AgentRadius;
-                if (Vector3.Distance(newPosition, other.Position) < minDist)
+                float currentDist = Vector3.Distance(newPosition, other.Position);
+
+                // Получаем текущий угол агента один раз
+                float currentAngle = Direction;
+
+                // Если это Hider и его видят — убегаем
+                if (!IsSeeker && IsSeenBy(other, world))
+                {
+                    Vector3 escapeDir = Vector3.Normalize(Position - other.Position);
+                    float escapeAngle = MathF.Atan2(escapeDir.Z, escapeDir.X) * 180f / MathF.PI;
+                    float angleDiff = escapeAngle - currentAngle;
+
+                    if (angleDiff > 180f) angleDiff -= 360f;
+                    if (angleDiff < -180f) angleDiff += 360f;
+
+                    Rotate(Math.Sign(angleDiff) * 10f); // Увеличено с 5°
+                    return false;
+                }
+
+                // Если сталкиваемся — уворачиваемся
+                if (currentDist < minDist)
                 {
                     Vector3 avoidDir = Vector3.Normalize(Position - other.Position);
                     float avoidAngle = MathF.Atan2(avoidDir.Z, avoidDir.X) * 180f / MathF.PI;
-                    float currentAngle = Direction;
                     float angleDiff = avoidAngle - currentAngle;
+
                     if (angleDiff > 180f) angleDiff -= 360f;
                     if (angleDiff < -180f) angleDiff += 360f;
+
                     Rotate(Math.Sign(angleDiff) * 5f);
                     return false;
                 }
@@ -244,7 +267,7 @@ namespace ToolUse.Core.RaylibThreeD
 
         public Vector3 GetBestDirection(World3D world)
         {
-            float[] angles = { 0, 15, -15, 30, -30, 45, -45 };
+            float[] angles = { 0, 15, -15, 30, -30, 45, -45, 90, -90 }; // Увеличено
             foreach (var angle in angles)
             {
                 float testAngle = NormalizeAngle(Direction + angle);
@@ -265,12 +288,12 @@ namespace ToolUse.Core.RaylibThreeD
         /// </summary>
         private bool IsPositionValid(Vector3 pos, World3D world)
         {
-            int gridCheckSteps = 8; // Проверяем по кругу
+            int gridCheckSteps = 16; // Увеличено с 8
             for (int i = 0; i < gridCheckSteps; i++)
             {
                 float angle = 2 * MathF.PI * i / gridCheckSteps;
-                float checkX = pos.X + MathF.Cos(angle) * AgentRadius;
-                float checkZ = pos.Z + MathF.Sin(angle) * AgentRadius;
+                float checkX = pos.X + MathF.Cos(angle) * AgentRadius * 0.9f; // Уменьшен радиус
+                float checkZ = pos.Z + MathF.Sin(angle) * AgentRadius * 0.9f;
                 int gx = ToGridX(checkX, world.Size);
                 int gz = ToGridZ(checkZ, world.Size);
 
@@ -293,9 +316,10 @@ namespace ToolUse.Core.RaylibThreeD
             if (angleToOther < 0) angleToOther += 360f;
             float angleDiff = Math.Abs(angleToOther - Direction);
             if (angleDiff > 180f) angleDiff = 360f - angleDiff;
+
             if (angleDiff > VisionAngle / 2f) return false;
 
-            return world.HasLineOfSight(Position, other.Position);
+            return world.HasLineOfSight(Position, other.Position, AgentRadius); // ✅ Теперь с учётом радиуса
         }
 
         /// <summary>

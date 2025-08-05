@@ -257,19 +257,31 @@ namespace ToolUse.Core.RaylibThreeD
         /// <summary>
         /// Линия прямой видимости: возвращает true если нет стены между точками.
         /// </summary>
-        public bool HasLineOfSight(Vector3 from, Vector3 to)
+        public bool HasLineOfSight(Vector3 from, Vector3 to, float agentRadius = 0.3f)
         {
             Vector3 direction = Vector3.Normalize(to - from);
             float distance = Vector3.Distance(from, to);
-            float step = 0.1f;
+            float step = 0.2f; // Увеличен шаг для ускорения
+
+            // Проверяем линию с небольшим смещением в стороны (для агентов с радиусом)
+            Vector3 perpendicular = new Vector3(-direction.Z, 0, direction.X);
+            Vector3[] offsets = new[]
+            {
+                Vector3.Zero,
+                perpendicular * agentRadius * 0.5f,
+                -perpendicular * agentRadius * 0.5f
+            };
 
             for (float t = 0; t < distance; t += step)
             {
-                Vector3 point = from + direction * t;
-                int x = Math.Clamp((int)MathF.Floor(point.X), 0, Size - 1);
-                int z = Math.Clamp((int)MathF.Floor(point.Z), 0, Size - 1);
-                if (IsBlocked(x, z))
-                    return false;
+                foreach (var offset in offsets)
+                {
+                    Vector3 point = from + direction * t + offset;
+                    int x = Math.Clamp((int)MathF.Round(point.X), 0, Size - 1);
+                    int z = Math.Clamp((int)MathF.Round(point.Z), 0, Size - 1);
+                    if (IsBlocked(x, z))
+                        return false;
+                }
             }
             return true;
         }

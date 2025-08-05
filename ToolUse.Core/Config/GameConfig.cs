@@ -9,7 +9,7 @@ namespace ToolUse.Core.Config
         public WorldConfig World { get; set; } = new WorldConfig();
         public AgentConfig Seeker { get; set; } = new AgentConfig();
         public AgentConfig Hider { get; set; } = new AgentConfig();
-        public DQNConfig DQN { get; set; } = new DQNConfig();   // Новая секция!
+        public DQNConfig DQN { get; set; } = new DQNConfig();
         public float SessionDurationSeconds { get; set; } = 60f;
         public int FramesForCatch { get; set; } = 180;
 
@@ -53,9 +53,9 @@ namespace ToolUse.Core.Config
         public float RewardWhenHidden { get; set; } = 0.1f;
 
         // === Дополнительные награды для Hider ===
-        public float RewardWhenSeenBySeeker { get; set; } = 0.3f;            // ✅ Новое
-        public float RewardWhenIncreasingDistance { get; set; } = 0.05f;      // ✅ Новое
-        public float RewardWhenHiddenBehindWall { get; set; } = 0.15f;        // ✅ Новое
+        public float RewardWhenSeenBySeeker { get; set; } = 0.3f;
+        public float RewardWhenIncreasingDistance { get; set; } = 0.05f;
+        public float RewardWhenHiddenBehindWall { get; set; } = 0.15f;
 
         // === Бонусы и баллы ===
         public float PointsPerSecondWhenHiderVisible { get; set; } = 10.0f;
@@ -72,13 +72,17 @@ namespace ToolUse.Core.Config
         public float VisionAngle { get; set; } = 90.0f;
         public float AgentRadius { get; set; } = 0.3f;
         public float Speed { get; set; } = 2.0f;
+
+        // === Новые параметры для гибкой настройки поведения ===
+        public float ProximityRewardMultiplier { get; set; } = 0.1f;
+        public float RotationPenalty { get; set; } = 0.01f;
+        public float NoProgressPenalty { get; set; } = 0.02f;
     }
 
-    // === Новая секция ===
     public class DQNConfig
     {
-        public int Hidden1 { get; set; } = 256;          // Размер первого скрытого слоя
-        public int Hidden2 { get; set; } = 256;          // Размер второго скрытого слоя
+        public int Hidden1 { get; set; } = 256;
+        public int Hidden2 { get; set; } = 256;
         public float Gamma { get; set; } = 0.99f;
         public float EpsilonStart { get; set; } = 1.0f;
         public float EpsilonMin { get; set; } = 0.05f;
