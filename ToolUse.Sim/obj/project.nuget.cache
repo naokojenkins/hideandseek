@@ -1,10 +1,9 @@
 {
   "version": 2,
-  "dgSpecHash": "AMDmh/8xqq4=",
+  "dgSpecHash": "ieKVx3r1btI=",
   "success": true,
   "projectFilePath": "/Users/al.v.goncharov/RiderProjects/hideandseek/ToolUse.Sim/ToolUse.Sim.csproj",
   "expectedPackageFiles": [
-    "/Users/al.v.goncharov/.nuget/packages/aether.physics2d/2.2.0/aether.physics2d.2.2.0.nupkg.sha512",
     "/Users/al.v.goncharov/.nuget/packages/google.protobuf/3.21.9/google.protobuf.3.21.9.nupkg.sha512",
     "/Users/al.v.goncharov/.nuget/packages/libtorch-cpu/2.5.1/libtorch-cpu.2.5.1.nupkg.sha512",
     "/Users/al.v.goncharov/.nuget/packages/libtorch-cpu-linux-x64/2.5.1/libtorch-cpu-linux-x64.2.5.1.nupkg.sha512",

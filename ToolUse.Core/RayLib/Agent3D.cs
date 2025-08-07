@@ -48,6 +48,7 @@ namespace ToolUse.Core.RaylibThreeD
 
         public Agent3D(Vector3 position, bool isSeeker, float initialRotation = 0f)
         {
+            // Просто используем Instance, getter сам lazy-загрузит singleton
             var cfg = isSeeker ? GameConfig.Instance.Seeker : GameConfig.Instance.Hider;
             Position = position;
             IsSeeker = isSeeker;
@@ -320,43 +321,20 @@ namespace ToolUse.Core.RaylibThreeD
                     Position + new Vector3(0, 1.5f, 0),
                     AgentRadius, 8, 8, Color
                 );
+
+                // Убрано перекрашивание seeker в красный при видимости
                 return;
             }
 
-            bool isSeen = false;
-            if (_seeker != null && _world != null)
-            {
-                isSeen = IsSeenBy(_seeker, _world);
-            }
+            // Hider всегда рисуется одним цветом, независимо от обнаружения
+            Raylib.DrawCapsule(
+                Position,
+                Position + new Vector3(0, 1.5f, 0),
+                AgentRadius, 8, 8, Color
+            );
 
-            if (isSeen)
-            {
-                float pulse = (float)Math.Sin(Environment.TickCount64 * 0.01) * 0.5f + 0.5f;
-                Color alertColor = new Color(
-                    (int)(Color.R + (255 - Color.R) * pulse),
-                    (int)(Color.G * (1 - pulse)),
-                    (int)(Color.B * (1 - pulse)),
-                    255
-                );
-                Raylib.DrawCapsule(
-                    Position,
-                    Position + new Vector3(0, 1.5f, 0),
-                    AgentRadius * 1.3f,
-                    8, 8, alertColor
-                );
-                DrawVisionCone(_world, new Color(255, 0, 0, 80));
-                _wasSeen = true;
-            }
-            else
-            {
-                Raylib.DrawCapsule(
-                    Position,
-                    Position + new Vector3(0, 1.5f, 0),
-                    AgentRadius, 8, 8, Color
-                );
-                DrawVisionCone(_world, new Color(0, 255, 0, 80));
-                _wasSeen = false;
-            }
+            // Конус всегда зелёный для Hider
+            DrawVisionCone(_world, new Color(0, 255, 0, 80));
         }
 
         public void DrawVisionCone(World3D world, Color? visionColor = null)

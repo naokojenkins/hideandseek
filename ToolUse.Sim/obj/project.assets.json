@@ -2,19 +2,6 @@
   "version": 3,
   "targets": {
     "net9.0": {
-      "Aether.Physics2D/2.2.0": {
-        "type": "package",
-        "compile": {
-          "lib/net8.0/Aether.Physics2D.dll": {
-            "related": ".xml"
-          }
-        },
-        "runtime": {
-          "lib/net8.0/Aether.Physics2D.dll": {
-            "related": ".xml"
-          }
-        }
-      },
       "Google.Protobuf/3.21.9": {
         "type": "package",
         "compile": {
@@ -371,25 +358,6 @@
     }
   },
   "libraries": {
-    "Aether.Physics2D/2.2.0": {
-      "sha512": "/6WSIiXeHYG6JpZHshIBg4nTi2rMMrdzkSUQPdWqjT2xyYOsZSdrfUuF3xWAHHUgq8Rlv07ZLUFV8ml6nIeMDw==",
-      "type": "package",
-      "path": "aether.physics2d/2.2.0",
-      "files": [
-        ".nupkg.metadata",
-        ".signature.p7s",
-        "README.md",
-        "aether.physics2d.2.2.0.nupkg.sha512",
-        "aether.physics2d.nuspec",
-        "icon.png",
-        "lib/net40/Aether.Physics2D.dll",
-        "lib/net40/Aether.Physics2D.xml",
-        "lib/net8.0/Aether.Physics2D.dll",
-        "lib/net8.0/Aether.Physics2D.xml",
-        "lib/netstandard2.0/Aether.Physics2D.dll",
-        "lib/netstandard2.0/Aether.Physics2D.xml"
-      ]
-    },
     "Google.Protobuf/3.21.9": {
       "sha512": "OTpFujTgkmqMLbg3KT7F/iuKi1rg6s5FCS2M9XcVLDn40zL8wgXm37CY/F6MeOEXKjdcnXGCN/h7oyMkVydVsg==",
       "type": "package",
@@ -765,7 +733,6 @@
   },
   "projectFileDependencyGroups": {
     "net9.0": [
-      "Aether.Physics2D >= 2.2.0",
       "Newtonsoft.Json >= 13.0.3",
       "Raylib-cs >= 7.0.1",
       "ToolUse.Core >= 1.0.0",
@@ -820,10 +787,6 @@
       "net9.0": {
         "targetAlias": "net9.0",
         "dependencies": {
-          "Aether.Physics2D": {
-            "target": "Package",
-            "version": "[2.2.0, )"
-          },
           "Newtonsoft.Json": {
             "target": "Package",
             "version": "[13.0.3, )"

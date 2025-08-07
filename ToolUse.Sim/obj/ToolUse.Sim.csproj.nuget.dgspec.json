@@ -125,10 +125,6 @@
         "net9.0": {
           "targetAlias": "net9.0",
           "dependencies": {
-            "Aether.Physics2D": {
-              "target": "Package",
-              "version": "[2.2.0, )"
-            },
             "Newtonsoft.Json": {
               "target": "Package",
               "version": "[13.0.3, )"

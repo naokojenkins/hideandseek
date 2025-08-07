@@ -24,32 +24,65 @@ namespace ToolUse.Sim
         static DQNAgent seekerDQN = null!;
         static DQNAgent hiderDQN = null!;
 
-        static int session = 0;
         static bool isExiting = false;
+        static bool useVisualization = true;
+        static DateTime lastConsoleUpdate = DateTime.Now;
 
         static Action? sessionCompletedHandler = null;
 
-        static readonly string QTableDir = "qtables";
-        static readonly string SeekerWeights = Path.Combine(QTableDir, "seeker.pt");
-        static readonly string HiderWeights  = Path.Combine(QTableDir, "hider.pt");
-        static readonly string SeekerState   = Path.Combine(QTableDir, "seeker_state.json");
-        static readonly string HiderState    = Path.Combine(QTableDir, "hider_state.json");
+        // Теперь используем более точное название папки
+        static readonly string ModelDir = "models";
+        static readonly string SeekerModelPath = Path.Combine(ModelDir, "seeker.pt");
+        static readonly string HiderModelPath  = Path.Combine(ModelDir, "hider.pt");
+        static readonly string SeekerStatePath = Path.Combine(ModelDir, "seeker_state.json");
+        static readonly string HiderStatePath  = Path.Combine(ModelDir, "hider_state.json");
 
         public static void Main(string[] args)
         {
+            AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
+            {
+                Console.WriteLine($"[FATAL] Необработанное исключение: {args.ExceptionObject}");
+            };
+
+            Console.CancelKeyPress += (sender, args) =>
+            {
+                Console.WriteLine("\n[INFO] Получен сигнал прерывания (Ctrl+C). Завершаем работу...");
+                args.Cancel = true; // Предотвращаем немедленное завершение
+                isExiting = true;
+            };
+
+            ShowStartupMenu();
             Run();
+        }
+
+        static void ShowStartupMenu()
+        {
+            Console.Clear();
+            Console.WriteLine("=== Выберите режим запуска ===");
+            Console.WriteLine("1 — Без визуализации (консольный режим)");
+            Console.WriteLine("2 — С визуализацией (3D-окно)");
+            Console.WriteLine("===============================");
+            Console.Write("Введите номер режима (1 или 2): ");
+
+            string? input = Console.ReadLine();
+            while (input != "1" && input != "2")
+            {
+                Console.WriteLine("Неверный ввод. Пожалуйста, введите 1 или 2.");
+                input = Console.ReadLine();
+            }
+
+            useVisualization = input == "2";
+            Console.Clear();
         }
 
         public static void Run()
         {
-            // Используем GameConfig.Instance (гарантированно загружен)
             config = GameConfig.Instance;
             Console.WriteLine($"[DEBUG] Loaded config: GridSize={config.World.GridSize}, CellSize={config.World.CellSize}");
             Console.WriteLine($"[DEBUG] SessionDurationSeconds = {config.SessionDurationSeconds}");
 
             gridSize = config.World.GridSize;
 
-            // --- КОРРЕКТНО вычисляем размер состояния ---
             int actionSize = 3;
             var world = new World3D(gridSize);
             world.GenerateStaticGrid();
@@ -62,27 +95,52 @@ namespace ToolUse.Sim
             seekerDQN = new DQNAgent(stateSize, actionSize);
             hiderDQN  = new DQNAgent(stateSize, actionSize);
 
-            Directory.CreateDirectory(QTableDir);
-            seekerDQN.LoadAll(SeekerWeights, SeekerState);
-            hiderDQN.LoadAll(HiderWeights, HiderState);
+            // Создаём папку для моделей
+            Directory.CreateDirectory(ModelDir);
+
+            // Загружаем веса и состояние агентов
+            seekerDQN.LoadAll(SeekerModelPath, SeekerStatePath);
+            hiderDQN.LoadAll(HiderModelPath, HiderStatePath);
 
             Reset();
 
-            Raylib.InitWindow(screenW, screenH, "3D Hide & Seek (DQN)");
-            Raylib.SetTargetFPS(FPS);
-            Raylib.SetConfigFlags(ConfigFlags.Msaa4xHint);
+            if (useVisualization)
+            {
+                Raylib.InitWindow(screenW, screenH, "3D Hide & Seek (DQN)");
+                Raylib.SetTargetFPS(FPS);
+                Raylib.SetConfigFlags(ConfigFlags.Msaa4xHint);
+            }
 
             try
             {
-                while (!Raylib.WindowShouldClose() && !isExiting)
+                while (!isExiting)
                 {
-                    simulation?.HandleInput();
-                    simulation?.Update(1f / FPS);
+                    if (useVisualization)
+                    {
+                        if (Raylib.WindowShouldClose())
+                            break;
 
-                    Raylib.BeginDrawing();
-                    Raylib.ClearBackground(new Color(245, 245, 245, 255));
-                    simulation?.Draw();
-                    Raylib.EndDrawing();
+                        simulation?.HandleInput();
+                        simulation?.Update(1f / FPS);
+
+                        Raylib.BeginDrawing();
+                        Raylib.ClearBackground(new Color(245, 245, 245, 255));
+                        simulation?.Draw();
+                        Raylib.EndDrawing();
+                    }
+                    else
+                    {
+                        simulation?.Update(1f / FPS);
+
+                        // Обновление каждую секунду
+                        if ((DateTime.Now - lastConsoleUpdate).TotalSeconds >= 1)
+                        {
+                            PrintConsoleHUD();
+                            lastConsoleUpdate = DateTime.Now;
+                        }
+
+                        System.Threading.Thread.Sleep(16);
+                    }
                 }
             }
             catch (Exception ex)
@@ -95,6 +153,22 @@ namespace ToolUse.Sim
             }
         }
 
+        static void PrintConsoleHUD()
+        {
+            Console.Clear();
+            Console.WriteLine("=== Статистика симуляции ===");
+            Console.WriteLine($"Сессия: {simulation.Session}");
+            Console.WriteLine($"Всего сессий: {Simulation3D.TotalSessions}");
+            Console.WriteLine($"Текущее время сессии: {simulation.Timer:F1} с / {config.SessionDurationSeconds:F0} с");
+            Console.WriteLine($"Seeker позиция: {simulation.Seeker.Position}");
+            Console.WriteLine($"Hider позиция: {simulation.Hider.Position}");
+            Console.WriteLine($"Seeker обнаружил Hider: {(simulation.Seeker.IsSeenBy(simulation.Hider, simulation.World) ? "Да" : "Нет")}");
+            Console.WriteLine($"Hider обнаружил Seeker: {(simulation.Hider.IsSeenBy(simulation.Seeker, simulation.World) ? "Да" : "Нет")}");
+            Console.WriteLine($"Обнаружено ячеек (Seeker): {simulation.Seeker.GetTotalExploredCount()}");
+            Console.WriteLine($"Обнаружено ячеек (Hider): {simulation.Hider.GetTotalExploredCount()}");
+            Console.WriteLine("==============================");
+        }
+
         static void Shutdown()
         {
             if (isExiting) return;
@@ -104,9 +178,9 @@ namespace ToolUse.Sim
 
             try
             {
-                Directory.CreateDirectory(QTableDir);
-                seekerDQN.SaveAll(SeekerWeights, SeekerState);
-                hiderDQN.SaveAll(HiderWeights, HiderState);
+                Directory.CreateDirectory(ModelDir);
+                seekerDQN.SaveAll(SeekerModelPath, SeekerStatePath);
+                hiderDQN.SaveAll(HiderModelPath, HiderStatePath);
 
                 if (simulation != null && sessionCompletedHandler != null)
                 {
@@ -123,7 +197,7 @@ namespace ToolUse.Sim
 
             try
             {
-                if (Raylib.IsWindowReady())
+                if (useVisualization && Raylib.IsWindowReady())
                 {
                     Raylib.CloseWindow();
                 }
@@ -140,8 +214,8 @@ namespace ToolUse.Sim
         {
             if (isExiting) return;
 
-            session++;
-            Console.WriteLine($"[DEBUG] Сессия #{session} (общий #{Simulation3D.TotalSessions + 1}) начата");
+            int currentSession = simulation != null ? simulation.Session + 1 : 1;
+            Console.WriteLine($"[DEBUG] Сессия #{currentSession} (общий #{Simulation3D.TotalSessions + 1}) начата");
 
             try
             {
@@ -153,8 +227,6 @@ namespace ToolUse.Sim
 
                 Vector3 seekerPos = world.GetRandomValidAgentPosition(seekerRadius, 0f);
                 Vector3 hiderPos  = world.GetRandomValidAgentPosition(hiderRadius, 0f);
-
-                float actualDistance = Vector3.Distance(seekerPos, hiderPos);
 
                 var newSeeker = new Agent3D(seekerPos, true, Raylib.GetRandomValue(0, 359));
                 var newHider = new Agent3D(hiderPos, false, Raylib.GetRandomValue(0, 359));
@@ -175,12 +247,11 @@ namespace ToolUse.Sim
                 {
                     if (isExiting) return;
 
-                    Console.WriteLine($"[DEBUG] Сессия #{session} (общий #{Simulation3D.TotalSessions}) завершена");
+                    Console.WriteLine($"[DEBUG] Сессия #{simulation.Session} (общий #{Simulation3D.TotalSessions}) завершена");
 
-                    // --- Сохраняем после каждой сессии ---
-                    Directory.CreateDirectory(QTableDir);
-                    seekerDQN.SaveAll(SeekerWeights, SeekerState);
-                    hiderDQN.SaveAll(HiderWeights, HiderState);
+                    Directory.CreateDirectory(ModelDir);
+                    seekerDQN.SaveAll(SeekerModelPath, SeekerStatePath);
+                    hiderDQN.SaveAll(HiderModelPath, HiderStatePath);
 
                     System.Threading.Thread.Sleep(100);
                     if (!isExiting)
