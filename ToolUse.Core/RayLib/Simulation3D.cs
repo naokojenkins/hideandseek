@@ -211,6 +211,25 @@ namespace ToolUse.Core.RaylibThreeD
             }
         }
 
+        // Action repeat and progress tracking
+        private readonly int _actionRepeat = 2;
+        private int _seekerRepeatLeft = 0, _hiderRepeatLeft = 0;
+        private long _currentSeekerAction = 0, _currentHiderAction = 0;
+
+        // Metrics
+        private int _framesInSession = 0;
+        private int _visibleFrames = 0;
+        private float _sumDistance = 0f;
+        private float _accSeekerReward = 0f;
+        private float _accHiderReward = 0f;
+
+        // Early termination (no progress)
+        private float _noProgressTimer = 0f;
+        private float _lastDistanceForProgress = 0f;
+        private int _lastSeekerVisualExploredForProgress = 0;
+        private const float _noProgressDistanceEps = 0.05f;
+        private const float _noProgressSeconds = 5f;
+
         private void UpdateRLAgents(float deltaTime)
         {
             var seekerState = _adapter.GetSeekerState();
@@ -221,17 +240,49 @@ namespace ToolUse.Core.RaylibThreeD
             if (_prevSeekerState != null) CheckNaN(_prevSeekerState.ToArray(World.Size), "prevSeekerState");
             if (_prevHiderState != null) CheckNaN(_prevHiderState.ToArray(World.Size), "prevHiderState");
 
-            var seekerAction = _seekerAgent.ChooseAction(seekerState.ToArray(World.Size));
-            var hiderAction  = _hiderAgent.ChooseAction(hiderState.ToArray(World.Size));
+            // Action repeat logic
+            if (_seekerRepeatLeft <= 0)
+            {
+                _currentSeekerAction = _seekerAgent.ChooseAction(seekerState.ToArray(World.Size));
+                _seekerRepeatLeft = _actionRepeat - 1;
+            }
+            else
+            {
+                _seekerRepeatLeft--;
+            }
+
+            if (_hiderRepeatLeft <= 0)
+            {
+                _currentHiderAction = _hiderAgent.ChooseAction(hiderState.ToArray(World.Size));
+                _hiderRepeatLeft = _actionRepeat - 1;
+            }
+            else
+            {
+                _hiderRepeatLeft--;
+            }
+
+            long seekerAction = _currentSeekerAction;
+            long hiderAction  = _currentHiderAction;
 
             int beforePhysical  = Seeker.GetExploredCount();
             int beforeVisual    = Seeker.GetVisuallyExploredCount();
 
-            _adapter.ApplyAction(Seeker, seekerAction);
-            _adapter.ApplyAction(Hider, hiderAction);
+            // Apply rotations directly (extended action space: 0=L,1=R,2=FWD,3=FWD+L,4=FWD+R)
+            if (seekerAction == 0) Seeker.Rotate(-10f);
+            if (seekerAction == 1) Seeker.Rotate(+10f);
+            if (seekerAction == 3) Seeker.Rotate(-10f);
+            if (seekerAction == 4) Seeker.Rotate(+10f);
 
-            if (seekerAction == 2) Seeker.MoveWithCollisionAvoidance(World, deltaTime, Hider);
-            if (hiderAction == 2) Hider.MoveWithCollisionAvoidance(World, deltaTime, Seeker);
+            if (hiderAction == 0) Hider.Rotate(-10f);
+            if (hiderAction == 1) Hider.Rotate(+10f);
+            if (hiderAction == 3) Hider.Rotate(-10f);
+            if (hiderAction == 4) Hider.Rotate(+10f);
+
+            // Move if required
+            if (seekerAction == 2 || seekerAction == 3 || seekerAction == 4)
+                Seeker.MoveWithCollisionAvoidance(World, deltaTime, Hider);
+            if (hiderAction == 2 || hiderAction == 3 || hiderAction == 4)
+                Hider.MoveWithCollisionAvoidance(World, deltaTime, Seeker);
 
             Seeker.UpdateVisualExploration(World);
             Hider.UpdateVisualExploration(World);
@@ -263,6 +314,8 @@ namespace ToolUse.Core.RaylibThreeD
 
                 _seekerAgent.Store(_prevSeekerState.ToArray(World.Size), _prevSeekerAction, seekerReward, seekerState.ToArray(World.Size), _isHiderCaught);
                 _seekerAgent.Learn();
+
+                _accSeekerReward += seekerReward;
             }
             if (_prevHiderState != null)
             {
@@ -276,6 +329,8 @@ namespace ToolUse.Core.RaylibThreeD
 
                 _hiderAgent.Store(_prevHiderState.ToArray(World.Size), _prevHiderAction, hiderReward, hiderState.ToArray(World.Size), _isHiderCaught);
                 _hiderAgent.Learn();
+
+                _accHiderReward += hiderReward;
             }
 
             _prevSeekerState = seekerState;
@@ -283,6 +338,62 @@ namespace ToolUse.Core.RaylibThreeD
             _prevSeekerAction = seekerAction;
             _prevHiderAction  = hiderAction;
             _wasHiderVisiblePrev = IsHiderVisible;
+
+            // Metrics accumulation per frame
+            _framesInSession++;
+            if (IsHiderVisible) _visibleFrames++;
+            _sumDistance += Vector3.Distance(Seeker.Position, Hider.Position);
+
+            // Early termination when no progress
+            if (!IsHiderVisible)
+            {
+                float dist = Vector3.Distance(Seeker.Position, Hider.Position);
+                float distDelta = MathF.Abs(dist - _lastDistanceForProgress);
+                int visExplored = Seeker.GetVisuallyExploredCount();
+                int visDelta = visExplored - _lastSeekerVisualExploredForProgress;
+
+                if (distDelta < _noProgressDistanceEps && visDelta <= 0)
+                {
+                    _noProgressTimer += deltaTime;
+                    if (_noProgressTimer >= _noProgressSeconds)
+                    {
+                        Restart();
+                        return;
+                    }
+                }
+                else
+                {
+                    _noProgressTimer = 0f;
+                    _lastDistanceForProgress = dist;
+                    _lastSeekerVisualExploredForProgress = visExplored;
+                }
+            }
+            else
+            {
+                _noProgressTimer = 0f;
+                _lastDistanceForProgress = Vector3.Distance(Seeker.Position, Hider.Position);
+                _lastSeekerVisualExploredForProgress = Seeker.GetVisuallyExploredCount();
+            }
+        }
+
+        private void AppendSessionMetrics()
+        {
+            try
+            {
+                string logsDir = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "logs");
+                Directory.CreateDirectory(logsDir);
+                string file = Path.Combine(logsDir, "metrics.csv");
+                bool writeHeader = !File.Exists(file);
+                using (var sw = new StreamWriter(file, append: true))
+                {
+                    if (writeHeader)
+                        sw.WriteLine("total_session,session_time,caught,visibility_ratio,avg_distance,seeker_physical,seeker_visual,seeker_total,acc_seeker_reward,acc_hider_reward");
+                    float visibilityRatio = _framesInSession > 0 ? (float)_visibleFrames / _framesInSession : 0f;
+                    float avgDistance = _framesInSession > 0 ? _sumDistance / _framesInSession : 0f;
+                    sw.WriteLine($"{TotalSessions},{Timer:F3},{_isHiderCaught},{visibilityRatio:F3},{avgDistance:F3},{Seeker.GetExploredCount()},{Seeker.GetVisuallyExploredCount()},{Seeker.GetTotalExploredCount()},{_accSeekerReward:F3},{_accHiderReward:F3}");
+                }
+            }
+            catch { }
         }
 
         private float ComputeSeekerReward()
@@ -352,6 +463,10 @@ namespace ToolUse.Core.RaylibThreeD
 
         public void Restart()
         {
+            // Log previous session metrics before resetting
+            if (_framesInSession > 0)
+                AppendSessionMetrics();
+
             Session++;
             TotalSessions++;
 
@@ -363,6 +478,16 @@ namespace ToolUse.Core.RaylibThreeD
             _caughtFrames = 0;
             _catchBonusGiven = false;
             _wasHiderVisiblePrev = false;
+
+            // reset metrics
+            _framesInSession = 0;
+            _visibleFrames = 0;
+            _sumDistance = 0f;
+            _accSeekerReward = 0f;
+            _accHiderReward = 0f;
+            _noProgressTimer = 0f;
+            _lastDistanceForProgress = 0f;
+            _lastSeekerVisualExploredForProgress = 0;
 
             World.GenerateStaticGrid();
 

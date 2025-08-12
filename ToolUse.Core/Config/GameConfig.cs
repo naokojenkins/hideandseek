@@ -178,19 +178,59 @@ namespace ToolUse.Core.Config
         public int Hidden2 { get; set; } = 256;
         /// <summary> Коэффициент дисконтирования будущей награды. </summary>
         public float Gamma { get; set; } = 0.99f;
+
+        // Epsilon-greedy
         /// <summary> Начальное значение epsilon для epsilon-greedy. </summary>
         public float EpsilonStart { get; set; } = 1.0f;
         /// <summary> Минимальное значение epsilon. </summary>
         public float EpsilonMin { get; set; } = 0.05f;
-        /// <summary> Коэффициент затухания epsilon. </summary>
+        /// <summary> Коэффициент затухания epsilon (мультипликативный). </summary>
         public float EpsilonDecay { get; set; } = 0.995f;
+
+        // Обучение/буфер
         /// <summary> Размер batch для обучения. </summary>
         public int BatchSize { get; set; } = 64;
         /// <summary> Размер буфера опыта. </summary>
         public int ReplayBufferSize { get; set; } = 10000;
+        /// <summary> Минимальное наполнение буфера перед обучением. </summary>
+        public int WarmupSize { get; set; } = 640; // ~10*b
+        /// <summary> Количество шагов обучения на один шаг окружения. </summary>
+        public int StepsPerUpdate { get; set; } = 1;
+
+        // Оптимизатор/лосс
         /// <summary> Скорость обучения (learning rate). </summary>
         public float LearningRate { get; set; } = 0.0005f;
-        /// <summary> Частота обновления целевой сети. </summary>
+        /// <summary> Использовать Huber (SmoothL1) вместо MSE. </summary>
+        public bool UseHuberLoss { get; set; } = true;
+        /// <summary> Клиппинг нормы градиента. 0 — отключено. </summary>
+        public float MaxGradNorm { get; set; } = 10.0f;
+        /// <summary> Использовать AdamW вместо Adam. </summary>
+        public bool UseAdamW { get; set; } = true;
+        /// <summary> Weight decay для AdamW. </summary>
+        public float WeightDecay { get; set; } = 0.0001f;
+
+        // Target network
+        /// <summary> Частота жесткого обновления целевой сети. </summary>
         public int UpdateTargetEvery { get; set; } = 200;
+        /// <summary> Использовать мягкое обновление (Polyak). </summary>
+        public bool UseSoftTarget { get; set; } = true;
+        /// <summary> Коэффициент Polyak-обновления. </summary>
+        public float TargetUpdateTau { get; set; } = 0.005f;
+
+        // Награды
+        /// <summary> Клиппинг абсолютного значения награды (0 — отключено). </summary>
+        public float RewardClipAbs { get; set; } = 1.0f;
+        /// <summary> Масштабирование награды после клиппинга. </summary>
+        public float RewardScale { get; set; } = 1.0f;
+
+        // PER
+        /// <summary> Начальное значение beta для PER IS-весов. </summary>
+        public float BetaStart { get; set; } = 0.4f;
+        /// <summary> Конечное значение beta для PER IS-весов. </summary>
+        public float BetaEnd { get; set; } = 1.0f;
+        /// <summary> За сколько обучающих шагов дорастить beta до BetaEnd. </summary>
+        public int BetaFrames { get; set; } = 100000;
+        /// <summary> Использовать стратифицированную выборку из PER. </summary>
+        public bool UseStratifiedSampling { get; set; } = true;
     }
 }

@@ -83,7 +83,7 @@ namespace ToolUse.Sim
 
             gridSize = config.World.GridSize;
 
-            int actionSize = 3;
+            int actionSize = 5; // 0=L,1=R,2=FWD,3=FWD+L,4=FWD+R
             var world = new World3D(gridSize);
             world.GenerateStaticGrid();
             var dummySeeker = new Agent3D(new Vector3(0, 0, 0), true);
@@ -92,8 +92,8 @@ namespace ToolUse.Sim
             var dummyState = adapter.GetSeekerState();
             int stateSize = dummyState.ToArray(gridSize).Length;
 
-            seekerDQN = new DQNAgent(stateSize, actionSize);
-            hiderDQN  = new DQNAgent(stateSize, actionSize);
+            seekerDQN = new DQNAgent(stateSize, actionSize, config.DQN);
+            hiderDQN  = new DQNAgent(stateSize, actionSize, config.DQN);
 
             // Создаём папку для моделей
             Directory.CreateDirectory(ModelDir);
@@ -139,7 +139,7 @@ namespace ToolUse.Sim
                             lastConsoleUpdate = DateTime.Now;
                         }
 
-                        System.Threading.Thread.Sleep(16);
+                        // Без задержки для максимальной скорости headless-обучения
                     }
                 }
             }

@@ -16,6 +16,8 @@ namespace ToolUse.Core.RL
     {
         public float Epsilon { get; set; }
         public int Steps { get; set; }
+        public int StateSize { get; set; }  // для проверки совместимости состояния
+        public int ActionSize { get; set; } // для проверки совместимости действий
         public List<Experience> Buffer { get; set; } = new();
     }
 
@@ -41,6 +43,28 @@ namespace ToolUse.Core.RL
         private int steps = 0;
         private readonly bool useDoubleDQN = true;
 
+        // New training controls
+        private readonly int warmupSize;
+        private readonly int stepsPerUpdate;
+        private readonly bool useHuberLoss;
+        private readonly float maxGradNorm;
+        private readonly bool useSoftTarget;
+        private readonly float tau;
+        private readonly float rewardClipAbs;
+        private readonly float rewardScale;
+        private readonly bool useAdamW;
+        private readonly float weightDecay;
+
+        // PER annealing
+        private readonly float betaStart;
+        private readonly float betaEnd;
+        private readonly int betaFrames;
+        private readonly bool useStratifiedSampling;
+        private int learnSteps = 0;
+
+        // Logging
+        private float emaLoss = 0f;
+
         public DQNAgent(int stateSize, int actionSize, DQNConfig dqnCfg, torch.Device? deviceOverride = null)
         {
             this.stateSize = stateSize;
@@ -55,11 +79,31 @@ namespace ToolUse.Core.RL
             this.replayBufferSize = dqnCfg.ReplayBufferSize;
             this.updateTargetEvery = dqnCfg.UpdateTargetEvery;
 
+            this.warmupSize = Math.Max(dqnCfg.WarmupSize, this.batchSize);
+            this.stepsPerUpdate = Math.Max(1, dqnCfg.StepsPerUpdate);
+            this.useHuberLoss = dqnCfg.UseHuberLoss;
+            this.maxGradNorm = dqnCfg.MaxGradNorm;
+            this.useSoftTarget = dqnCfg.UseSoftTarget;
+            this.tau = dqnCfg.TargetUpdateTau;
+            this.rewardClipAbs = dqnCfg.RewardClipAbs;
+            this.rewardScale = dqnCfg.RewardScale;
+            this.useAdamW = dqnCfg.UseAdamW;
+            this.weightDecay = dqnCfg.WeightDecay;
+
+            this.betaStart = dqnCfg.BetaStart;
+            this.betaEnd = dqnCfg.BetaEnd;
+            this.betaFrames = Math.Max(1, dqnCfg.BetaFrames);
+            this.useStratifiedSampling = dqnCfg.UseStratifiedSampling;
+
             device = deviceOverride ?? (torch.cuda.is_available() ? torch.CUDA : torch.CPU);
 
             model = new DQNModel(stateSize, actionSize, dqnCfg.Hidden1, dqnCfg.Hidden2).to(device);
             targetModel = new DQNModel(stateSize, actionSize, dqnCfg.Hidden1, dqnCfg.Hidden2).to(device);
-            optimizer = torch.optim.Adam(model.parameters(), dqnCfg.LearningRate);
+
+            if (useAdamW)
+                optimizer = torch.optim.AdamW(model.parameters(), dqnCfg.LearningRate, weight_decay: weightDecay);
+            else
+                optimizer = torch.optim.Adam(model.parameters(), dqnCfg.LearningRate);
 
             buffer = new PrioritizedReplayBuffer(replayBufferSize);
 
@@ -131,89 +175,147 @@ namespace ToolUse.Core.RL
             CheckNaN(nextState, "Store:nextState");
             if (float.IsNaN(reward) || float.IsInfinity(reward))
                 throw new Exception($"[NaN/Inf] Store:reward={reward}");
-            buffer.Add(new Experience(state, action, reward, nextState, done));
+
+            // Reward clipping and scaling
+            float r = reward;
+            if (rewardClipAbs > 0f)
+                r = Math.Clamp(r, -rewardClipAbs, rewardClipAbs);
+            r *= rewardScale;
+
+            buffer.Add(new Experience(state, action, r, nextState, done));
         }
 
         public void Learn()
         {
-            if (buffer.Count < batchSize) return;
+            if (buffer.Count < warmupSize) return;
 
-            var (statesArr, actionsArr, rewardsArr, nextStatesArr, donesArr, weightsArr, indicesArr) = buffer.Sample(batchSize);
-
-            foreach (var s in statesArr) CheckNaN(s, "Learn:States");
-            foreach (var ns in nextStatesArr) CheckNaN(ns, "Learn:NextStates");
-
-            var states = torch.tensor(JaggedTo2D(statesArr), dtype: ScalarType.Float32, device: device);
-            var nextStates = torch.tensor(JaggedTo2D(nextStatesArr), dtype: ScalarType.Float32, device: device);
-
-            CheckNaN(states, "Learn:states tensor");
-            CheckNaN(nextStates, "Learn:nextStates tensor");
-
-            var actions = torch.tensor(actionsArr, dtype: ScalarType.Int64, device: device).unsqueeze(1);
-            var rewards = torch.tensor(rewardsArr, dtype: ScalarType.Float32, device: device).unsqueeze(1);
-            var dones = torch.tensor(donesArr.Select(x => x ? 1.0f : 0.0f).ToArray(), dtype: ScalarType.Float32, device: device).unsqueeze(1);
-
-            var qModelOutput = model.forward(states);
-            CheckNaN(qModelOutput, "Learn:model.forward(states)");
-
-            var qValues = qModelOutput.gather(1, actions);
-
-            torch.Tensor nextQTarget;
-            torch.Tensor targets;
-
-            using (torch.no_grad())
+            for (int it = 0; it < stepsPerUpdate; it++)
             {
-                if (useDoubleDQN)
+                if (buffer.Count < batchSize) break;
+
+                float beta = CalcBeta();
+                var (statesArr, actionsArr, rewardsArr, nextStatesArr, donesArr, weightsArr, indicesArr) =
+                    buffer.Sample(batchSize, beta, useStratifiedSampling);
+
+                foreach (var s in statesArr) CheckNaN(s, "Learn:States");
+                foreach (var ns in nextStatesArr) CheckNaN(ns, "Learn:NextStates");
+
+                var states = torch.tensor(JaggedTo2D(statesArr), dtype: ScalarType.Float32, device: device);
+                var nextStates = torch.tensor(JaggedTo2D(nextStatesArr), dtype: ScalarType.Float32, device: device);
+
+                CheckNaN(states, "Learn:states tensor");
+                CheckNaN(nextStates, "Learn:nextStates tensor");
+
+                var actions = torch.tensor(actionsArr, dtype: ScalarType.Int64, device: device).unsqueeze(1);
+                var rewards = torch.tensor(rewardsArr, dtype: ScalarType.Float32, device: device).unsqueeze(1);
+                var dones = torch.tensor(donesArr.Select(x => x ? 1.0f : 0.0f).ToArray(), dtype: ScalarType.Float32, device: device).unsqueeze(1);
+
+                var qModelOutput = model.forward(states);
+                CheckNaN(qModelOutput, "Learn:model.forward(states)");
+
+                var qValues = qModelOutput.gather(1, actions);
+
+                torch.Tensor nextQTarget;
+                torch.Tensor targets;
+
+                using (torch.no_grad())
                 {
-                    // ВАЖНО: следующий блок полностью совместим с gather
-                    var nextQ = model.forward(nextStates).argmax(1).to_type(ScalarType.Int64).unsqueeze(1);
-                    var targetOut = targetModel.forward(nextStates);
-                    CheckNaN(targetOut, "Learn:targetModel.forward(nextStates)");
-                    nextQTarget = targetOut.gather(1, nextQ);
+                    if (useDoubleDQN)
+                    {
+                        var nextQIdx = model.forward(nextStates).argmax(1).to_type(ScalarType.Int64).unsqueeze(1);
+                        var targetOut = targetModel.forward(nextStates);
+                        CheckNaN(targetOut, "Learn:targetModel.forward(nextStates)");
+                        nextQTarget = targetOut.gather(1, nextQIdx);
+                    }
+                    else
+                    {
+                        var targetOut = targetModel.forward(nextStates);
+                        CheckNaN(targetOut, "Learn:targetModel.forward(nextStates)");
+                        nextQTarget = targetOut.max(1).values.unsqueeze(1);
+                    }
+
+                    CheckNaN(nextQTarget, "Learn:nextQTarget");
+                    targets = rewards + gamma * nextQTarget * (1 - dones);
                 }
+
+                CheckNaN(targets, "Learn:targets");
+
+                targets = targets.to_type(ScalarType.Float32);
+                qValues = qValues.to_type(ScalarType.Float32);
+
+                var weightsTensor = torch.tensor(weightsArr, dtype: ScalarType.Float32, device: device).unsqueeze(1);
+
+                torch.Tensor lossTensor;
+                if (useHuberLoss)
+                    lossTensor = functional.smooth_l1_loss(qValues, targets, Reduction.None);
                 else
+                    lossTensor = functional.mse_loss(qValues, targets, Reduction.None);
+
+                var loss = (lossTensor * weightsTensor).mean();
+
+                CheckNaN(loss, "Learn:loss");
+
+                optimizer.zero_grad();
+                loss.backward();
+
+                if (maxGradNorm > 0f)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), maxGradNorm);
+
+                optimizer.step();
+
+                using (var errorTensor = (qValues - targets).abs().cpu().flatten())
                 {
-                    var targetOut = targetModel.forward(nextStates);
-                    CheckNaN(targetOut, "Learn:targetModel.forward(nextStates)");
-                    nextQTarget = targetOut.max(1).values.unsqueeze(1);
+                    var errorArray = errorTensor.ToArray_Float();
+                    buffer.UpdatePriorities(indicesArr, errorArray);
                 }
 
-                CheckNaN(nextQTarget, "Learn:nextQTarget");
-                targets = rewards + gamma * nextQTarget * (1 - dones);
+                learnSteps++;
+                steps++;
+
+                if (useSoftTarget)
+                    SoftUpdateTargetModel(tau);
+                else if (steps % updateTargetEvery == 0)
+                    UpdateTargetModel();
+
+                if (epsilon > epsilonMin)
+                    epsilon *= epsilonDecay;
+
+                // simple EMA loss log
+                float l = loss.ToSingle();
+                if (emaLoss == 0f) emaLoss = l;
+                emaLoss = 0.98f * emaLoss + 0.02f * l;
+                if (steps % 500 == 0)
+                {
+                    Console.WriteLine($"[DQN] steps={steps} eps={epsilon:F3} beta={beta:F3} buf={buffer.Count} emaLoss={emaLoss:F4}");
+                }
             }
+        }
 
-            CheckNaN(targets, "Learn:targets");
-
-            targets = targets.to_type(ScalarType.Float32);
-            qValues = qValues.to_type(ScalarType.Float32);
-
-            var loss = functional.mse_loss(qValues, targets, Reduction.None);
-            var weightsTensor = torch.tensor(weightsArr, dtype: ScalarType.Float32, device: device).unsqueeze(1);
-            loss = (loss * weightsTensor).mean();
-
-            CheckNaN(loss, "Learn:loss");
-
-            optimizer.zero_grad();
-            loss.backward();
-            optimizer.step();
-
-            using (var errorTensor = (qValues - targets).abs().cpu().flatten())
-            {
-                var errorArray = errorTensor.ToArray_Float();
-                buffer.UpdatePriorities(indicesArr, errorArray);
-            }
-
-            steps++;
-            if (steps % updateTargetEvery == 0)
-                UpdateTargetModel();
-
-            if (epsilon > epsilonMin)
-                epsilon *= epsilonDecay;
+        private float CalcBeta()
+        {
+            if (betaStart >= betaEnd) return betaEnd;
+            var t = Math.Min(1.0f, learnSteps / (float)betaFrames);
+            return betaStart + (betaEnd - betaStart) * t;
         }
 
         private void UpdateTargetModel()
         {
             targetModel.load_state_dict(model.state_dict());
+        }
+
+        private void SoftUpdateTargetModel(float tau)
+        {
+            using (torch.no_grad())
+            {
+                var current = model.parameters().ToArray();
+                var target = targetModel.parameters().ToArray();
+                for (int i = 0; i < current.Length; i++)
+                {
+                    // target = (1 - tau) * target + tau * current
+                    target[i].mul_(1 - tau);
+                    target[i].add_(current[i] * tau);
+                }
+            }
         }
 
         private static float[,] JaggedTo2D(float[][] array)
@@ -235,6 +337,8 @@ namespace ToolUse.Core.RL
             {
                 Epsilon = epsilon,
                 Steps = steps,
+                StateSize = stateSize,
+                ActionSize = actionSize,
                 Buffer = buffer.ToList()
             };
             File.WriteAllText(statePath, JsonConvert.SerializeObject(agentState, Formatting.Indented));
@@ -243,24 +347,67 @@ namespace ToolUse.Core.RL
 
         public void LoadAll(string weightsPath, string statePath)
         {
+            // Пытаемся загрузить веса, при несовпадении архитектуры — пропускаем
             if (File.Exists(weightsPath))
             {
-                model.load(weightsPath);
-                targetModel.load(weightsPath);
-                Console.WriteLine($"[DEBUG] Model loaded from {weightsPath}");
+                try
+                {
+                    model.load(weightsPath);
+                    targetModel.load(weightsPath);
+                    Console.WriteLine($"[DEBUG] Model loaded from {weightsPath}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[WARN] Failed to load model weights '{weightsPath}': {ex.Message}. Starting with fresh weights.");
+                    try { File.Delete(weightsPath); } catch { /* ignore */ }
+                }
             }
 
+            // Пытаемся загрузить состояние агента, проверяем совместимость размеров
             if (File.Exists(statePath))
             {
-                var state = JsonConvert.DeserializeObject<DQNAgentState>(File.ReadAllText(statePath));
-                if (state != null)
+                try
                 {
-                    epsilon = state.Epsilon;
-                    steps = state.Steps;
+                    var state = JsonConvert.DeserializeObject<DQNAgentState>(File.ReadAllText(statePath));
+                    if (state != null)
+                    {
+                        bool stateSizeOk = state.StateSize == 0 || state.StateSize == stateSize;
+                        bool actionSizeOk = state.ActionSize == 0 || state.ActionSize == actionSize;
+
+                        if (stateSizeOk && actionSizeOk)
+                        {
+                            epsilon = state.Epsilon;
+                            steps = state.Steps;
+
+                            buffer.Clear();
+                            // Загружаем только совместимые по размеру записи
+                            int added = 0;
+                            foreach (var exp in state.Buffer)
+                            {
+                                if (exp?.State != null && exp.State.Length == stateSize)
+                                {
+                                    buffer.Add(exp);
+                                    added++;
+                                }
+                            }
+                            Console.WriteLine($"[DEBUG] State loaded from {statePath} (buffer entries: {added})");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"[WARN] Incompatible agent state '{statePath}' (saved: {state.StateSize}/{state.ActionSize}, current: {stateSize}/{actionSize}). Ignoring saved buffer/state.");
+                            epsilon = epsilonStart;
+                            steps = 0;
+                            buffer.Clear();
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[WARN] Failed to load agent state '{statePath}': {ex.Message}. Resetting state.");
+                    try { File.Delete(statePath); } catch { /* ignore */ }
+                    epsilon = epsilonStart;
+                    steps = 0;
                     buffer.Clear();
-                    foreach (var exp in state.Buffer)
-                        buffer.Add(exp);
-                    Console.WriteLine($"[DEBUG] State loaded from {statePath}");
                 }
             }
         }
@@ -346,32 +493,75 @@ namespace ToolUse.Core.RL
         }
 
         public (float[][] States, long[] Actions, float[] Rewards, float[][] NextStates, bool[] Dones, float[] Weights, int[] Indices)
-            Sample(int batchSize)
+            Sample(int batchSize, float beta, bool stratified)
         {
             float totalPriority = buffer.Sum(x => x.Priority);
-            float[] probabilities = buffer.Select(x => x.Priority / totalPriority).ToArray();
+            if (totalPriority <= 0f) totalPriority = 1e-6f;
 
-            var indices = new List<int>();
-            var rnd = new Random();
-            for (int i = 0; i < batchSize; i++)
+            float[] probabilities = buffer.Select(x => x.Priority / totalPriority).ToArray();
+            var cdf = new float[probabilities.Length];
+            float cum = 0f;
+            for (int i = 0; i < probabilities.Length; i++)
             {
-                float p = (float)rnd.NextDouble();
-                float cumulative = 0f;
-                int idx = 0;
-                foreach (var prob in probabilities)
+                cum += probabilities[i];
+                cdf[i] = cum;
+            }
+
+            var rnd = new Random();
+            var indices = new List<int>(batchSize);
+
+            if (stratified)
+            {
+                for (int i = 0; i < batchSize; i++)
                 {
-                    cumulative += prob;
-                    if (cumulative >= p)
+                    float u0 = i / (float)batchSize;
+                    float u1 = (i + 1) / (float)batchSize;
+                    float u = u0 + (float)rnd.NextDouble() * (u1 - u0);
+                    // бинарный поиск по cdf
+                    int lo = 0, hi = cdf.Length - 1, found = hi;
+                    while (lo <= hi)
                     {
-                        indices.Add(idx);
-                        break;
+                        int mid = (lo + hi) / 2;
+                        if (u <= cdf[mid])
+                        {
+                            found = mid;
+                            hi = mid - 1;
+                        }
+                        else lo = mid + 1;
                     }
-                    idx++;
+                    indices.Add(found);
+                }
+            }
+            else
+            {
+                for (int i = 0; i < batchSize; i++)
+                {
+                    float u = (float)rnd.NextDouble();
+                    int lo = 0, hi = cdf.Length - 1, found = hi;
+                    while (lo <= hi)
+                    {
+                        int mid = (lo + hi) / 2;
+                        if (u <= cdf[mid])
+                        {
+                            found = mid;
+                            hi = mid - 1;
+                        }
+                        else lo = mid + 1;
+                    }
+                    indices.Add(found);
                 }
             }
 
-            float[] weights = indices.Select(x => (float)Math.Pow(buffer.Count * probabilities[x], -0.4)).ToArray();
+            // Importance-sampling weights
+            int N = buffer.Count;
+            float[] weights = indices.Select(idx =>
+            {
+                float p = Math.Max(probabilities[idx], 1e-8f);
+                return (float)Math.Pow(N * p, -beta);
+            }).ToArray();
+
             float maxWeight = weights.Max();
+            if (maxWeight <= 0f) maxWeight = 1f;
             weights = weights.Select(w => w / maxWeight).ToArray();
 
             return (
