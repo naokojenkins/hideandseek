@@ -74,6 +74,13 @@ namespace ToolUse.Core.RaylibThreeD
             return angle;
         }
 
+        private static float Clamp(float value, float min, float max)
+        {
+            if (value < min) return min;
+            if (value > max) return max;
+            return value;
+        }
+
         public void Rotate(float degrees)
         {
             Direction += degrees;
@@ -140,9 +147,32 @@ namespace ToolUse.Core.RaylibThreeD
 
         public bool MoveWithCollisionAvoidance(World3D world, float deltaTime, Agent3D other = null)
         {
-            var bestDirection = GetBestDirection(world);
-            if (bestDirection == Vector3.Zero)
+            // Дальность заглядывания вперёд: чуть больше шага
+            float lookahead = MathF.Max(Speed * deltaTime * 2f, 0.6f);
+
+            // Выбираем лучший целевой угол с учётом карты стен и реальной проходимости
+            float? bestAngle = GetBestDirection(world, lookahead);
+
+            if (bestAngle.HasValue)
             {
+                float target = bestAngle.Value;
+                float angleDiff = target - Direction;
+                if (angleDiff > 180f) angleDiff -= 360f;
+                if (angleDiff < -180f) angleDiff += 360f;
+
+                // Упреждающий разворот к лучшему направлению
+                float maxTurn = 15f;
+                if (MathF.Abs(angleDiff) > 1f)
+                {
+                    float turn = Clamp(angleDiff, -maxTurn, maxTurn);
+                    Rotate(turn);
+                    // В этом кадре делаем приоритет повороту (не шагаем), чтобы не "тыкаться" в стену
+                    return false;
+                }
+            }
+            else
+            {
+                // Нет хорошего направления — пробуем аккуратно развернуться
                 for (int attempt = 1; attempt <= 8; attempt++)
                 {
                     float angleOffset = (attempt % 2 == 0) ? attempt * 15 : -attempt * 15;
@@ -163,6 +193,7 @@ namespace ToolUse.Core.RaylibThreeD
                 return false;
             }
 
+            // Пробуем шаг вперёд по (возможно уже скорректированному) направлению
             float radians = Direction * MathF.PI / 180f;
             Vector3 forward = new Vector3(
                 MathF.Cos(radians) * Speed * deltaTime,
@@ -177,24 +208,7 @@ namespace ToolUse.Core.RaylibThreeD
                 var gridCoords = ToGridCoords(newPosition);
                 if (world.IsBlocked(gridCoords.x, gridCoords.z))
                     KnownWalls.Add(gridCoords);
-
-                for (int attempt = 1; attempt <= 8; attempt++)
-                {
-                    float angleOffset = (attempt % 2 == 0) ? attempt * 15 : -attempt * 15;
-                    float testAngle = NormalizeAngle(Direction + angleOffset);
-                    float testRadians = testAngle * MathF.PI / 180f;
-                    Vector3 testForward = new Vector3(
-                        MathF.Cos(testRadians) * Speed * deltaTime,
-                        0,
-                        MathF.Sin(testRadians) * Speed * deltaTime
-                    );
-                    Vector3 testPosition = Position + testForward;
-                    if (IsPositionValid(testPosition, world))
-                    {
-                        Rotate(Math.Sign(angleOffset) * 10);
-                        return false;
-                    }
-                }
+                // Столкновение — отметили и не двигаемся в этом кадре
                 return false;
             }
 
@@ -204,6 +218,7 @@ namespace ToolUse.Core.RaylibThreeD
                 float currentDist = Vector3.Distance(newPosition, other.Position);
                 float currentAngle = Direction;
 
+                // Hider — упреждающий разворот, если его видит Seeker
                 if (!IsSeeker && IsSeenBy(other, world))
                 {
                     Vector3 escapeDir = Vector3.Normalize(Position - other.Position);
@@ -217,6 +232,7 @@ namespace ToolUse.Core.RaylibThreeD
                     return false;
                 }
 
+                // Избегаем чрезмерного сближения
                 if (currentDist < minDist)
                 {
                     Vector3 avoidDir = Vector3.Normalize(Position - other.Position);
@@ -231,6 +247,7 @@ namespace ToolUse.Core.RaylibThreeD
                 }
             }
 
+            // Двигаемся
             Position = newPosition;
 
             if (IsSeeker)
@@ -245,22 +262,60 @@ namespace ToolUse.Core.RaylibThreeD
             return true;
         }
 
-        public Vector3 GetBestDirection(World3D world)
+        public float? GetBestDirection(World3D world, float lookaheadDistance = 1.0f)
         {
-            float[] angles = { 0, 15, -15, 30, -30, 45, -45, 90, -90 };
-            foreach (var angle in angles)
+            // Кандидаты — симметричные смещения от текущего направления
+            float[] offsets = new float[] { 0, 15, -15, 30, -30, 45, -45, 60, -60, 90, -90, 120, -120, 150, -150, 180 };
+            float bestScore = float.NegativeInfinity;
+            float? bestAngle = null;
+
+            foreach (var offset in offsets)
             {
-                float testAngle = NormalizeAngle(Direction + angle);
-                float testRadians = testAngle * MathF.PI / 180f;
-                Vector3 testForward = new Vector3(MathF.Cos(testRadians), 0, MathF.Sin(testRadians));
-                Vector3 testPosition = Position + testForward * 1f;
-                var gridCoords = ToGridCoords(testPosition);
-                if (!KnownWalls.Contains(gridCoords) && world.IsInside(gridCoords.x, gridCoords.z))
+                float testAngle = NormalizeAngle(Direction + offset);
+                float radians = testAngle * MathF.PI / 180f;
+                Vector3 dir = new Vector3(MathF.Cos(radians), 0, MathF.Sin(radians));
+
+                // Оценка: сколько свободного пространства вперёд + штраф за поворот и известные стены
+                float score = 0f;
+                float step = 0.2f;
+
+                // Штраф, если первый шаг ведёт в уже известную стену
+                Vector3 firstPos = Position + dir * 0.6f;
+                var firstCell = ToGridCoords(firstPos);
+                if (KnownWalls.Contains(firstCell)) score -= 5f;
+
+                bool blocked = false;
+                float freeDist = 0f;
+
+                for (float d = step; d <= lookaheadDistance; d += step)
                 {
-                    return testForward;
+                    Vector3 p = Position + dir * d;
+                    int gx = ToGridX(p.X, world.Size);
+                    int gz = ToGridZ(p.Z, world.Size);
+
+                    if (!world.IsInside(gx, gz) || world.IsBlocked(gx, gz) || !IsPositionValid(p, world))
+                    {
+                        if (world.IsBlocked(gx, gz))
+                            KnownWalls.Add((gx, gz));
+                        blocked = true;
+                        break;
+                    }
+
+                    freeDist = d;
+                }
+
+                score += freeDist;                     // чем дальше свободно — тем лучше
+                score -= MathF.Abs(offset) * 0.02f;    // маленький штраф за поворот
+                if (!blocked) score += 0.2f;           // бонус, если путь открыт на всю длину
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestAngle = testAngle;
                 }
             }
-            return Vector3.Zero;
+
+            return bestAngle;
         }
 
         private bool IsPositionValid(Vector3 pos, World3D world)
@@ -282,34 +337,88 @@ namespace ToolUse.Core.RaylibThreeD
 
         public bool CanSee(Agent3D other, World3D world)
         {
-            float distance = Vector3.Distance(Position, other.Position);
-            if (distance > VisionRadius) return false;
+            // Быстрые ранние отсеки по дистанции
+            float centerDist = Vector3.Distance(Position, other.Position);
+            float targetRadius = other.AgentRadius;
+            if (centerDist > VisionRadius + targetRadius) return false;
 
-            Vector3 toOther = Vector3.Normalize(other.Position - Position);
-            float angleToOther = MathF.Atan2(toOther.Z, toOther.X) * 180f / MathF.PI;
-            if (angleToOther < 0) angleToOther += 360f;
-            float angleDiff = Math.Abs(angleToOther - Direction);
-            if (angleDiff > 180f) angleDiff = 360f - angleDiff;
+            // Подготавливаем дискретные точки на диске цели: центр + точки по окружности
+            const int samples = 12;
+            Span<Vector3> samplePoints = stackalloc Vector3[samples + 1];
+            samplePoints[0] = other.Position;
+            for (int i = 0; i < samples; i++)
+            {
+                float ang = 2f * MathF.PI * (i / (float)samples);
+                Vector3 offset = new Vector3(MathF.Cos(ang), 0, MathF.Sin(ang)) * targetRadius;
+                samplePoints[i + 1] = other.Position + offset;
+            }
 
-            if (angleDiff > VisionAngle / 2f) return false;
+            float halfFov = VisionAngle / 2f;
 
-            return world.HasLineOfSight(Position, other.Position, AgentRadius);
+            for (int i = 0; i < samplePoints.Length; i++)
+            {
+                Vector3 p = samplePoints[i];
+                float dist = Vector3.Distance(Position, p);
+                if (dist > VisionRadius) continue;
+
+                Vector3 toPoint = Vector3.Normalize(p - Position);
+                float angleToPoint = MathF.Atan2(toPoint.Z, toPoint.X) * 180f / MathF.PI;
+                if (angleToPoint < 0) angleToPoint += 360f;
+                float angleDiff = Math.Abs(angleToPoint - Direction);
+                if (angleDiff > 180f) angleDiff = 360f - angleDiff;
+
+                if (angleDiff <= halfFov)
+                {
+                    // Проверяем линию видимости к конкретной точке диска
+                    if (world.HasLineOfSight(Position, p, AgentRadius))
+                        return true;
+                }
+            }
+
+            return false;
         }
 
         public bool IsSeenBy(Agent3D other, World3D world)
         {
-            float distance = Vector3.Distance(other.Position, Position);
-            if (distance > other.VisionRadius) return false;
+            // Быстрые ранние отсеки по дистанции
+            float centerDist = Vector3.Distance(other.Position, Position);
+            float targetRadius = this.AgentRadius;
+            if (centerDist > other.VisionRadius + targetRadius) return false;
 
-            Vector3 toThis = Vector3.Normalize(Position - other.Position);
-            float angleToThis = MathF.Atan2(toThis.Z, toThis.X) * 180f / MathF.PI;
-            if (angleToThis < 0) angleToThis += 360f;
-            float angleDiff = Math.Abs(angleToThis - other.Direction);
-            if (angleDiff > 180f) angleDiff = 360f - angleDiff;
+            // Подготавливаем дискретные точки на диске (мы — цель): центр + окружность
+            const int samples = 12;
+            Span<Vector3> samplePoints = stackalloc Vector3[samples + 1];
+            samplePoints[0] = this.Position;
+            for (int i = 0; i < samples; i++)
+            {
+                float ang = 2f * MathF.PI * (i / (float)samples);
+                Vector3 offset = new Vector3(MathF.Cos(ang), 0, MathF.Sin(ang)) * targetRadius;
+                samplePoints[i + 1] = this.Position + offset;
+            }
 
-            if (angleDiff > other.VisionAngle / 2f) return false;
+            float halfFov = other.VisionAngle / 2f;
 
-            return world.HasLineOfSight(other.Position, Position);
+            for (int i = 0; i < samplePoints.Length; i++)
+            {
+                Vector3 p = samplePoints[i];
+                float dist = Vector3.Distance(other.Position, p);
+                if (dist > other.VisionRadius) continue;
+
+                Vector3 toPoint = Vector3.Normalize(p - other.Position);
+                float angleToPoint = MathF.Atan2(toPoint.Z, toPoint.X) * 180f / MathF.PI;
+                if (angleToPoint < 0) angleToPoint += 360f;
+                float angleDiff = Math.Abs(angleToPoint - other.Direction);
+                if (angleDiff > 180f) angleDiff = 360f - angleDiff;
+
+                if (angleDiff <= halfFov)
+                {
+                    // Проверяем линию видимости от наблюдателя к точке на нашем диске
+                    if (world.HasLineOfSight(other.Position, p, other.AgentRadius))
+                        return true;
+                }
+            }
+
+            return false;
         }
 
         public void Draw()
