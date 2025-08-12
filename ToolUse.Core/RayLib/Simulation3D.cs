@@ -442,6 +442,10 @@ namespace ToolUse.Core.RaylibThreeD
                     Color seekerConeColor = IsHiderVisible ? new Color(255, 255, 0, 100) : new Color(0, 0, 255, 80);
                     Seeker.DrawVisionCone(World, seekerConeColor);
                     Hider.DrawVisionCone(World, new Color(0, 255, 0, 80));
+
+                    // Линии взгляда — синхронизированы по направлению и дальности с конусами
+                    Seeker.DrawGazeLine(World, IsHiderVisible ? new Color(255, 255, 0, 200) : new Color(0, 0, 255, 180));
+                    Hider.DrawGazeLine(World, new Color(0, 255, 0, 180));
                 }
             }
             Raylib.EndMode3D();
