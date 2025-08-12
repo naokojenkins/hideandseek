@@ -8,6 +8,7 @@ using ToolUse.Core.RL;
 using ToolUse.Core.Config;
 using ToolUse.Core.RaylibThreeD;
 using System.Linq;
+using System.Collections.Generic;
 
 namespace ToolUse.Core.RaylibThreeD
 {
@@ -17,6 +18,11 @@ namespace ToolUse.Core.RaylibThreeD
         public World3D World { get; }
         public Agent3D Seeker { get; set; }
         public Agent3D Hider { get; set; }
+
+        // Новые коллекции: все агенты по ролям
+        public List<Agent3D> Seekers { get; private set; } = new();
+        public List<Agent3D> Hiders { get; private set; } = new();
+
         public bool IsHiderCaught => _isHiderCaught;
 
         private float sessionDurationSeconds;
@@ -28,6 +34,10 @@ namespace ToolUse.Core.RaylibThreeD
         private DQNAgent _seekerAgent;
         private DQNAgent _hiderAgent;
         private SimAdapter3D _adapter;
+
+        // Командные blackboard'ы
+        private readonly TeamBlackboard _seekersBoard = new();
+        private readonly TeamBlackboard _hidersBoard  = new();
 
         private Camera3D _camera;
         private Camera3D _fixedCameraState;
@@ -94,6 +104,35 @@ namespace ToolUse.Core.RaylibThreeD
                 throw new Exception($"[NaN/Inf] {tag}: {v}");
         }
 
+        // Проверка валидности позиции агента относительно текущего мира Simulation3D.World
+        private bool IsPositionValidForWorld(Vector3 pos, float radius)
+        {
+            if (World == null) return false;
+            int steps = 16;
+            for (int i = 0; i < steps; i++)
+            {
+                float ang = 2 * MathF.PI * i / steps;
+                float checkX = pos.X + MathF.Cos(ang) * radius * 0.9f;
+                float checkZ = pos.Z + MathF.Sin(ang) * radius * 0.9f;
+
+                int gx = Math.Clamp((int)MathF.Floor(checkX), 0, World.Size - 1);
+                int gz = Math.Clamp((int)MathF.Floor(checkZ), 0, World.Size - 1);
+
+                if (!World.IsInside(gx, gz) || World.IsBlocked(gx, gz))
+                    return false;
+            }
+            return true;
+        }
+
+        // Гарантирует, что агент стоит на валидной позиции текущего мира; при необходимости переносит
+        private void EnsureAgentOnValidCell(Agent3D agent)
+        {
+            if (!IsPositionValidForWorld(agent.Position, agent.AgentRadius))
+            {
+                agent.Position = World.GetRandomValidAgentPosition(agent.AgentRadius, 0f);
+            }
+        }
+
         public Simulation3D(
             int worldSize,
             Agent3D seeker,
@@ -111,15 +150,28 @@ namespace ToolUse.Core.RaylibThreeD
 
             Seeker = seeker;
             Seeker.InitWorldSize(World.Size);
+            Seeker.SetWorld(World);
 
             Hider = hider;
             Hider.InitWorldSize(World.Size);
+            Hider.SetWorld(World);
+
+            // Убедимся, что стартовые позиции валидны в текущем мире симуляции
+            EnsureAgentOnValidCell(Seeker);
+            EnsureAgentOnValidCell(Hider);
 
             _adapter = new SimAdapter3D(World, Seeker, Hider);
             _seekerAgent = seekerAgent;
             _hiderAgent  = hiderAgent;
 
+            // Привязываем командные blackboard'ы
+            Seeker.TeamBoard = _seekersBoard;
+            Hider.TeamBoard  = _hidersBoard;
+
             InitializeCamera();
+
+            // Синхронизация начального состояния показа конусов с Agent3D
+            Agent3D.ShowVisionCones = _showVisionCones;
 
             _prevPhysicalExplored = Seeker.GetExploredCount();
             _prevVisualExplored   = Seeker.GetVisuallyExploredCount();
@@ -173,7 +225,11 @@ namespace ToolUse.Core.RaylibThreeD
                 }
             }
 
-            if (Raylib.IsKeyPressed(KeyboardKey.V)) _showVisionCones = !_showVisionCones;
+            if (Raylib.IsKeyPressed(KeyboardKey.V))
+            {
+                _showVisionCones = !_showVisionCones;
+                Agent3D.ShowVisionCones = _showVisionCones;
+            }
             if (Raylib.IsKeyPressed(KeyboardKey.G)) _showGrid = !_showGrid;
             if (Raylib.IsKeyPressed(KeyboardKey.R)) Restart();
         }
@@ -187,7 +243,7 @@ namespace ToolUse.Core.RaylibThreeD
             _lastVisibilityCheck += deltaTime;
             if (_lastVisibilityCheck >= _visibilityCheckInterval)
             {
-                IsHiderVisible = Seeker.CanSee(Hider, World);
+                IsHiderVisible = AnyHiderVisible();
                 _lastVisibilityCheck = 0f;
             }
 
@@ -230,121 +286,209 @@ namespace ToolUse.Core.RaylibThreeD
         private const float _noProgressDistanceEps = 0.05f;
         private const float _noProgressSeconds = 5f;
 
+        // ---- Переменные для мультиагентного шага ----
+        // Предыдущее состояние и действие для каждого агента
+        private readonly Dictionary<Agent3D, State> _prevStateSeekers = new();
+        private readonly Dictionary<Agent3D, State> _prevStateHiders  = new();
+        private readonly Dictionary<Agent3D, long>  _prevActionSeekers = new();
+        private readonly Dictionary<Agent3D, long>  _prevActionHiders  = new();
+
+        // Action repeat для каждого агента
+        private readonly Dictionary<Agent3D, int> _repeatLeftSeekers = new();
+        private readonly Dictionary<Agent3D, int> _repeatLeftHiders  = new();
+        private readonly Dictionary<Agent3D, long> _currentActionSeekers = new();
+        private readonly Dictionary<Agent3D, long> _currentActionHiders  = new();
+
+        // Для наград Hider: последняя дистанция до ближайшего Seeker и видимость на прошлом шаге
+        private readonly Dictionary<Agent3D, float> _lastDistToNearestSeeker = new();
+        private readonly Dictionary<Agent3D, bool>  _wasHiderVisiblePrevMap  = new();
+
+        // Для наград Seeker: предыдущие счётчики исследования (физическое/визуальное)
+        private readonly Dictionary<Agent3D, (int phys, int vis)> _prevExploreCountsSeekers = new();
+
         private void UpdateRLAgents(float deltaTime)
         {
-            var seekerState = _adapter.GetSeekerState();
-            var hiderState  = _adapter.GetHiderState();
+            // Списки активных агентов (если коллекции пусты — используем одиночные)
+            var seekers = (Seekers != null && Seekers.Count > 0) ? Seekers : new List<Agent3D> { Seeker };
+            var hiders  = (Hiders  != null && Hiders.Count  > 0) ? Hiders  : new List<Agent3D> { Hider  };
 
-            CheckNaN(seekerState.ToArray(World.Size), "seekerState");
-            CheckNaN(hiderState.ToArray(World.Size), "hiderState");
-            if (_prevSeekerState != null) CheckNaN(_prevSeekerState.ToArray(World.Size), "prevSeekerState");
-            if (_prevHiderState != null) CheckNaN(_prevHiderState.ToArray(World.Size), "prevHiderState");
+            // Подготовка текущих состояний (будут записаны как nextState для перехода)
+            var seekerStatesNow = new Dictionary<Agent3D, State>(seekers.Count);
+            var hiderStatesNow  = new Dictionary<Agent3D, State>(hiders.Count);
 
-            // Action repeat logic
-            if (_seekerRepeatLeft <= 0)
+            foreach (var s in seekers)
             {
-                _currentSeekerAction = _seekerAgent.ChooseAction(seekerState.ToArray(World.Size));
-                _seekerRepeatLeft = _actionRepeat - 1;
+                var target = GetNearestOpponent(s, hiders);
+                var ad = new SimAdapter3D(World, s, target);
+                var st = ad.GetSeekerState();
+                CheckNaN(st.ToArray(World.Size), "seekerState");
+                seekerStatesNow[s] = st;
+
+                if (!_prevExploreCountsSeekers.ContainsKey(s))
+                    _prevExploreCountsSeekers[s] = (s.GetExploredCount(), s.GetVisuallyExploredCount());
             }
-            else
+            foreach (var h in hiders)
             {
-                _seekerRepeatLeft--;
+                var watcher = GetNearestOpponent(h, seekers);
+                var ad = new SimAdapter3D(World, watcher, h);
+                var st = ad.GetHiderState();
+                CheckNaN(st.ToArray(World.Size), "hiderState");
+                hiderStatesNow[h] = st;
+
+                if (!_lastDistToNearestSeeker.ContainsKey(h))
+                    _lastDistToNearestSeeker[h] = Vector3.Distance(h.Position, watcher.Position);
+                if (!_wasHiderVisiblePrevMap.ContainsKey(h))
+                    _wasHiderVisiblePrevMap[h] = false;
             }
 
-            if (_hiderRepeatLeft <= 0)
+            // Выбор действий с поддержкой action repeat для каждого агента роли
+            foreach (var s in seekers)
             {
-                _currentHiderAction = _hiderAgent.ChooseAction(hiderState.ToArray(World.Size));
-                _hiderRepeatLeft = _actionRepeat - 1;
-            }
-            else
-            {
-                _hiderRepeatLeft--;
-            }
-
-            long seekerAction = _currentSeekerAction;
-            long hiderAction  = _currentHiderAction;
-
-            int beforePhysical  = Seeker.GetExploredCount();
-            int beforeVisual    = Seeker.GetVisuallyExploredCount();
-
-            // Apply rotations directly (extended action space: 0=L,1=R,2=FWD,3=FWD+L,4=FWD+R)
-            if (seekerAction == 0) Seeker.Rotate(-10f);
-            if (seekerAction == 1) Seeker.Rotate(+10f);
-            if (seekerAction == 3) Seeker.Rotate(-10f);
-            if (seekerAction == 4) Seeker.Rotate(+10f);
-
-            if (hiderAction == 0) Hider.Rotate(-10f);
-            if (hiderAction == 1) Hider.Rotate(+10f);
-            if (hiderAction == 3) Hider.Rotate(-10f);
-            if (hiderAction == 4) Hider.Rotate(+10f);
-
-            // Move if required
-            if (seekerAction == 2 || seekerAction == 3 || seekerAction == 4)
-                Seeker.MoveWithCollisionAvoidance(World, deltaTime, Hider);
-            if (hiderAction == 2 || hiderAction == 3 || hiderAction == 4)
-                Hider.MoveWithCollisionAvoidance(World, deltaTime, Seeker);
-
-            Seeker.UpdateVisualExploration(World);
-            Hider.UpdateVisualExploration(World);
-
-            int afterPhysical   = Seeker.GetExploredCount();
-            int afterVisual     = Seeker.GetVisuallyExploredCount();
-
-            int newPhysical = afterPhysical - beforePhysical;
-            int newVisual   = afterVisual   - beforeVisual;
-            if (newPhysical < 0) newPhysical = 0;
-            if (newVisual   < 0) newVisual   = 0;
-
-            if (_prevSeekerState != null)
-            {
-                float seekerReward = ComputeSeekerReward();
-                float expPhysBonus   = newPhysical * Config.Seeker.PhysicalExploreReward;
-                float expVisualBonus = newVisual   * Config.Seeker.VisualExploreReward;
-                seekerReward += expPhysBonus + expVisualBonus;
-                ExplorationScore += expPhysBonus + expVisualBonus;
-
-                if (_isHiderCaught && !_catchBonusGiven)
+                if (!_repeatLeftSeekers.TryGetValue(s, out int left) || left <= 0)
                 {
-                    seekerReward += Config.Seeker.CatchBonus;
-                    _catchBonusGiven = true;
+                    long a = _seekerAgent.ChooseAction(seekerStatesNow[s].ToArray(World.Size));
+                    _currentActionSeekers[s] = a;
+                    _repeatLeftSeekers[s] = _actionRepeat - 1;
+                }
+                else
+                {
+                    _repeatLeftSeekers[s] = left - 1;
+                }
+            }
+            foreach (var h in hiders)
+            {
+                if (!_repeatLeftHiders.TryGetValue(h, out int left) || left <= 0)
+                {
+                    long a = _hiderAgent.ChooseAction(hiderStatesNow[h].ToArray(World.Size));
+                    _currentActionHiders[h] = a;
+                    _repeatLeftHiders[h] = _actionRepeat - 1;
+                }
+                else
+                {
+                    _repeatLeftHiders[h] = left - 1;
+                }
+            }
+
+            // Применяем повороты
+            foreach (var s in seekers)
+            {
+                long a = _currentActionSeekers.TryGetValue(s, out var act) ? act : 2;
+                if (a == 0) s.Rotate(-10f);
+                if (a == 1) s.Rotate(+10f);
+                if (a == 3) s.Rotate(-10f);
+                if (a == 4) s.Rotate(+10f);
+            }
+            foreach (var h in hiders)
+            {
+                long a = _currentActionHiders.TryGetValue(h, out var act) ? act : 2;
+                if (a == 0) h.Rotate(-10f);
+                if (a == 1) h.Rotate(+10f);
+                if (a == 3) h.Rotate(-10f);
+                if (a == 4) h.Rotate(+10f);
+            }
+
+            // Движение с учётом соседей (все остальные агенты)
+            foreach (var s in seekers)
+            {
+                long a = _currentActionSeekers.TryGetValue(s, out var act) ? act : 2;
+                if (a == 2 || a == 3 || a == 4)
+                {
+                    var neighbors = new List<Agent3D>();
+                    foreach (var s2 in seekers) if (!ReferenceEquals(s2, s)) neighbors.Add(s2);
+                    neighbors.AddRange(hiders);
+                    s.MoveWithCollisionAvoidance(World, deltaTime, neighbors);
+                }
+            }
+            foreach (var h in hiders)
+            {
+                long a = _currentActionHiders.TryGetValue(h, out var act) ? act : 2;
+                if (a == 2 || a == 3 || a == 4)
+                {
+                    var neighbors = new List<Agent3D>();
+                    foreach (var h2 in hiders) if (!ReferenceEquals(h2, h)) neighbors.Add(h2);
+                    neighbors.AddRange(seekers);
+                    h.MoveWithCollisionAvoidance(World, deltaTime, neighbors);
+                }
+            }
+
+            // Обновление визуального исследования
+            foreach (var s in seekers) s.UpdateVisualExploration(World);
+            foreach (var h in hiders)  h.UpdateVisualExploration(World);
+
+            // Карта текущей видимости для всех Hider
+            var hiderVisibleNow = new Dictionary<Agent3D, bool>(hiders.Count);
+            foreach (var h in hiders)
+                hiderVisibleNow[h] = seekers.Any(s => s.CanSee(h, World));
+
+            // Сохранение переходов и обучение: общий DQN на роль
+            foreach (var s in seekers)
+            {
+                // Рассчитываем дельты исследования Seeker
+                var prev = _prevExploreCountsSeekers.TryGetValue(s, out var p) ? p : (0, 0);
+                int afterPhysical = s.GetExploredCount();
+                int afterVisual   = s.GetVisuallyExploredCount();
+                int newPhysical = Math.Max(0, afterPhysical - prev.Item1);
+                int newVisual   = Math.Max(0, afterVisual   - prev.Item2);
+
+                bool seesAny = hiders.Any(h => s.CanSee(h, World));
+                s.IsSeeingTarget = seesAny;
+
+                // Обновляем last-known цели на командном blackboard'е Seeker'ов
+                if (seesAny)
+                {
+                    foreach (var t in hiders.Where(h => s.CanSee(h, World)))
+                        _seekersBoard.ReportSeenTarget(t, t.Position, Timer);
                 }
 
-                if (float.IsNaN(seekerReward) || float.IsInfinity(seekerReward))
-                    throw new Exception($"[NaN/Inf] seekerReward: {seekerReward}");
+                float reward = ComputeSeekerRewardFor(s, newPhysical, newVisual, seesAny);
 
-                _seekerAgent.Store(_prevSeekerState.ToArray(World.Size), _prevSeekerAction, seekerReward, seekerState.ToArray(World.Size), _isHiderCaught);
-                _seekerAgent.Learn();
-
-                _accSeekerReward += seekerReward;
-            }
-            if (_prevHiderState != null)
-            {
-                float hiderReward = ComputeHiderReward();
-                if (_wasHiderVisiblePrev && !IsHiderVisible)
+                // Запись перехода, если есть предыдущее состояние
+                if (_prevStateSeekers.TryGetValue(s, out var prevState) && _prevActionSeekers.TryGetValue(s, out var prevAction))
                 {
-                    hiderReward += Config.Hider.EscapeBonus;
+                    var nextState = seekerStatesNow[s];
+                    _seekerAgent.Store(prevState.ToArray(World.Size), prevAction, reward, nextState.ToArray(World.Size), _isHiderCaught);
+                    _seekerAgent.Learn();
+                    _accSeekerReward += reward;
                 }
-                if (float.IsNaN(hiderReward) || float.IsInfinity(hiderReward))
-                    throw new Exception($"[NaN/Inf] hiderReward: {hiderReward}");
 
-                _hiderAgent.Store(_prevHiderState.ToArray(World.Size), _prevHiderAction, hiderReward, hiderState.ToArray(World.Size), _isHiderCaught);
-                _hiderAgent.Learn();
-
-                _accHiderReward += hiderReward;
+                // Обновляем «предыдущие» для следующего шага
+                _prevStateSeekers[s] = seekerStatesNow[s];
+                _prevActionSeekers[s] = _currentActionSeekers.TryGetValue(s, out var act) ? act : 2;
+                _prevExploreCountsSeekers[s] = (afterPhysical, afterVisual);
             }
 
-            _prevSeekerState = seekerState;
-            _prevHiderState  = hiderState;
-            _prevSeekerAction = seekerAction;
-            _prevHiderAction  = hiderAction;
-            _wasHiderVisiblePrev = IsHiderVisible;
+            foreach (var h in hiders)
+            {
+                bool visibleNow = hiderVisibleNow[h];
 
-            // Metrics accumulation per frame
+                // Обновляем last-known цели на командном blackboard'е Hider'ов
+                foreach (var t in seekers.Where(s => h.CanSee(s, World)))
+                    _hidersBoard.ReportSeenTarget(t, t.Position, Timer);
+
+                float reward = ComputeHiderRewardFor(h, seekers, visibleNow);
+
+                if (_prevStateHiders.TryGetValue(h, out var prevState) && _prevActionHiders.TryGetValue(h, out var prevAction))
+                {
+                    var nextState = hiderStatesNow[h];
+                    _hiderAgent.Store(prevState.ToArray(World.Size), prevAction, reward, nextState.ToArray(World.Size), _isHiderCaught);
+                    _hiderAgent.Learn();
+                    _accHiderReward += reward;
+                }
+
+                _prevStateHiders[h] = hiderStatesNow[h];
+                _prevActionHiders[h] = _currentActionHiders.TryGetValue(h, out var act) ? act : 2;
+                _wasHiderVisiblePrevMap[h] = visibleNow;
+            }
+
+            // Синхронизация знаний команды (union известных стен)
+            MergeTeamKnowledge();
+
+            // Метрики (оставляем в терминах «первой» пары для совместимости HUD)
             _framesInSession++;
             if (IsHiderVisible) _visibleFrames++;
             _sumDistance += Vector3.Distance(Seeker.Position, Hider.Position);
 
-            // Early termination when no progress
+            // Раннее завершение при отсутствии прогресса (ориентируемся на «первую» пару)
             if (!IsHiderVisible)
             {
                 float dist = Vector3.Distance(Seeker.Position, Hider.Position);
@@ -374,6 +518,93 @@ namespace ToolUse.Core.RaylibThreeD
                 _lastDistanceForProgress = Vector3.Distance(Seeker.Position, Hider.Position);
                 _lastSeekerVisualExploredForProgress = Seeker.GetVisuallyExploredCount();
             }
+        }
+
+        private Agent3D GetNearestOpponent(Agent3D agent, List<Agent3D> opponents)
+        {
+            if (opponents == null || opponents.Count == 0) return agent.IsSeeker ? Hider : Seeker;
+            Agent3D best = opponents[0];
+            float bestD = Vector3.Distance(agent.Position, best.Position);
+            for (int i = 1; i < opponents.Count; i++)
+            {
+                float d = Vector3.Distance(agent.Position, opponents[i].Position);
+                if (d < bestD) { bestD = d; best = opponents[i]; }
+            }
+            return best;
+        }
+
+        private bool AnyHiderVisible()
+        {
+            var seekers = (Seekers != null && Seekers.Count > 0) ? Seekers : new List<Agent3D> { Seeker };
+            var hiders  = (Hiders  != null && Hiders.Count  > 0) ? Hiders  : new List<Agent3D> { Hider  };
+            foreach (var h in hiders)
+                foreach (var s in seekers)
+                    if (s.CanSee(h, World)) return true;
+            return false;
+        }
+
+        // Объединяет известные стены по командам и распространяет union обратно всем агентам и в командный blackboard
+        private void MergeTeamKnowledge()
+        {
+            var seekers = (Seekers != null && Seekers.Count > 0) ? Seekers : new List<Agent3D> { Seeker };
+            var hiders  = (Hiders  != null && Hiders.Count  > 0) ? Hiders  : new List<Agent3D> { Hider  };
+
+            // Seekers
+            var unionS = new HashSet<(int x, int z)>(_seekersBoard.KnownWalls);
+            foreach (var s in seekers) unionS.UnionWith(s.KnownWalls);
+            _seekersBoard.KnownWalls.UnionWith(unionS);
+            foreach (var s in seekers) s.KnownWalls.UnionWith(_seekersBoard.KnownWalls);
+
+            // Hiders
+            var unionH = new HashSet<(int x, int z)>(_hidersBoard.KnownWalls);
+            foreach (var h in hiders) unionH.UnionWith(h.KnownWalls);
+            _hidersBoard.KnownWalls.UnionWith(unionH);
+            foreach (var h in hiders) h.KnownWalls.UnionWith(_hidersBoard.KnownWalls);
+        }
+
+        private float ComputeSeekerRewardFor(Agent3D s, int newPhysical, int newVisual, bool seesAny)
+        {
+            float r = seesAny ? Config.Seeker.RewardWhenHiderVisible : Config.Seeker.RewardWhenHiderHidden;
+
+            float expPhysBonus   = newPhysical * Config.Seeker.PhysicalExploreReward;
+            float expVisualBonus = newVisual   * Config.Seeker.VisualExploreReward;
+            r += expPhysBonus + expVisualBonus;
+            ExplorationScore += expPhysBonus + expVisualBonus;
+
+            if (_isHiderCaught && !_catchBonusGiven)
+            {
+                r += Config.Seeker.CatchBonus;
+                _catchBonusGiven = true;
+            }
+
+            if (float.IsNaN(r) || float.IsInfinity(r))
+                throw new Exception($"[NaN/Inf] ComputeSeekerRewardFor: {r}");
+            return r;
+        }
+
+        private float ComputeHiderRewardFor(Agent3D h, List<Agent3D> seekers, bool visibleNow)
+        {
+            float reward = 0f;
+            if (visibleNow) reward -= Config.Hider.RewardWhenVisible;
+            else            reward += Config.Hider.RewardWhenHidden;
+
+            if (visibleNow) reward -= Config.Hider.RewardWhenSeenBySeeker;
+
+            // расстояние до ближайшего seeker
+            var nearest = GetNearestOpponent(h, seekers);
+            float currentDistance = Vector3.Distance(nearest.Position, h.Position);
+            float lastDist = _lastDistToNearestSeeker.TryGetValue(h, out var prev) ? prev : currentDistance;
+            if (currentDistance > lastDist) reward += Config.Hider.RewardWhenIncreasingDistance;
+            _lastDistToNearestSeeker[h] = currentDistance;
+
+            if (!visibleNow) reward += Config.Hider.RewardWhenHiddenBehindWall;
+
+            if (_wasHiderVisiblePrevMap.TryGetValue(h, out var wasVisible) && wasVisible && !visibleNow)
+                reward += Config.Hider.EscapeBonus;
+
+            if (float.IsNaN(reward) || float.IsInfinity(reward))
+                throw new Exception($"[NaN/Inf] ComputeHiderRewardFor: {reward}");
+            return reward;
         }
 
         private void AppendSessionMetrics()
@@ -491,6 +722,10 @@ namespace ToolUse.Core.RaylibThreeD
 
             World.GenerateStaticGrid();
 
+            // Новый эпизод — очищаем общие знания команд
+            _seekersBoard.Clear();
+            _hidersBoard.Clear();
+
             Vector3 seekerPos = World.GetRandomValidAgentPosition(Config.Seeker.AgentRadius, 0f);
             Vector3 hiderPos = World.GetRandomValidAgentPosition(Config.Hider.AgentRadius, 0f);
             int attempts = 0;
@@ -505,10 +740,46 @@ namespace ToolUse.Core.RaylibThreeD
             Seeker.Position = seekerPos;
             Seeker.Direction = Raylib.GetRandomValue(0, 359);
             Seeker.InitWorldSize(World.Size);
+            Seeker.SetWorld(World);
+            Seeker.TeamBoard = _seekersBoard;
 
             Hider.Position = hiderPos;
             Hider.Direction = Raylib.GetRandomValue(0, 359);
             Hider.InitWorldSize(World.Size);
+            Hider.SetWorld(World);
+            Hider.TeamBoard = _hidersBoard;
+
+            // Если коллекции заданы — респавним всех
+            if (Seekers != null && Seekers.Count > 0)
+            {
+                for (int i = 0; i < Seekers.Count; i++)
+                {
+                    Vector3 pos = World.GetRandomValidAgentPosition(Config.Seeker.AgentRadius, 0f);
+                    Seekers[i].Position = pos;
+                    Seekers[i].Direction = Raylib.GetRandomValue(0, 359);
+                    Seekers[i].InitWorldSize(World.Size);
+                    Seekers[i].SetWorld(World);
+                    Seekers[i].TeamBoard = _seekersBoard;
+                }
+                // Гарантируем, что «первый» совпадает с основным
+                Seekers[0].Position = Seeker.Position;
+                Seekers[0].Direction = Seeker.Direction;
+            }
+
+            if (Hiders != null && Hiders.Count > 0)
+            {
+                for (int i = 0; i < Hiders.Count; i++)
+                {
+                    Vector3 pos = World.GetRandomValidAgentPosition(Config.Hider.AgentRadius, 0f);
+                    Hiders[i].Position = pos;
+                    Hiders[i].Direction = Raylib.GetRandomValue(0, 359);
+                    Hiders[i].InitWorldSize(World.Size);
+                    Hiders[i].SetWorld(World);
+                    Hiders[i].TeamBoard = _hidersBoard;
+                }
+                Hiders[0].Position = Hider.Position;
+                Hiders[0].Direction = Hider.Direction;
+            }
 
             Seeker.ResetExploration();
 
@@ -519,6 +790,19 @@ namespace ToolUse.Core.RaylibThreeD
 
             _prevPhysicalExplored = Seeker.GetExploredCount();
             _prevVisualExplored   = Seeker.GetVisuallyExploredCount();
+
+            // Очистка per-agent структур при новом эпизоде
+            _prevStateSeekers.Clear();
+            _prevStateHiders.Clear();
+            _prevActionSeekers.Clear();
+            _prevActionHiders.Clear();
+            _repeatLeftSeekers.Clear();
+            _repeatLeftHiders.Clear();
+            _currentActionSeekers.Clear();
+            _currentActionHiders.Clear();
+            _lastDistToNearestSeeker.Clear();
+            _wasHiderVisiblePrevMap.Clear();
+            _prevExploreCountsSeekers.Clear();
         }
 
         public void Reset(Agent3D newSeeker, Agent3D newHider)
@@ -536,7 +820,15 @@ namespace ToolUse.Core.RaylibThreeD
             _wasHiderVisiblePrev = false;
 
             Seeker.InitWorldSize(World.Size);
+            Seeker.SetWorld(World);
+            Seeker.TeamBoard = _seekersBoard;
             Hider.InitWorldSize(World.Size);
+            Hider.SetWorld(World);
+            Hider.TeamBoard = _hidersBoard;
+
+            // Убедимся, что новые агенты стоят на валидных клетках мира симуляции
+            EnsureAgentOnValidCell(Seeker);
+            EnsureAgentOnValidCell(Hider);
 
             Seeker.ResetExploration();
 
@@ -547,6 +839,19 @@ namespace ToolUse.Core.RaylibThreeD
 
             _prevPhysicalExplored = Seeker.GetExploredCount();
             _prevVisualExplored   = Seeker.GetVisuallyExploredCount();
+
+            // Сброс per-agent структур
+            _prevStateSeekers.Clear();
+            _prevStateHiders.Clear();
+            _prevActionSeekers.Clear();
+            _prevActionHiders.Clear();
+            _repeatLeftSeekers.Clear();
+            _repeatLeftHiders.Clear();
+            _currentActionSeekers.Clear();
+            _currentActionHiders.Clear();
+            _lastDistToNearestSeeker.Clear();
+            _wasHiderVisiblePrevMap.Clear();
+            _prevExploreCountsSeekers.Clear();
 
             CheckNaN(Seeker.Position, "Reset:Seeker.Position");
             CheckNaN(Hider.Position, "Reset:Hider.Position");
@@ -560,17 +865,29 @@ namespace ToolUse.Core.RaylibThreeD
             {
                 World.Draw(true);
                 if (_showGrid) World.DrawGrid();
-                Seeker.Draw();
-                Hider.Draw();
+
+                // Рисуем всех агентов, если заданы списки; иначе — одиночные
+                if (Seekers != null && Seekers.Count > 0)
+                {
+                    foreach (var s in Seekers) s.Draw();
+                }
+                else
+                {
+                    Seeker.Draw();
+                }
+
+                if (Hiders != null && Hiders.Count > 0)
+                {
+                    foreach (var h in Hiders) h.Draw();
+                }
+                else
+                {
+                    Hider.Draw();
+                }
+
                 if (_showVisionCones)
                 {
-                    Color seekerConeColor = IsHiderVisible ? new Color(255, 255, 0, 100) : new Color(0, 0, 255, 80);
-                    Seeker.DrawVisionCone(World, seekerConeColor);
-                    Hider.DrawVisionCone(World, new Color(0, 255, 0, 80));
-
-                    // Линии взгляда — синхронизированы по направлению и дальности с конусами
-                    Seeker.DrawGazeLine(World, IsHiderVisible ? new Color(255, 255, 0, 200) : new Color(0, 0, 255, 180));
-                    Hider.DrawGazeLine(World, new Color(0, 255, 0, 180));
+                    // Конусы взглядов рисуются непосредственно в Agent3D.Draw
                 }
             }
             Raylib.EndMode3D();
@@ -580,34 +897,139 @@ namespace ToolUse.Core.RaylibThreeD
 
         private void DrawHUD()
         {
-            Raylib.DrawRectangle(5, 5, 340, 290, new Color(0, 0, 0, 180));
-            int y = 10;
-            Raylib.DrawText($"Session: {Session} / Total: {TotalSessions}", 10, y, 20, Color.White); y += 25;
+            // Параметры оформления (уменьшенные шрифты)
+            int pad = 8;
+            int headerFont = 18;
+            int lineFont = 16;
+            int barHeight = 8;
+            int barWidth = 90; // короче, чтобы не закрывать текст очков
+            int headerStep = headerFont + 6;
+            int lineStep = lineFont + 4;
+
+            // Данные по командам
+            var seekersList = (Seekers != null && Seekers.Count > 0) ? Seekers : new List<Agent3D> { Seeker };
+            var hidersList  = (Hiders  != null && Hiders.Count  > 0) ? Hiders  : new List<Agent3D> { Hider  };
+
+            int seekersCount = seekersList.Count;
+            int hidersCount  = hidersList.Count;
+
+            int seekersSeeing = 0;
+            foreach (var s in seekersList)
+                if (hidersList.Any(h => s.CanSee(h, World))) seekersSeeing++;
+
+            int visibleHiders = 0;
+            foreach (var h in hidersList)
+                if (seekersList.Any(s => s.CanSee(h, World))) visibleHiders++;
+
+            // Формируем строки
+            string l1 = $"Session: {Session} / Total: {TotalSessions}";
             Color timeColor = Timer > (Config.SessionDurationSeconds * 0.9f) ? Color.Red : Color.White;
-            Raylib.DrawText($"Time: {Timer:F1}s / {Config.SessionDurationSeconds:F0}s", 10, y, 20, timeColor); y += 25;
+            string l2 = $"Time: {Timer:F1}s / {Config.SessionDurationSeconds:F0}s";
 
-            Raylib.DrawText($"Seeker: {SeekerScore:F1}", 10, y, 20, new Color(60, 120, 255, 255));
-            float seekerPercent = SeekerScore / Config.SessionDurationSeconds * 100f;
-            Raylib.DrawRectangle(180, y + 5, (int)(100 * Math.Min(seekerPercent / 100f, 1.0f)), 10, new Color(60, 120, 255, 255));
-            Raylib.DrawRectangleLines(180, y + 5, 130, 10, Color.White); y += 25;
+            string sLine = $"Seekers: {seekersCount}  |  Seeing: {seekersSeeing}";
+            string sScore = $"Score: {SeekerScore:F1}";
+            float seekerPercent = MathF.Max(0f, MathF.Min(1f, SeekerScore / Config.SessionDurationSeconds));
 
-            Raylib.DrawText($"Physical: {Seeker.GetExploredCount()}", 10, y, 18, new Color(255, 220, 0, 255)); y += 22;
-            Raylib.DrawText($"Visual: {Seeker.GetVisuallyExploredCount()}", 10, y, 18, new Color(255, 170, 30, 255)); y += 22;
-            Raylib.DrawText($"Total: {Seeker.GetTotalExploredCount()}", 10, y, 18, new Color(150, 80, 255, 255)); y += 22;
-            Raylib.DrawText($"Seeker Known Walls: {Seeker.KnownWalls.Count}", 10, y, 18, new Color(80, 180, 255, 255)); y += 22;
-            Raylib.DrawText($"Exploration Score: {ExplorationScore:F1}", 10, y, 18, new Color(120, 70, 255, 255)); y += 25;
-            Raylib.DrawText($"Hider: {HiderScore:F1}", 10, y, 20, new Color(40, 200, 60, 255));
-            float hiderPercent = HiderScore / Config.SessionDurationSeconds * 100f;
-            Raylib.DrawRectangle(180, y + 5, (int)(100 * Math.Min(hiderPercent / 100f, 1.0f)), 10, new Color(40, 200, 60, 255));
-            Raylib.DrawRectangleLines(180, y + 5, 130, 10, Color.White); y += 25;
-            Raylib.DrawText($"Hider Known Walls: {Hider.KnownWalls.Count}", 10, y, 18, new Color(80, 255, 120, 255)); y += 22;
+            string hLine = $"Hiders: {hidersCount}  |  Visible: {visibleHiders}";
+            string hScore = $"Score: {HiderScore:F1}";
+            float hiderPercent = MathF.Max(0f, MathF.Min(1f, HiderScore / Config.SessionDurationSeconds));
+
             float distance = Vector3.Distance(Seeker.Position, Hider.Position);
-            Raylib.DrawText($"Distance: {distance:F1}", 10, y, 18, new Color(120, 120, 120, 255)); y += 22;
+            string distLine = $"Distance (S0-H0): {distance:F1}";
+
             string visibilityText = IsHiderVisible ? "VISIBLE" : "HIDDEN";
+
+            // Подсчет размеров подложки
+            int maxTextW = 0;
+            maxTextW = Math.Max(maxTextW, Raylib.MeasureText(l1, headerFont));
+            maxTextW = Math.Max(maxTextW, Raylib.MeasureText(l2, headerFont));
+            maxTextW = Math.Max(maxTextW, Raylib.MeasureText(sLine, lineFont));
+            maxTextW = Math.Max(maxTextW, Raylib.MeasureText(sScore, lineFont));
+            maxTextW = Math.Max(maxTextW, Raylib.MeasureText(hLine, lineFont));
+            maxTextW = Math.Max(maxTextW, Raylib.MeasureText(hScore, lineFont));
+            maxTextW = Math.Max(maxTextW, Raylib.MeasureText(distLine, lineFont));
+            maxTextW = Math.Max(maxTextW, Raylib.MeasureText($"Hiders: {visibilityText}", lineFont));
+
+            int sScoreW = Raylib.MeasureText(sScore, lineFont);
+            int hScoreW = Raylib.MeasureText(hScore, lineFont);
+            int barPad = 10;
+
+            // Учтем ширину прогресс-баров: начинаются после текста очков
+            int contentW = Math.Max(
+                maxTextW,
+                Math.Max(sScoreW + barPad + barWidth, hScoreW + barPad + barWidth)
+            );
+            int boxW = pad * 2 + contentW;
+
+            // Высота: 2 заголовка + 2 секции с барами + дистанция + видимость + (опционально) CAUGHT
+            int boxH = pad * 2
+                       + headerStep * 2
+                       + lineStep // Seekers line
+                       + (barHeight + 6) // Seekers bar
+                       + lineStep // Hiders line
+                       + (barHeight + 6) // Hiders bar
+                       + lineStep // Distance
+                       + lineStep; // Visibility
+            if (_isHiderCaught) boxH += (lineFont + 8);
+
+            // Подложка
+            Raylib.DrawRectangle(5, 5, boxW, boxH, new Color(0, 0, 0, 180));
+
+            int x = 5 + pad;
+            int y = 5 + pad;
+
+            // Заголовки
+            Raylib.DrawText(l1, x, y, headerFont, Color.White); y += headerStep;
+            Raylib.DrawText(l2, x, y, headerFont, timeColor); y += headerStep;
+
+            // Секция Seekers
+            var seekerColor = new Color(60, 120, 255, 255);
+            Raylib.DrawText(sLine, x, y, lineFont, seekerColor); y += lineStep;
+            Raylib.DrawText(sScore, x, y, lineFont, seekerColor);
+            // Прогресс-бар по команде Seeker: ставим после текста очков
+            int barX = x + sScoreW + barPad;
+            int barY = y + (lineFont / 2) - (barHeight / 2);
+            Raylib.DrawRectangle(barX, barY, (int)(barWidth * seekerPercent), barHeight, seekerColor);
+            Raylib.DrawRectangleLines(barX, barY, barWidth, barHeight, Color.White);
+            y += (barHeight + 6);
+
+            // Секция Hiders
+            var hiderColor = new Color(40, 200, 60, 255);
+            Raylib.DrawText(hLine, x, y, lineFont, hiderColor); y += lineStep;
+            Raylib.DrawText(hScore, x, y, lineFont, hiderColor);
+            barX = x + hScoreW + barPad;
+            barY = y + (lineFont / 2) - (barHeight / 2);
+            Raylib.DrawRectangle(barX, barY, (int)(barWidth * hiderPercent), barHeight, hiderColor);
+            Raylib.DrawRectangleLines(barX, barY, barWidth, barHeight, Color.White);
+            y += (barHeight + 6);
+
+            // Доп. строки
+            Raylib.DrawText(distLine, x, y, lineFont, new Color(160, 160, 160, 255)); y += lineStep;
             Color visibilityColor = IsHiderVisible ? Color.Red : new Color(0, 200, 60, 255);
-            Raylib.DrawText($"Hider: {visibilityText}", 10, y, 18, visibilityColor); y += 22;
+            Raylib.DrawText($"Hiders: {visibilityText}", x, y, lineFont, visibilityColor); y += lineStep;
+
             if (_isHiderCaught)
-                Raylib.DrawText("CAUGHT!", 10, y, 24, Color.Red);
+                Raylib.DrawText("CAUGHT!", x, y, 18, Color.Red);
+        }
+
+        // Позволяет задать списки агентов после создания симуляции
+        public void SetAgents(List<Agent3D> seekers, List<Agent3D> hiders)
+        {
+            Seekers = seekers ?? new List<Agent3D>();
+            Hiders = hiders ?? new List<Agent3D>();
+
+            if (Seekers.Count > 0) Seeker = Seekers[0];
+            if (Hiders.Count > 0) Hider = Hiders[0];
+
+            foreach (var s in Seekers) { s.InitWorldSize(World.Size); s.SetWorld(World); }
+            foreach (var h in Hiders) { h.InitWorldSize(World.Size); h.SetWorld(World); }
+
+            foreach (var s in Seekers) s.TeamBoard = _seekersBoard;
+            foreach (var h in Hiders) h.TeamBoard = _hidersBoard;
+
+            // Валидируем позиции всех агентов относительно мира симуляции
+            foreach (var s in Seekers) EnsureAgentOnValidCell(s);
+            foreach (var h in Hiders) EnsureAgentOnValidCell(h);
         }
 
         private static void LoadTotalSessions()

@@ -30,6 +30,15 @@ namespace ToolUse.Core.RaylibThreeD
         public bool IsSeeker { get; set; }
         public Color Color { get; set; }
 
+        // Флаг: видит ли этот агент свою цель (используется для подсветки конуса у Seeker)
+        public bool IsSeeingTarget { get; set; } = false;
+
+        // Ссылка на командный blackboard (общие известные стены, последние известные позиции целей)
+        public TeamBlackboard? TeamBoard { get; set; }
+
+        // Глобальный флаг отрисовки конусов взгляда (управляется Simulation3D)
+        public static bool ShowVisionCones { get; set; } = true;
+
         private HashSet<(int x, int z)> ExploredCells { get; } = new();
         private HashSet<(int x, int z)> VisuallyExploredCells { get; } = new();
 
@@ -38,6 +47,7 @@ namespace ToolUse.Core.RaylibThreeD
         private int _worldSize = 64;
 
         public void InitWorldSize(int size) => _worldSize = size;
+        public void SetWorld(World3D world) => _world = world;
 
         private static int ToGridX(float x, int size) => Math.Clamp((int)Math.Floor(x), 0, size - 1);
         private static int ToGridZ(float z, int size) => Math.Clamp((int)Math.Floor(z), 0, size - 1);
@@ -262,6 +272,27 @@ namespace ToolUse.Core.RaylibThreeD
             return true;
         }
 
+        // Вариант с учётом нескольких соседей: выбираем ближайшего для реакций уклонения/погони
+        public bool MoveWithCollisionAvoidance(World3D world, float deltaTime, IReadOnlyList<Agent3D> others)
+        {
+            Agent3D nearest = null;
+            float nearestDist = float.PositiveInfinity;
+            if (others != null)
+            {
+                foreach (var o in others)
+                {
+                    if (o == null || ReferenceEquals(o, this)) continue;
+                    float d = Vector3.Distance(this.Position, o.Position);
+                    if (d < nearestDist)
+                    {
+                        nearestDist = d;
+                        nearest = o;
+                    }
+                }
+            }
+            return MoveWithCollisionAvoidance(world, deltaTime, nearest);
+        }
+
         public float? GetBestDirection(World3D world, float lookaheadDistance = 1.0f)
         {
             // Кандидаты — симметричные смещения от текущего направления
@@ -356,6 +387,7 @@ namespace ToolUse.Core.RaylibThreeD
             if (centerDist > VisionRadius + targetRadius) return false;
 
             float halfFov = VisionAngle * 0.5f;
+            const float angleEps = 0.5f; // небольшой допуск на неточности вычислений
 
             // Угол до центра цели
             Vector3 toCenter = Vector3.Normalize(other.Position - Position);
@@ -372,17 +404,17 @@ namespace ToolUse.Core.RaylibThreeD
             }
 
             // Если целиком вне FOV даже с учётом радиуса цели — нет видимости
-            if (centerAngleDiff > (halfFov + phiDeg)) return false;
+            if (centerAngleDiff > (halfFov + phiDeg + angleEps)) return false;
 
             // Если центр цели в FOV и есть LoS до центра — достаточно
-            if (centerAngleDiff <= halfFov &&
-                world.HasLineOfSight(Position, other.Position, AgentRadius))
+            if (centerAngleDiff <= halfFov + angleEps &&
+                world.HasLineOfSight(Position, other.Position, 0f)) // тонкий луч
             {
                 return true;
             }
 
             // Проверяем точки по окружности диска цели с большей плотностью
-            const int samples = 24;
+            const int samples = 64;
             for (int i = 0; i < samples; i++)
             {
                 float ang = 2f * MathF.PI * (i / (float)samples);
@@ -395,9 +427,9 @@ namespace ToolUse.Core.RaylibThreeD
                 Vector3 toPoint = Vector3.Normalize(p - Position);
                 float pointAngleDeg = AngleDegFromVector(toPoint);
                 float diff = SmallestAngleDiffDeg(pointAngleDeg, Direction);
-                if (diff <= halfFov)
+                if (diff <= halfFov + angleEps)
                 {
-                    if (world.HasLineOfSight(Position, p, AgentRadius))
+                    if (world.HasLineOfSight(Position, p, 0f)) // тонкий луч
                         return true;
                 }
             }
@@ -421,7 +453,15 @@ namespace ToolUse.Core.RaylibThreeD
                     AgentRadius, 8, 8, Color
                 );
 
-                // Убрано перекрашивание seeker в красный при видимости
+                // Конус и линия взгляда для Seeker, если разрешено и мир задан
+                if (ShowVisionCones && _world != null)
+                {
+                    // Если Seeker видит Hider — конус жёлтый, иначе синий
+                    var coneCol = IsSeeingTarget ? new Color(255, 255, 0, 80) : new Color(0, 0, 255, 80);
+                    DrawVisionCone(_world, coneCol);
+                    DrawGazeLine(_world);
+                }
+
                 return;
             }
 
@@ -432,8 +472,12 @@ namespace ToolUse.Core.RaylibThreeD
                 AgentRadius, 8, 8, Color
             );
 
-            // Конус всегда зелёный для Hider
-            DrawVisionCone(_world, new Color(0, 255, 0, 80));
+            // Конус и линия взгляда для Hider, если разрешено и мир задан
+            if (ShowVisionCones && _world != null)
+            {
+                DrawVisionCone(_world, new Color(0, 255, 0, 80));
+                DrawGazeLine(_world);
+            }
         }
 
         public void DrawVisionCone(World3D world, Color? visionColor = null)

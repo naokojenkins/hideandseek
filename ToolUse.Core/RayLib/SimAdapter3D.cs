@@ -37,6 +37,7 @@ namespace ToolUse.Core.RaylibThreeD
             _hider = hider;
             _hider._seeker = _seeker;
             _hider._world = _world;
+            _seeker._world = _world;
 
             var cfg = GameConfig.Instance;
 
@@ -62,7 +63,9 @@ namespace ToolUse.Core.RaylibThreeD
         public State GetSeekerState()
         {
             int sector = (int)(MathF.Round(_seeker.Direction / 45f) % 8);
-            bool[] knownWalls = _seeker.GetKnownWallsFlat(_world.Size);
+            bool[] knownWalls = _seeker.TeamBoard != null
+                ? _seeker.TeamBoard.GetKnownWallsFlat(_world.Size)
+                : _seeker.GetKnownWallsFlat(_world.Size);
 
             return new State(
                 _seeker.GridX,
@@ -79,7 +82,9 @@ namespace ToolUse.Core.RaylibThreeD
         public State GetHiderState()
         {
             int sector = (int)(MathF.Round(_hider.Direction / 45f) % 8);
-            bool[] knownWalls = _hider.GetKnownWallsFlat(_world.Size);
+            bool[] knownWalls = _hider.TeamBoard != null
+                ? _hider.TeamBoard.GetKnownWallsFlat(_world.Size)
+                : _hider.GetKnownWallsFlat(_world.Size);
             bool isSeenBySeeker = _hider.IsSeenBy(_seeker, _world);
 
             return new State(

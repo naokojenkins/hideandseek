@@ -2,6 +2,7 @@
 using System.IO;
 using System.Numerics;
 using System.Reflection;
+using System.Collections.Generic;
 using Raylib_cs;
 using ToolUse.Core.Config;
 using ToolUse.Core.RL;
@@ -162,8 +163,8 @@ namespace ToolUse.Sim
             Console.WriteLine($"Текущее время сессии: {simulation.Timer:F1} с / {config.SessionDurationSeconds:F0} с");
             Console.WriteLine($"Seeker позиция: {simulation.Seeker.Position}");
             Console.WriteLine($"Hider позиция: {simulation.Hider.Position}");
-            Console.WriteLine($"Seeker обнаружил Hider: {(simulation.Seeker.IsSeenBy(simulation.Hider, simulation.World) ? "Да" : "Нет")}");
-            Console.WriteLine($"Hider обнаружил Seeker: {(simulation.Hider.IsSeenBy(simulation.Seeker, simulation.World) ? "Да" : "Нет")}");
+            Console.WriteLine($"Seeker обнаружил Hider: {(simulation.Seeker.CanSee(simulation.Hider, simulation.World) ? "Да" : "Нет")}");
+            Console.WriteLine($"Hider обнаружил Seeker: {(simulation.Hider.CanSee(simulation.Seeker, simulation.World) ? "Да" : "Нет")}");
             Console.WriteLine($"Обнаружено ячеек (Seeker): {simulation.Seeker.GetTotalExploredCount()}");
             Console.WriteLine($"Обнаружено ячеек (Hider): {simulation.Hider.GetTotalExploredCount()}");
             Console.WriteLine("==============================");
@@ -225,11 +226,26 @@ namespace ToolUse.Sim
                 float seekerRadius = config.Seeker.AgentRadius;
                 float hiderRadius  = config.Hider.AgentRadius;
 
-                Vector3 seekerPos = world.GetRandomValidAgentPosition(seekerRadius, 0f);
-                Vector3 hiderPos  = world.GetRandomValidAgentPosition(hiderRadius, 0f);
+                // Создаем списки агентов на основе Count (не меньше 1)
+                int seekerCount = Math.Max(1, config.Seeker.Count);
+                int hiderCount  = Math.Max(1, config.Hider.Count);
 
-                var newSeeker = new Agent3D(seekerPos, true, Raylib.GetRandomValue(0, 359));
-                var newHider = new Agent3D(hiderPos, false, Raylib.GetRandomValue(0, 359));
+                var seekers = new List<Agent3D>(seekerCount);
+                var hiders  = new List<Agent3D>(hiderCount);
+
+                for (int i = 0; i < seekerCount; i++)
+                {
+                    Vector3 pos = world.GetRandomValidAgentPosition(seekerRadius, 0f);
+                    seekers.Add(new Agent3D(pos, true, Raylib.GetRandomValue(0, 359)));
+                }
+                for (int i = 0; i < hiderCount; i++)
+                {
+                    Vector3 pos = world.GetRandomValidAgentPosition(hiderRadius, 0f);
+                    hiders.Add(new Agent3D(pos, false, Raylib.GetRandomValue(0, 359)));
+                }
+
+                var newSeeker = seekers[0];
+                var newHider = hiders[0];
 
                 if (simulation == null)
                 {
@@ -239,6 +255,9 @@ namespace ToolUse.Sim
                 {
                     simulation.Reset(newSeeker, newHider);
                 }
+
+                // Передаем все созданные агенты в симуляцию (для отрисовки и возможной логики)
+                simulation.SetAgents(seekers, hiders);
 
                 if (sessionCompletedHandler != null)
                     simulation.OnSessionCompleted -= sessionCompletedHandler;

@@ -45,7 +45,8 @@
     "Speed": 3.0,
     "ProximityRewardMultiplier": 0.1,
     "RotationPenalty": 0.01,
-    "NoProgressPenalty": 0.02
+    "NoProgressPenalty": 0.02,
+    "Count": 2
   },
   "Hider": {
     "RewardWhenVisible": 0.6,
@@ -65,7 +66,8 @@
     "NoProgressPenalty": 0.02,
     "RewardWhenSeenBySeeker": 0.5,
     "RewardWhenIncreasingDistance": 0.2,
-    "RewardWhenHiddenBehindWall": 0.15
+    "RewardWhenHiddenBehindWall": 0.15,
+    "Count": 2
   },
   "SessionDurationSeconds": 30,
   "FramesForCatch": 60

@@ -158,6 +158,9 @@ namespace ToolUse.Core.Config
         /// <summary> Скорость агента. </summary>
         public float Speed { get; set; } = 2.0f;
 
+        /// <summary> Количество агентов данной роли. </summary>
+        public int Count { get; set; } = 1;
+
         // === Новые параметры для гибкой настройки поведения ===
         /// <summary> Множитель награды за близость к цели. </summary>
         public float ProximityRewardMultiplier { get; set; } = 0.1f;
