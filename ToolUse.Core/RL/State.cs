@@ -52,30 +52,33 @@ namespace ToolUse.Core.RL
             try
             {
                 var p = s.Split(',');
+                if (p.Length < 6) throw new FormatException("State string has insufficient parts");
+
                 int ax = int.Parse(p[0][3..]);
                 int ay = int.Parse(p[1][3..]);
                 int ox = int.Parse(p[2][3..]);
                 int oy = int.Parse(p[3][3..]);
                 int dir = int.Parse(p[4][4..]);
                 bool see = bool.Parse(p[5][4..]);
+
                 bool seen = false;
                 int wallStart = 6;
 
                 // Проверяем, есть ли seen=...
-                if (p[6].StartsWith("seen="))
+                if (p.Length > 6 && p[6].StartsWith("seen="))
                 {
                     seen = bool.Parse(p[6][5..]);
                     wallStart = 7;
                 }
 
-                bool[] walls = null;
-                if (wallStart < p.Length && p[wallStart].StartsWith("walls="))
+                bool[]? walls = null;
+                if (p.Length > wallStart && p[wallStart].StartsWith("walls="))
                 {
                     string wallStr = p[wallStart]["walls=".Length..];
                     walls = wallStr.Select(c => c == '1').ToArray();
                 }
 
-                return new State(ax, ay, ox, oy, dir, see, walls, seen);
+                return new State(ax, ay, ox, oy, dir, see, walls ?? Array.Empty<bool>(), seen);
             }
             catch
             {

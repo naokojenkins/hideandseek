@@ -31,6 +31,9 @@ namespace ToolUse.Sim
 
         static Action? sessionCompletedHandler = null;
 
+        // Новый флаг, чтобы не пропустить сохранения при Ctrl+C/исключениях
+        static bool isShuttingDown = false;
+
         // Теперь используем более точное название папки
         static readonly string ModelDir = "models";
         static readonly string SeekerModelPath = Path.Combine(ModelDir, "seeker.pt");
@@ -107,9 +110,9 @@ namespace ToolUse.Sim
 
             if (useVisualization)
             {
+                Raylib.SetConfigFlags(ConfigFlags.Msaa4xHint);
                 Raylib.InitWindow(screenW, screenH, "3D Hide & Seek (DQN)");
                 Raylib.SetTargetFPS(FPS);
-                Raylib.SetConfigFlags(ConfigFlags.Msaa4xHint);
             }
 
             try
@@ -172,7 +175,8 @@ namespace ToolUse.Sim
 
         static void Shutdown()
         {
-            if (isExiting) return;
+            if (isShuttingDown) return;
+            isShuttingDown = true;
             isExiting = true;
 
             Console.WriteLine("Завершение программы...");

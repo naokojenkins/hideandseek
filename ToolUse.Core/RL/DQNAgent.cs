@@ -34,6 +34,7 @@ namespace ToolUse.Core.RL
         private readonly int replayBufferSize;
         private readonly PrioritizedReplayBuffer buffer;
         private readonly torch.Device device;
+        private readonly Random rng = new Random();
 
         private readonly DQNModel model;
         private readonly DQNModel targetModel;
@@ -154,8 +155,8 @@ namespace ToolUse.Core.RL
             var input = torch.tensor(state, device: device).reshape(1, stateSize);
             CheckNaN(input, "ChooseAction:tensor_input");
 
-            if (new Random().NextDouble() < epsilon)
-                return new Random().Next(actionSize);
+                            if (rng.NextDouble() < epsilon)
+                return rng.Next(actionSize);
 
             using (torch.no_grad())
             {

@@ -132,26 +132,24 @@ namespace ToolUse.Core.RaylibThreeD
                 return 0f; // Неизвестный агент
             }
 
-            // 2. Награда за сближение
-            float proximityReward = CalculateProximityReward() * proximityMultiplier;
-            reward += proximityReward;
+            // Награда за сближение/удаление (положительно, если дистанция уменьшилась)
+            float proximityDelta = CalculateProximityDelta();
+            reward += proximityDelta * proximityMultiplier;
+
+            // Штраф за отсутствие прогресса — используем penalty соответствующей роли
+            if (Math.Abs(proximityDelta) < 0.1f)
+            {
+                reward -= noProgressPenalty;
+            }
 
             return reward;
         }
 
-        private float CalculateProximityReward()
+        private float CalculateProximityDelta()
         {
             float oldDistance = Vector3.Distance(_oldSeekerPosition, _oldHiderPosition);
             float newDistance = Vector3.Distance(_seeker.Position, _hider.Position);
-            float proximityReward = oldDistance - newDistance;
-
-            // 3. Штраф за отсутствие прогресса
-            if (Math.Abs(newDistance - oldDistance) < 0.1f)
-            {
-                proximityReward -= _noProgressPenaltySeeker;
-            }
-
-            return proximityReward;
+            return oldDistance - newDistance;
         }
 
         public void ApplyAction(Agent3D agent, long action)
