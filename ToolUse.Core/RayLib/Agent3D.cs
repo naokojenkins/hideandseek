@@ -379,6 +379,19 @@ namespace ToolUse.Core.RaylibThreeD
             return ang;
         }
 
+        // Точная проверка прямой видимости до произвольной точки цели через тот же реймарчинг, что и в визуализации
+        private bool HasPreciseLineOfSight(Vector3 target, World3D world)
+        {
+            float dist = Vector3.Distance(Position, target);
+            if (dist < 1e-4f) return true;
+
+            Vector3 dir = Vector3.Normalize(target - Position);
+            Vector3 hit = GetPreciseRayEndPoint(Position, dir, dist, world);
+
+            // Если луч дошёл до цели (с небольшим допуском), значит стена не блокирует
+            return Vector3.Distance(hit, target) <= 0.05f;
+        }
+
         public bool CanSee(Agent3D other, World3D world)
         {
             // Быстрый отсев по дистанции (учёт радиуса цели)
@@ -406,9 +419,9 @@ namespace ToolUse.Core.RaylibThreeD
             // Если целиком вне FOV даже с учётом радиуса цели — нет видимости
             if (centerAngleDiff > (halfFov + phiDeg + angleEps)) return false;
 
-            // Если центр цели в FOV и есть LoS до центра — достаточно
+            // Если центр цели в FOV и есть точная LoS до центра — достаточно
             if (centerAngleDiff <= halfFov + angleEps &&
-                world.HasLineOfSight(Position, other.Position, 0f)) // тонкий луч
+                HasPreciseLineOfSight(other.Position, world))
             {
                 return true;
             }
@@ -429,7 +442,7 @@ namespace ToolUse.Core.RaylibThreeD
                 float diff = SmallestAngleDiffDeg(pointAngleDeg, Direction);
                 if (diff <= halfFov + angleEps)
                 {
-                    if (world.HasLineOfSight(Position, p, 0f)) // тонкий луч
+                    if (HasPreciseLineOfSight(p, world))
                         return true;
                 }
             }
