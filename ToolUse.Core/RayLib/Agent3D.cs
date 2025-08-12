@@ -335,41 +335,68 @@ namespace ToolUse.Core.RaylibThreeD
             return true;
         }
 
+        private static float SmallestAngleDiffDeg(float a, float b)
+        {
+            float diff = MathF.Abs(a - b) % 360f;
+            return diff > 180f ? 360f - diff : diff;
+        }
+
+        private static float AngleDegFromVector(Vector3 v)
+        {
+            float ang = MathF.Atan2(v.Z, v.X) * 180f / MathF.PI;
+            if (ang < 0f) ang += 360f;
+            return ang;
+        }
+
         public bool CanSee(Agent3D other, World3D world)
         {
-            // Быстрые ранние отсеки по дистанции
+            // Быстрый отсев по дистанции (учёт радиуса цели)
             float centerDist = Vector3.Distance(Position, other.Position);
             float targetRadius = other.AgentRadius;
             if (centerDist > VisionRadius + targetRadius) return false;
 
-            // Подготавливаем дискретные точки на диске цели: центр + точки по окружности
-            const int samples = 12;
-            Span<Vector3> samplePoints = stackalloc Vector3[samples + 1];
-            samplePoints[0] = other.Position;
+            float halfFov = VisionAngle * 0.5f;
+
+            // Угол до центра цели
+            Vector3 toCenter = Vector3.Normalize(other.Position - Position);
+            float centerAngleDeg = AngleDegFromVector(toCenter);
+
+            // Минимальная разница углов до центра и угловой радиус цели
+            float centerAngleDiff = SmallestAngleDiffDeg(centerAngleDeg, Direction);
+
+            float phiDeg = 0f; // угловой полурадиус цели
+            if (centerDist > 1e-4f)
+            {
+                float ratio = MathF.Min(1f, targetRadius / centerDist);
+                phiDeg = MathF.Asin(ratio) * 180f / MathF.PI;
+            }
+
+            // Если целиком вне FOV даже с учётом радиуса цели — нет видимости
+            if (centerAngleDiff > (halfFov + phiDeg)) return false;
+
+            // Если центр цели в FOV и есть LoS до центра — достаточно
+            if (centerAngleDiff <= halfFov &&
+                world.HasLineOfSight(Position, other.Position, AgentRadius))
+            {
+                return true;
+            }
+
+            // Проверяем точки по окружности диска цели с большей плотностью
+            const int samples = 24;
             for (int i = 0; i < samples; i++)
             {
                 float ang = 2f * MathF.PI * (i / (float)samples);
-                Vector3 offset = new Vector3(MathF.Cos(ang), 0, MathF.Sin(ang)) * targetRadius;
-                samplePoints[i + 1] = other.Position + offset;
-            }
+                Vector3 offset = new Vector3(MathF.Cos(ang), 0f, MathF.Sin(ang)) * targetRadius;
+                Vector3 p = other.Position + offset;
 
-            float halfFov = VisionAngle / 2f;
-
-            for (int i = 0; i < samplePoints.Length; i++)
-            {
-                Vector3 p = samplePoints[i];
                 float dist = Vector3.Distance(Position, p);
                 if (dist > VisionRadius) continue;
 
                 Vector3 toPoint = Vector3.Normalize(p - Position);
-                float angleToPoint = MathF.Atan2(toPoint.Z, toPoint.X) * 180f / MathF.PI;
-                if (angleToPoint < 0) angleToPoint += 360f;
-                float angleDiff = Math.Abs(angleToPoint - Direction);
-                if (angleDiff > 180f) angleDiff = 360f - angleDiff;
-
-                if (angleDiff <= halfFov)
+                float pointAngleDeg = AngleDegFromVector(toPoint);
+                float diff = SmallestAngleDiffDeg(pointAngleDeg, Direction);
+                if (diff <= halfFov)
                 {
-                    // Проверяем линию видимости к конкретной точке диска
                     if (world.HasLineOfSight(Position, p, AgentRadius))
                         return true;
                 }
@@ -380,45 +407,8 @@ namespace ToolUse.Core.RaylibThreeD
 
         public bool IsSeenBy(Agent3D other, World3D world)
         {
-            // Быстрые ранние отсеки по дистанции
-            float centerDist = Vector3.Distance(other.Position, Position);
-            float targetRadius = this.AgentRadius;
-            if (centerDist > other.VisionRadius + targetRadius) return false;
-
-            // Подготавливаем дискретные точки на диске (мы — цель): центр + окружность
-            const int samples = 12;
-            Span<Vector3> samplePoints = stackalloc Vector3[samples + 1];
-            samplePoints[0] = this.Position;
-            for (int i = 0; i < samples; i++)
-            {
-                float ang = 2f * MathF.PI * (i / (float)samples);
-                Vector3 offset = new Vector3(MathF.Cos(ang), 0, MathF.Sin(ang)) * targetRadius;
-                samplePoints[i + 1] = this.Position + offset;
-            }
-
-            float halfFov = other.VisionAngle / 2f;
-
-            for (int i = 0; i < samplePoints.Length; i++)
-            {
-                Vector3 p = samplePoints[i];
-                float dist = Vector3.Distance(other.Position, p);
-                if (dist > other.VisionRadius) continue;
-
-                Vector3 toPoint = Vector3.Normalize(p - other.Position);
-                float angleToPoint = MathF.Atan2(toPoint.Z, toPoint.X) * 180f / MathF.PI;
-                if (angleToPoint < 0) angleToPoint += 360f;
-                float angleDiff = Math.Abs(angleToPoint - other.Direction);
-                if (angleDiff > 180f) angleDiff = 360f - angleDiff;
-
-                if (angleDiff <= halfFov)
-                {
-                    // Проверяем линию видимости от наблюдателя к точке на нашем диске
-                    if (world.HasLineOfSight(other.Position, p, other.AgentRadius))
-                        return true;
-                }
-            }
-
-            return false;
+            // Единая логика: используем CanSee наблюдателя
+            return other.CanSee(this, world);
         }
 
         public void Draw()
