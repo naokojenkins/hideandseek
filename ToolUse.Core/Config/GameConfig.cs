@@ -53,12 +53,12 @@ namespace ToolUse.Core.Config
         /// <summary>
         /// Длительность сессии (сек).
         /// </summary>
-        public float SessionDurationSeconds { get; set; } = 60f;
+        public float SessionDurationSeconds { get; set; } = 30f;
 
         /// <summary>
         /// Сколько кадров подряд надо держать Hider в поле зрения для поимки.
         /// </summary>
-        public int FramesForCatch { get; set; } = 180;
+        public int FramesForCatch { get; set; } = 60;
 
         /// <summary>
         /// Seed для всех случайных событий (Random) — используйте для повторяемости экспериментов!
@@ -98,7 +98,7 @@ namespace ToolUse.Core.Config
     public class WorldConfig
     {
         /// <summary> Размер сетки (NxN клеток). </summary>
-        public int GridSize { get; set; } = 32;
+        public int GridSize { get; set; } = 20;
         /// <summary> Размер одной клетки (юниты Raylib). </summary>
         public float CellSize { get; set; } = 1.0f;
         /// <summary> Высота стены. </summary>
@@ -116,31 +116,31 @@ namespace ToolUse.Core.Config
         /// <summary> Награда Seeker, если Hider видим. </summary>
         public float RewardWhenHiderVisible { get; set; } = 1.0f;
         /// <summary> Награда Seeker, если Hider скрыт. </summary>
-        public float RewardWhenHiderHidden { get; set; } = -0.01f;
+        public float RewardWhenHiderHidden { get; set; } = -0.05f;
         /// <summary> Награда Hider, если его видно. </summary>
-        public float RewardWhenVisible { get; set; } = -0.5f;
+        public float RewardWhenVisible { get; set; } = 0.6f;
         /// <summary> Награда Hider, если его не видно. </summary>
-        public float RewardWhenHidden { get; set; } = 0.1f;
+        public float RewardWhenHidden { get; set; } = 0.15f;
 
         // === Дополнительные награды для Hider ===
         /// <summary> Награда Hider, если его видит Seeker. </summary>
-        public float RewardWhenSeenBySeeker { get; set; } = 0.3f;
+        public float RewardWhenSeenBySeeker { get; set; } = 0.5f;
         /// <summary> Награда Hider за увеличение расстояния. </summary>
-        public float RewardWhenIncreasingDistance { get; set; } = 0.05f;
+        public float RewardWhenIncreasingDistance { get; set; } = 0.2f;
         /// <summary> Награда Hider за прятки за стеной. </summary>
         public float RewardWhenHiddenBehindWall { get; set; } = 0.15f;
 
         // === Бонусы и баллы ===
         /// <summary> Сколько баллов в секунду за нахождение Hider. </summary>
-        public float PointsPerSecondWhenHiderVisible { get; set; } = 10.0f;
+        public float PointsPerSecondWhenHiderVisible { get; set; } = 6.0f;
         /// <summary> Сколько баллов в секунду, если Hider скрыт. </summary>
-        public float PointsPerSecondWhenHiderHidden { get; set; } = 0.1f;
+        public float PointsPerSecondWhenHiderHidden { get; set; } = -0.2f;
         /// <summary> Баллы Hider за то, что его видно. </summary>
         public float PointsPerSecondWhenVisible { get; set; } = -1.0f;
         /// <summary> Баллы Hider за то, что скрыт. </summary>
         public float PointsPerSecondWhenHidden { get; set; } = 1.0f;
         /// <summary> Бонус Seeker за поимку Hider. </summary>
-        public float CatchBonus { get; set; } = 10.0f;
+        public float CatchBonus { get; set; } = 30.0f;
         /// <summary> Бонус Hider за побег. </summary>
         public float EscapeBonus { get; set; } = 2.0f;
 
@@ -150,7 +150,7 @@ namespace ToolUse.Core.Config
         /// <summary> Бонус за визуальное исследование клеток. </summary>
         public float VisualExploreReward { get; set; } = 0.01f;
         /// <summary> Радиус зрения агента. </summary>
-        public float VisionRadius { get; set; } = 8.0f;
+        public float VisionRadius { get; set; } = 6.0f;
         /// <summary> Угол зрения агента (градусы). </summary>
         public float VisionAngle { get; set; } = 90.0f;
         /// <summary> Радиус агента (юниты Raylib). </summary>
@@ -159,7 +159,7 @@ namespace ToolUse.Core.Config
         public float Speed { get; set; } = 2.0f;
 
         /// <summary> Количество агентов данной роли. </summary>
-        public int Count { get; set; } = 1;
+        public int Count { get; set; } = 2;
 
         // === Новые параметры для гибкой настройки поведения ===
         /// <summary> Множитель награды за близость к цели. </summary>
@@ -192,13 +192,13 @@ namespace ToolUse.Core.Config
 
         // Обучение/буфер
         /// <summary> Размер batch для обучения. </summary>
-        public int BatchSize { get; set; } = 64;
+        public int BatchSize { get; set; } = 128;
         /// <summary> Размер буфера опыта. </summary>
-        public int ReplayBufferSize { get; set; } = 10000;
+        public int ReplayBufferSize { get; set; } = 20000;
         /// <summary> Минимальное наполнение буфера перед обучением. </summary>
-        public int WarmupSize { get; set; } = 640; // ~10*b
+        public int WarmupSize { get; set; } = 1280; // ~10*b
         /// <summary> Количество шагов обучения на один шаг окружения. </summary>
-        public int StepsPerUpdate { get; set; } = 1;
+        public int StepsPerUpdate { get; set; } = 2;
 
         // Оптимизатор/лосс
         /// <summary> Скорость обучения (learning rate). </summary>
