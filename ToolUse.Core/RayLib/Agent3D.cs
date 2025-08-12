@@ -488,12 +488,14 @@ namespace ToolUse.Core.RaylibThreeD
 
         public void DrawGazeLine(World3D world, Color? lineColor = null, float lineYOffset = 0.05f)
         {
-            Color color = lineColor ?? new Color(255, 255, 0, 200);
+            // Рисуем черной линией до столкновения со стеной (или до радиуса зрения)
+            Color color = Color.Black;
             float radians = Direction * MathF.PI / 180f;
             Vector3 dir = new Vector3(MathF.Cos(radians), 0, MathF.Sin(radians));
 
             Vector3 origin = Position + new Vector3(0, lineYOffset, 0);
-            Vector3 end = GetPreciseRayEndPoint(Position, dir, VisionRadius, world) + new Vector3(0, lineYOffset, 0);
+            Vector3 rayEnd = GetPreciseRayEndPoint(Position, dir, VisionRadius, world);
+            Vector3 end = rayEnd + new Vector3(0, lineYOffset, 0);
 
             Raylib.DrawLine3D(origin, end, color);
         }
