@@ -103,15 +103,25 @@ namespace ToolUse.Core.RL
                 IsSeenBySeeker ? 1f : 0f // ✅ Новое поле
             };
 
+            // Всегда добавляем секцию стен фиксированной длины worldSize*worldSize
+            int flatLen = Math.Max(0, worldSize * worldSize);
+            if (flatLen <= 0)
+                return basic;
+
+            var arr = new float[basic.Length + flatLen];
+            basic.CopyTo(arr, 0);
+
             if (KnownWallsFlat != null && KnownWallsFlat.Length > 0)
             {
-                var arr = new float[basic.Length + KnownWallsFlat.Length];
-                basic.CopyTo(arr, 0);
-                for (int i = 0; i < KnownWallsFlat.Length; i++)
+                int copy = Math.Min(flatLen, KnownWallsFlat.Length);
+                for (int i = 0; i < copy; i++)
+                {
                     arr[basic.Length + i] = KnownWallsFlat[i] ? 1f : 0f;
-                return arr;
+                }
+                // Остальные элементы остаются нулями, если данных меньше, чем flatLen
             }
-            return basic;
+            // Если KnownWallsFlat пуст или null — вся секция стен остаётся нулями
+            return arr;
         }
 
         public override bool Equals(object? obj) => obj is State other && Equals(other);

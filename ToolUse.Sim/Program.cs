@@ -31,6 +31,10 @@ namespace ToolUse.Sim
         static bool useVisualization = true;
         static DateTime lastConsoleUpdate = DateTime.Now;
 
+        // Оверлей между эпизодами в режиме визуализации
+        static bool episodeOverPendingSave = false;
+        static readonly string EpisodeOverlayText = "Episode over - creating new one";
+
         static Action? sessionCompletedHandler = null;
 
         // Новый флаг, чтобы не пропустить сохранения при Ctrl+C/исключениях
@@ -144,7 +148,39 @@ namespace ToolUse.Sim
                         Raylib.BeginDrawing();
                         Raylib.ClearBackground(new Color(245, 245, 245, 255));
                         simulation?.Draw();
+
+                        // Оверлей «между эпизодами»
+                        if (episodeOverPendingSave)
+                        {
+                            int fontSize = 48;
+                            int textW = Raylib.MeasureText(EpisodeOverlayText, fontSize);
+                            int x = (screenW - textW) / 2;
+                            int y = (screenH - fontSize) / 2;
+                            // Лёгкая тень для читаемости
+                            Raylib.DrawText(EpisodeOverlayText, x + 2, y + 2, fontSize, new Color(0, 0, 0, 180));
+                            Raylib.DrawText(EpisodeOverlayText, x, y, fontSize, Color.White);
+                        }
+
                         Raylib.EndDrawing();
+
+                        // Отложенное сохранение после кадра с оверлеем
+                        if (episodeOverPendingSave)
+                        {
+                            try
+                            {
+                                Directory.CreateDirectory(ModelDir);
+                                seekerDQN.SaveAll(SeekerModelPath, SeekerStatePath);
+                                hiderDQN.SaveAll(HiderModelPath, HiderStatePath);
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"[ERROR] Ошибка сохранения моделей: {ex.Message}");
+                            }
+                            finally
+                            {
+                                episodeOverPendingSave = false;
+                            }
+                        }
                     }
                     else
                     {
@@ -177,7 +213,7 @@ namespace ToolUse.Sim
             Console.WriteLine("=== Статистика симуляции ===");
             Console.WriteLine($"Сессия: {simulation.Session}");
             Console.WriteLine($"Всего сессий: {Simulation3D.TotalSessions}");
-            Console.WriteLine($"Текущее время сессии: {simulation.Timer:F1} с / {config.SessionDurationSeconds:F0} с");
+            Console.WriteLine($"Текущее время сессии: {simulation.Timer:F1} с / {simulation.SessionDurationSeconds:F0} с");
             Console.WriteLine($"Seeker позиция: {simulation.Seeker.Position}");
             Console.WriteLine($"Hider позиция: {simulation.Hider.Position}");
             Console.WriteLine($"Seeker обнаружил Hider: {(simulation.Seeker.CanSee(simulation.Hider, simulation.World) ? "Да" : "Нет")}");
@@ -286,9 +322,18 @@ namespace ToolUse.Sim
 
                     Console.WriteLine($"[DEBUG] Сессия #{simulation.Session} (общий #{Simulation3D.TotalSessions}) завершена");
 
-                    Directory.CreateDirectory(ModelDir);
-                    seekerDQN.SaveAll(SeekerModelPath, SeekerStatePath);
-                    hiderDQN.SaveAll(HiderModelPath, HiderStatePath);
+                    if (useVisualization)
+                    {
+                        // Визуальный режим: покажем оверлей и сохраним после кадра
+                        episodeOverPendingSave = true;
+                    }
+                    else
+                    {
+                        // Консольный режим: сохраняем сразу
+                        Directory.CreateDirectory(ModelDir);
+                        seekerDQN.SaveAll(SeekerModelPath, SeekerStatePath);
+                        hiderDQN.SaveAll(HiderModelPath, HiderStatePath);
+                    }
                 };
 
                 simulation.OnSessionCompleted += sessionCompletedHandler;

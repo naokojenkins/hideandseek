@@ -27,13 +27,13 @@ namespace ToolUse.Core.RaylibThreeD
 
         private float sessionDurationSeconds;
         public void SetSessionDuration(float seconds) => sessionDurationSeconds = seconds;
+        public float SessionDurationSeconds => sessionDurationSeconds;
 
         public GameConfig Config { get; private set; }
         public event Action? OnSessionCompleted;
 
         private DQNAgent _seekerAgent;
         private DQNAgent _hiderAgent;
-        private SimAdapter3D _adapter;
 
         // Командные blackboard'ы
         private readonly TeamBlackboard _seekersBoard = new();
@@ -75,11 +75,6 @@ namespace ToolUse.Core.RaylibThreeD
 
         private bool _isHiderCaught = false;
         private int _caughtFrames = 0;
-
-        private State _prevSeekerState;
-        private State _prevHiderState;
-        private long _prevSeekerAction;
-        private long _prevHiderAction;
 
         private int _prevPhysicalExplored = 0;
         private int _prevVisualExplored = 0;
@@ -169,7 +164,6 @@ namespace ToolUse.Core.RaylibThreeD
             EnsureAgentOnValidCell(Seeker);
             EnsureAgentOnValidCell(Hider);
 
-            _adapter = new SimAdapter3D(World, Seeker, Hider);
             _seekerAgent = seekerAgent;
             _hiderAgent  = hiderAgent;
 
@@ -246,7 +240,12 @@ namespace ToolUse.Core.RaylibThreeD
         public void Update(float deltaTime)
         {
             Timer += deltaTime;
-            UpdateRLAgents(deltaTime);
+
+            // Предсказание завершения эпизода в этом кадре
+            bool willCatchThisStep = IsHiderVisible && (_caughtFrames + 1 >= Config.FramesForCatch);
+            bool willTimeoutThisStep = (Timer > sessionDurationSeconds);
+
+            UpdateRLAgents(deltaTime, willCatchThisStep, willTimeoutThisStep);
 
             if (_justRestarted)
             {
@@ -277,7 +276,7 @@ namespace ToolUse.Core.RaylibThreeD
 
             UpdateScores(deltaTime);
 
-            if (_isHiderCaught || Timer > Config.SessionDurationSeconds)
+            if (_isHiderCaught || Timer > sessionDurationSeconds)
             {
                 try { OnSessionCompleted?.Invoke(); } catch { }
                 Restart();
@@ -287,8 +286,6 @@ namespace ToolUse.Core.RaylibThreeD
 
         // Action repeat and progress tracking
         private int _actionRepeat = 2;
-        private int _seekerRepeatLeft = 0, _hiderRepeatLeft = 0;
-        private long _currentSeekerAction = 0, _currentHiderAction = 0;
 
         // Metrics
         private int _framesInSession = 0;
@@ -327,7 +324,7 @@ namespace ToolUse.Core.RaylibThreeD
         // Для наград Seeker: предыдущие счётчики исследования (физическое/визуальное)
         private readonly Dictionary<Agent3D, (int phys, int vis)> _prevExploreCountsSeekers = new();
 
-        private void UpdateRLAgents(float deltaTime)
+        private void UpdateRLAgents(float deltaTime, bool isTerminalByCatchThisStep, bool isTerminalByTimeoutThisStep)
         {
             // Списки активных агентов (если коллекции пусты — используем одиночные)
             var seekers = (Seekers != null && Seekers.Count > 0) ? Seekers : new List<Agent3D> { Seeker };
@@ -364,6 +361,13 @@ namespace ToolUse.Core.RaylibThreeD
                 if (!_wasHiderVisiblePrevMap.ContainsKey(h))
                     _wasHiderVisiblePrevMap[h] = false;
             }
+
+            // Терминальность текущего шага (поимка или тайм-аут)
+            bool isTerminalThisStep = isTerminalByCatchThisStep || isTerminalByTimeoutThisStep;
+
+            // Подготовка catch-бонуса на кадр: поровну на всех Seeker (в кадре поимки)
+            bool giveCatchBonus = isTerminalByCatchThisStep && !_catchBonusGiven;
+            float perSeekerCatchBonus = giveCatchBonus ? (Config.Seeker.CatchBonus / Math.Max(1, seekers.Count)) : 0f;
 
             // Выбор действий с поддержкой action repeat для каждого агента роли
             foreach (var s in seekers)
@@ -468,6 +472,10 @@ namespace ToolUse.Core.RaylibThreeD
 
                 float reward = ComputeSeekerRewardFor(s, newPhysical, newVisual, seesAny);
 
+                // Бонус за поимку распределяем поровну между всеми Seeker в этот кадр
+                if (giveCatchBonus)
+                    reward += perSeekerCatchBonus;
+
                 // Штраф за поворотное действие (влево/вправо/комбо)
                 long seekerActNow = _currentActionSeekers.TryGetValue(s, out var actNowS) ? actNowS : 2;
                 if (seekerActNow == 0 || seekerActNow == 1 || seekerActNow == 3 || seekerActNow == 4)
@@ -485,7 +493,7 @@ namespace ToolUse.Core.RaylibThreeD
                 if (_prevStateSeekers.TryGetValue(s, out var prevState) && _prevActionSeekers.TryGetValue(s, out var prevAction))
                 {
                     var nextState = seekerStatesNow[s];
-                    _seekerAgent.Store(prevState.ToArray(World.Size), prevAction, reward, nextState.ToArray(World.Size), _isHiderCaught);
+                    _seekerAgent.Store(prevState.ToArray(World.Size), prevAction, reward, nextState.ToArray(World.Size), isTerminalThisStep);
                     _seekerAgent.Learn();
                     _accSeekerReward += reward;
                 }
@@ -495,6 +503,9 @@ namespace ToolUse.Core.RaylibThreeD
                 _prevActionSeekers[s] = _currentActionSeekers.TryGetValue(s, out var act) ? act : 2;
                 _prevExploreCountsSeekers[s] = (afterPhysical, afterVisual);
             }
+
+            // После начисления бонуса всем — помечаем как выданный
+            if (giveCatchBonus) _catchBonusGiven = true;
 
             foreach (var h in hiders)
             {
@@ -514,7 +525,7 @@ namespace ToolUse.Core.RaylibThreeD
                 if (_prevStateHiders.TryGetValue(h, out var prevState) && _prevActionHiders.TryGetValue(h, out var prevAction))
                 {
                     var nextState = hiderStatesNow[h];
-                    _hiderAgent.Store(prevState.ToArray(World.Size), prevAction, reward, nextState.ToArray(World.Size), _isHiderCaught);
+                    _hiderAgent.Store(prevState.ToArray(World.Size), prevAction, reward, nextState.ToArray(World.Size), isTerminalThisStep);
                     _hiderAgent.Learn();
                     _accHiderReward += reward;
                 }
@@ -577,6 +588,28 @@ namespace ToolUse.Core.RaylibThreeD
             return best;
         }
 
+        // Цель находится в секторе и радиусе наблюдателя, но не видна (окклюзия препятствием)
+        private bool IsOccludedByWall(Agent3D observer, Agent3D target)
+        {
+            float maxDist = observer.IsSeeker ? Config.Seeker.VisionRadius : Config.Hider.VisionRadius;
+            float halfFov = (observer.IsSeeker ? Config.Seeker.VisionAngle : Config.Hider.VisionAngle) * 0.5f;
+
+            Vector3 toTarget = target.Position - observer.Position;
+            float dist = toTarget.Length();
+            if (dist > maxDist) return false;
+            if (dist < 1e-5f) return false;
+
+            float yawRad = observer.Direction * MathF.PI / 180f;
+            var forward = new Vector3(MathF.Sin(yawRad), 0f, MathF.Cos(yawRad));
+            Vector3 dir = Vector3.Normalize(toTarget);
+            float dot = Math.Clamp(Vector3.Dot(forward, dir), -1f, 1f);
+            float angleDeg = MathF.Acos(dot) * (180f / MathF.PI);
+            if (angleDeg > halfFov) return false;
+
+            // В секторе и в радиусе, но прямой видимости нет => окклюзия
+            return !observer.CanSee(target, World);
+        }
+
         private bool AnyHiderVisible()
         {
             var seekers = (Seekers != null && Seekers.Count > 0) ? Seekers : new List<Agent3D> { Seeker };
@@ -615,12 +648,6 @@ namespace ToolUse.Core.RaylibThreeD
             r += expPhysBonus + expVisualBonus;
             ExplorationScore += expPhysBonus + expVisualBonus;
 
-            if (_isHiderCaught && !_catchBonusGiven)
-            {
-                r += Config.Seeker.CatchBonus;
-                _catchBonusGiven = true;
-            }
-
             if (float.IsNaN(r) || float.IsInfinity(r))
                 throw new Exception($"[NaN/Inf] ComputeSeekerRewardFor: {r}");
             return r;
@@ -642,7 +669,9 @@ namespace ToolUse.Core.RaylibThreeD
             else if (currentDistance <= lastDist + _noProgressDistanceEps) reward -= MathF.Max(0f, Config.Hider.NoProgressPenalty);
             _lastDistToNearestSeeker[h] = currentDistance;
 
-            if (!visibleNow) reward += Config.Hider.RewardWhenHiddenBehindWall;
+            // Бонус за «скрыт за стеной» только если цель в секторе и радиусе, но невидима из-за препятствия
+            if (!visibleNow && IsOccludedByWall(h, nearest))
+                reward += Config.Hider.RewardWhenHiddenBehindWall;
 
             if (_wasHiderVisiblePrevMap.TryGetValue(h, out var wasVisible) && wasVisible && !visibleNow)
                 reward += Config.Hider.EscapeBonus;
@@ -672,52 +701,6 @@ namespace ToolUse.Core.RaylibThreeD
             catch { }
         }
 
-        private float ComputeSeekerReward()
-        {
-            float r = IsHiderVisible ? Config.Seeker.RewardWhenHiderVisible : Config.Seeker.RewardWhenHiderHidden;
-            if (float.IsNaN(r) || float.IsInfinity(r)) throw new Exception($"[NaN/Inf] ComputeSeekerReward: {r}");
-            return r;
-        }
-        private float ComputeHiderReward()
-        {
-            float reward = 0f;
-
-            // Базовая награда за укрытие
-            if (IsHiderVisible)
-            {
-                reward -= Config.Hider.RewardWhenVisible;
-            }
-            else
-            {
-                reward += Config.Hider.RewardWhenHidden;
-            }
-
-            // Штраф за то, что его видит Seeker
-            var hiderState = _adapter.GetHiderState();
-            if (hiderState.IsSeenBySeeker)
-            {
-                reward -= Config.Hider.RewardWhenSeenBySeeker;
-            }
-
-            // Награда за увеличение расстояния
-            float currentDistance = Vector3.Distance(Seeker.Position, Hider.Position);
-            if (currentDistance > _lastHiderDistance)
-            {
-                reward += Config.Hider.RewardWhenIncreasingDistance;
-            }
-            _lastHiderDistance = currentDistance;
-
-            // Награда за укрытие за стеной
-            if (!Seeker.CanSee(Hider, World))
-            {
-                reward += Config.Hider.RewardWhenHiddenBehindWall;
-            }
-
-            if (float.IsNaN(reward) || float.IsInfinity(reward))
-                throw new Exception($"[NaN/Inf] ComputeHiderReward: {reward}");
-
-            return reward;
-        }
 
         private void UpdateScores(float deltaTime)
         {
@@ -852,11 +835,6 @@ namespace ToolUse.Core.RaylibThreeD
                 }
             }
 
-            _prevSeekerState = null;
-            _prevHiderState = null;
-            _prevSeekerAction = 0;
-            _prevHiderAction = 0;
-
             _prevPhysicalExplored = Seeker.GetExploredCount();
             _prevVisualExplored   = Seeker.GetVisuallyExploredCount();
 
@@ -922,11 +900,6 @@ namespace ToolUse.Core.RaylibThreeD
                     h.KnownWalls.Clear();
                 }
             }
-
-            _prevSeekerState = null;
-            _prevHiderState = null;
-            _prevSeekerAction = 0;
-            _prevHiderAction = 0;
 
             _prevPhysicalExplored = Seeker.GetExploredCount();
             _prevVisualExplored   = Seeker.GetVisuallyExploredCount();
@@ -1013,16 +986,16 @@ namespace ToolUse.Core.RaylibThreeD
 
             // Формируем строки
             string l1 = $"Session: {Session} / Total: {TotalSessions}";
-            Color timeColor = Timer > (Config.SessionDurationSeconds * 0.9f) ? Color.Red : Color.White;
-            string l2 = $"Time: {Timer:F1}s / {Config.SessionDurationSeconds:F0}s";
+            Color timeColor = Timer > (sessionDurationSeconds * 0.9f) ? Color.Red : Color.White;
+            string l2 = $"Time: {Timer:F1}s / {sessionDurationSeconds:F0}s";
 
             string sLine = $"Seekers: {seekersCount}  |  Seeing: {seekersSeeing}";
             string sScore = $"Score: {SeekerScore:F1}";
-            float seekerPercent = MathF.Max(0f, MathF.Min(1f, SeekerScore / Config.SessionDurationSeconds));
+            float seekerPercent = MathF.Max(0f, MathF.Min(1f, sessionDurationSeconds > 0f ? SeekerScore / sessionDurationSeconds : 0f));
 
             string hLine = $"Hiders: {hidersCount}  |  Visible: {visibleHiders}";
             string hScore = $"Score: {HiderScore:F1}";
-            float hiderPercent = MathF.Max(0f, MathF.Min(1f, HiderScore / Config.SessionDurationSeconds));
+            float hiderPercent = MathF.Max(0f, MathF.Min(1f, sessionDurationSeconds > 0f ? HiderScore / sessionDurationSeconds : 0f));
 
             float distance = Vector3.Distance(Seeker.Position, Hider.Position);
             string distLine = $"Distance (S0-H0): {distance:F1}";

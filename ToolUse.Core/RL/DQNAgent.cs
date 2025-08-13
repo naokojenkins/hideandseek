@@ -387,11 +387,15 @@ namespace ToolUse.Core.RL
                             steps = state.Steps;
 
                             buffer.Clear();
-                            // Загружаем только совместимые по размеру записи
+                            // Загружаем только полностью совместимые и валидные записи
                             int added = 0;
                             foreach (var exp in state.Buffer)
                             {
-                                if (exp?.State != null && exp.State.Length == stateSize)
+                                if (exp != null &&
+                                    exp.State != null && exp.State.Length == stateSize &&
+                                    exp.NextState != null && exp.NextState.Length == stateSize &&
+                                    exp.Action >= 0 && exp.Action < actionSize &&
+                                    !float.IsNaN(exp.Reward) && !float.IsInfinity(exp.Reward))
                                 {
                                     buffer.Add(exp);
                                     added++;
