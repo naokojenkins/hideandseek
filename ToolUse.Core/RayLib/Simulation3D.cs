@@ -102,6 +102,46 @@ namespace ToolUse.Core.RaylibThreeD
                 throw new Exception($"[NaN/Inf] {tag}: {v}");
         }
 
+        // Вспомогательная проверка без броска исключения
+        private static bool IsFiniteVec(Vector3 v)
+        {
+            return !(float.IsNaN(v.X) || float.IsNaN(v.Y) || float.IsNaN(v.Z) ||
+                     float.IsInfinity(v.X) || float.IsInfinity(v.Y) || float.IsInfinity(v.Z));
+        }
+
+        // Санитизация сцены перед отрисовкой: камера и позиции агентов
+        private void SanitizeScene()
+        {
+            // Камера
+            if (!IsFiniteVec(_camera.Position) || !IsFiniteVec(_camera.Target) || !IsFiniteVec(_camera.Up) ||
+                float.IsNaN(_camera.FovY) || float.IsInfinity(_camera.FovY))
+            {
+                InitializeCamera();
+            }
+
+            // Агенты: используем актуальные списки, если они заданы
+            var seekers = (Seekers != null && Seekers.Count > 0) ? Seekers : new List<Agent3D> { Seeker };
+            var hiders  = (Hiders  != null && Hiders.Count  > 0) ? Hiders  : new List<Agent3D> { Hider  };
+
+            void FixAgent(Agent3D a)
+            {
+                var p = a.Position;
+                bool badPos = float.IsNaN(p.X) || float.IsNaN(p.Y) || float.IsNaN(p.Z) ||
+                              float.IsInfinity(p.X) || float.IsInfinity(p.Y) || float.IsInfinity(p.Z);
+                if (badPos || !IsPositionValidForWorld(p, a.AgentRadius))
+                {
+                    a.Position = World.GetRandomValidAgentPosition(a.AgentRadius, 0f);
+                }
+                if (float.IsNaN(a.Direction) || float.IsInfinity(a.Direction))
+                {
+                    a.Direction = 0f;
+                }
+            }
+
+            foreach (var s in seekers) FixAgent(s);
+            foreach (var h in hiders)  FixAgent(h);
+        }
+
         // Проверка валидности позиции агента относительно текущего мира Simulation3D.World
         private bool IsPositionValidForWorld(Vector3 pos, float radius)
         {
@@ -239,13 +279,20 @@ namespace ToolUse.Core.RaylibThreeD
 
         public void Update(float deltaTime)
         {
-            Timer += deltaTime;
+            // Масштабируем логическое время симуляции (с защитой от NaN/Inf/некорректных значений)
+            float timeScale = (!float.IsFinite(Config.TimeScale) || Config.TimeScale <= 0f) ? 1.0f : Config.TimeScale;
+            float dt = deltaTime * timeScale;
+
+            Timer += dt;
+
+            // Эффективный порог «кадров видимости» с учётом сжатия времени
+            int framesThreshold = Math.Max(1, (int)MathF.Round(Config.FramesForCatch / timeScale));
 
             // Предсказание завершения эпизода в этом кадре
-            bool willCatchThisStep = IsHiderVisible && (_caughtFrames + 1 >= Config.FramesForCatch);
+            bool willCatchThisStep = IsHiderVisible && (_caughtFrames + 1 >= framesThreshold);
             bool willTimeoutThisStep = (Timer >= sessionDurationSeconds);
 
-            UpdateRLAgents(deltaTime, willCatchThisStep, willTimeoutThisStep);
+            UpdateRLAgents(dt, willCatchThisStep, willTimeoutThisStep);
 
             if (_justRestarted)
             {
@@ -255,7 +302,7 @@ namespace ToolUse.Core.RaylibThreeD
 
             UpdateCamera();
 
-            _lastVisibilityCheck += deltaTime;
+            _lastVisibilityCheck += dt;
             if (_lastVisibilityCheck >= _visibilityCheckInterval)
             {
                 IsHiderVisible = AnyHiderVisible();
@@ -264,7 +311,7 @@ namespace ToolUse.Core.RaylibThreeD
 
             if (IsHiderVisible)
             {
-                if (++_caughtFrames >= Config.FramesForCatch)
+                if (++_caughtFrames >= framesThreshold)
                 {
                     _isHiderCaught = true;
                 }
@@ -274,7 +321,7 @@ namespace ToolUse.Core.RaylibThreeD
                 _caughtFrames = 0;
             }
 
-            UpdateScores(deltaTime);
+            UpdateScores(dt);
 
             if (_isHiderCaught || Timer >= sessionDurationSeconds)
             {
@@ -948,6 +995,9 @@ namespace ToolUse.Core.RaylibThreeD
 
         public void Draw()
         {
+            // Защита от NaN/Inf в камере и позициях агентов
+            SanitizeScene();
+
             Raylib.BeginMode3D(_camera);
             {
                 World.Draw(true);
@@ -1028,7 +1078,9 @@ namespace ToolUse.Core.RaylibThreeD
 
             // Доп. метрики для баров
             float timePercent = Math.Clamp(sessionDurationSeconds > 0f ? (Timer / sessionDurationSeconds) : 0f, 0f, 1f);
-            string catchLine = $"Catch: {_caughtFrames}/{Math.Max(1, Config.FramesForCatch)}";
+            float tsHud = (!float.IsFinite(Config.TimeScale) || Config.TimeScale <= 0f) ? 1.0f : Config.TimeScale;
+            int effectiveFramesForCatch = Math.Max(1, (int)MathF.Round(Config.FramesForCatch / tsHud));
+            string catchLine = $"Catch: {_caughtFrames}/{effectiveFramesForCatch}";
             int l2W = Raylib.MeasureText(l2, headerFont);
             int catchW = Raylib.MeasureText(catchLine, lineFont);
 
@@ -1120,7 +1172,7 @@ namespace ToolUse.Core.RaylibThreeD
             Raylib.DrawText(catchLine, x, y, lineFont, catchColor);
             int barXC = x + catchW + barPad;
             int barYC = y + (lineFont / 2) - (barHeight / 2);
-            float catchPercent = Math.Clamp(Config.FramesForCatch > 0 ? (_caughtFrames / (float)Config.FramesForCatch) : 0f, 0f, 1f);
+            float catchPercent = Math.Clamp(effectiveFramesForCatch > 0 ? (_caughtFrames / (float)effectiveFramesForCatch) : 0f, 0f, 1f);
             Raylib.DrawRectangle(barXC, barYC, (int)(barWidth * catchPercent), barHeight, catchColor);
             Raylib.DrawRectangleLines(barXC, barYC, barWidth, barHeight, Color.White);
             y += (barHeight + 6);

@@ -81,6 +81,8 @@ namespace ToolUse.Core.Config
         public float NoProgressSeconds { get; set; } = 5f;
         /// <summary> Минимальная стартовая дистанция между Seeker и Hider при ресете. </summary>
         public float MinInitialSeparation { get; set; } = 5f;
+        /// <summary> Коэффициент сжатия времени (1 — без сжатия). </summary>
+        public float TimeScale { get; set; } = 1.0f;
 
         /// <summary>
         /// Приватный загрузчик (используйте только через Instance).
