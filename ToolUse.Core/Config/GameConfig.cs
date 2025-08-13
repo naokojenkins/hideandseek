@@ -51,6 +51,11 @@ namespace ToolUse.Core.Config
         public DQNConfig DQN { get; set; } = new DQNConfig();
 
         /// <summary>
+        /// Пространство действий (семантика и количество действий).
+        /// </summary>
+        public ActionSpaceConfig Actions { get; set; } = new ActionSpaceConfig();
+
+        /// <summary>
         /// Длительность сессии (сек).
         /// </summary>
         public float SessionDurationSeconds { get; set; } = 30f;

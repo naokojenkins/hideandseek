@@ -105,7 +105,7 @@ namespace ToolUse.Sim
 
             gridSize = config.World.GridSize;
 
-            int actionSize = 5; // 0=L,1=R,2=FWD,3=FWD+L,4=FWD+R
+            int actionSize = Math.Max(1, config.Actions.Count); // из конфига
             var world = new World3D(gridSize);
             world.GenerateStaticGrid();
             var dummySeeker = new Agent3D(new Vector3(0, 0, 0), true);

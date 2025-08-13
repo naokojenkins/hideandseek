@@ -43,7 +43,7 @@ namespace ToolUse.Core.RL
         public override string ToString()
         {
             var basic = $"ax={AgentX},ay={AgentY},ox={OtherX},oy={OtherY},dir={Direction},see={CanSee},seen={IsSeenBySeeker}";
-            if (KnownWallsFlat != null && KnownWallsFlat.Length > 0)
+            if (KnownWallsFlat.Length > 0)
                 return basic + $",walls={string.Join("", KnownWallsFlat.Select(x => x ? "1" : "0"))}";
             return basic;
         }
@@ -52,7 +52,7 @@ namespace ToolUse.Core.RL
         {
             try
             {
-                var p = s.Split(',');
+                var p = s.Split(',', StringSplitOptions.TrimEntries);
                 if (p.Length < 6) throw new FormatException("State string has insufficient parts");
 
                 int ax = int.Parse(p[0][3..]);
@@ -66,14 +66,14 @@ namespace ToolUse.Core.RL
                 int wallStart = 6;
 
                 // Проверяем, есть ли seen=...
-                if (p.Length > 6 && p[6].StartsWith("seen="))
+                if (p.Length > 6 && p[6].StartsWith("seen=", StringComparison.OrdinalIgnoreCase))
                 {
                     seen = bool.Parse(p[6][5..]);
                     wallStart = 7;
                 }
 
                 bool[]? walls = null;
-                if (p.Length > wallStart && p[wallStart].StartsWith("walls="))
+                if (p.Length > wallStart && p[wallStart].StartsWith("walls=", StringComparison.OrdinalIgnoreCase))
                 {
                     string wallStr = p[wallStart]["walls=".Length..];
                     walls = wallStr.Select(c => c == '1').ToArray();
@@ -92,26 +92,45 @@ namespace ToolUse.Core.RL
         /// </summary>
         public float[] ToArray(int worldSize)
         {
+            // Безопасный worldSize
+            int safeWorld = Math.Max(1, worldSize);
+
+            // Нормализация направления:
+            // - если Direction в диапазоне 0..7 — это уже сектор
+            // - иначе считаем, что это градусы и конвертируем в сектор 0..7
+            int sector;
+            if (Direction >= 0 && Direction <= 7)
+            {
+                sector = Direction;
+            }
+            else
+            {
+                int deg = Direction % 360;
+                if (deg < 0) deg += 360;
+                sector = deg / 45; // 0..7
+            }
+            float dirNorm = sector / 8.0f;
+
             float[] basic = new[]
             {
-                AgentX / (float)worldSize,
-                AgentY / (float)worldSize,
-                OtherX / (float)worldSize,
-                OtherY / (float)worldSize,
-                Direction / 8.0f, // Нормализованный сектор (0–7 → 0–1)
+                AgentX / (float)safeWorld,
+                AgentY / (float)safeWorld,
+                OtherX / (float)safeWorld,
+                OtherY / (float)safeWorld,
+                dirNorm,                 // Нормализованный сектор (0–7 → 0–1)
                 CanSee ? 1f : 0f,
                 IsSeenBySeeker ? 1f : 0f // ✅ Новое поле
             };
 
             // Всегда добавляем секцию стен фиксированной длины worldSize*worldSize
-            int flatLen = Math.Max(0, worldSize * worldSize);
+            int flatLen = Math.Max(0, safeWorld * safeWorld);
             if (flatLen <= 0)
                 return basic;
 
             var arr = new float[basic.Length + flatLen];
             basic.CopyTo(arr, 0);
 
-            if (KnownWallsFlat != null && KnownWallsFlat.Length > 0)
+            if (KnownWallsFlat.Length > 0)
             {
                 int copy = Math.Min(flatLen, KnownWallsFlat.Length);
                 for (int i = 0; i < copy; i++)
@@ -120,7 +139,7 @@ namespace ToolUse.Core.RL
                 }
                 // Остальные элементы остаются нулями, если данных меньше, чем flatLen
             }
-            // Если KnownWallsFlat пуст или null — вся секция стен остаётся нулями
+            // Если KnownWallsFlat пуст — вся секция стен остаётся нулями
             return arr;
         }
 
@@ -133,8 +152,7 @@ namespace ToolUse.Core.RL
             Direction == other.Direction &&
             CanSee == other.CanSee &&
             IsSeenBySeeker == other.IsSeenBySeeker &&
-            ((KnownWallsFlat == null && other.KnownWallsFlat == null) ||
-             (KnownWallsFlat != null && other.KnownWallsFlat != null && KnownWallsFlat.SequenceEqual(other.KnownWallsFlat)));
+            KnownWallsFlat.SequenceEqual(other.KnownWallsFlat);
 
         public override int GetHashCode()
         {
@@ -148,11 +166,8 @@ namespace ToolUse.Core.RL
                 hash = hash * 23 + Direction.GetHashCode();
                 hash = hash * 23 + CanSee.GetHashCode();
                 hash = hash * 23 + IsSeenBySeeker.GetHashCode();
-                if (KnownWallsFlat != null)
-                {
-                    foreach (bool b in KnownWallsFlat)
-                        hash = hash * 23 + (b ? 1 : 0);
-                }
+                foreach (bool b in KnownWallsFlat)
+                    hash = hash * 23 + (b ? 1 : 0);
                 return hash;
             }
         }

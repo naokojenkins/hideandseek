@@ -243,7 +243,7 @@ namespace ToolUse.Core.RaylibThreeD
 
             // Предсказание завершения эпизода в этом кадре
             bool willCatchThisStep = IsHiderVisible && (_caughtFrames + 1 >= Config.FramesForCatch);
-            bool willTimeoutThisStep = (Timer > sessionDurationSeconds);
+            bool willTimeoutThisStep = (Timer >= sessionDurationSeconds);
 
             UpdateRLAgents(deltaTime, willCatchThisStep, willTimeoutThisStep);
 
@@ -276,7 +276,7 @@ namespace ToolUse.Core.RaylibThreeD
 
             UpdateScores(deltaTime);
 
-            if (_isHiderCaught || Timer > sessionDurationSeconds)
+            if (_isHiderCaught || Timer >= sessionDurationSeconds)
             {
                 try { OnSessionCompleted?.Invoke(); } catch { }
                 Restart();
@@ -330,17 +330,20 @@ namespace ToolUse.Core.RaylibThreeD
             var seekers = (Seekers != null && Seekers.Count > 0) ? Seekers : new List<Agent3D> { Seeker };
             var hiders  = (Hiders  != null && Hiders.Count  > 0) ? Hiders  : new List<Agent3D> { Hider  };
 
-            // Подготовка текущих состояний (будут записаны как nextState для перехода)
-            var seekerStatesNow = new Dictionary<Agent3D, State>(seekers.Count);
-            var hiderStatesNow  = new Dictionary<Agent3D, State>(hiders.Count);
+            // Единая семантика действий из конфига
+            var actCfg = Config.Actions;
+
+            // 1) Состояния ДО действия (state_t)
+            var seekerStatesBefore = new Dictionary<Agent3D, State>(seekers.Count);
+            var hiderStatesBefore  = new Dictionary<Agent3D, State>(hiders.Count);
 
             foreach (var s in seekers)
             {
                 var target = GetNearestOpponent(s, hiders);
                 var ad = new SimAdapter3D(World, s, target);
                 var st = ad.GetSeekerState();
-                CheckNaN(st.ToArray(World.Size), "seekerState");
-                seekerStatesNow[s] = st;
+                CheckNaN(st.ToArray(World.Size), "seekerState_before");
+                seekerStatesBefore[s] = st;
 
                 if (!_lastDistToNearestHider.ContainsKey(s))
                     _lastDistToNearestHider[s] = Vector3.Distance(s.Position, target.Position);
@@ -353,8 +356,8 @@ namespace ToolUse.Core.RaylibThreeD
                 var watcher = GetNearestOpponent(h, seekers);
                 var ad = new SimAdapter3D(World, watcher, h);
                 var st = ad.GetHiderState();
-                CheckNaN(st.ToArray(World.Size), "hiderState");
-                hiderStatesNow[h] = st;
+                CheckNaN(st.ToArray(World.Size), "hiderState_before");
+                hiderStatesBefore[h] = st;
 
                 if (!_lastDistToNearestSeeker.ContainsKey(h))
                     _lastDistToNearestSeeker[h] = Vector3.Distance(h.Position, watcher.Position);
@@ -369,12 +372,12 @@ namespace ToolUse.Core.RaylibThreeD
             bool giveCatchBonus = isTerminalByCatchThisStep && !_catchBonusGiven;
             float perSeekerCatchBonus = giveCatchBonus ? (Config.Seeker.CatchBonus / Math.Max(1, seekers.Count)) : 0f;
 
-            // Выбор действий с поддержкой action repeat для каждого агента роли
+            // 2) Выбор действия (action_t) с учётом action repeat
             foreach (var s in seekers)
             {
                 if (!_repeatLeftSeekers.TryGetValue(s, out int left) || left <= 0)
                 {
-                    long a = _seekerAgent.ChooseAction(seekerStatesNow[s].ToArray(World.Size));
+                    long a = _seekerAgent.ChooseAction(seekerStatesBefore[s].ToArray(World.Size));
                     _currentActionSeekers[s] = a;
                     _repeatLeftSeekers[s] = _actionRepeat - 1;
                 }
@@ -382,12 +385,16 @@ namespace ToolUse.Core.RaylibThreeD
                 {
                     _repeatLeftSeekers[s] = left - 1;
                 }
+
+                // Зафиксируем пары (state_t, action_t) для текущего кадра
+                _prevStateSeekers[s] = seekerStatesBefore[s];
+                _prevActionSeekers[s] = _currentActionSeekers[s];
             }
             foreach (var h in hiders)
             {
                 if (!_repeatLeftHiders.TryGetValue(h, out int left) || left <= 0)
                 {
-                    long a = _hiderAgent.ChooseAction(hiderStatesNow[h].ToArray(World.Size));
+                    long a = _hiderAgent.ChooseAction(hiderStatesBefore[h].ToArray(World.Size));
                     _currentActionHiders[h] = a;
                     _repeatLeftHiders[h] = _actionRepeat - 1;
                 }
@@ -395,33 +402,32 @@ namespace ToolUse.Core.RaylibThreeD
                 {
                     _repeatLeftHiders[h] = left - 1;
                 }
+
+                _prevStateHiders[h] = hiderStatesBefore[h];
+                _prevActionHiders[h] = _currentActionHiders[h];
             }
 
-            // Применяем повороты
+            // 3) Применяем повороты (часть действия)
             foreach (var s in seekers)
             {
                 float rot = Config.Seeker.RotationStepDegrees;
-                long a = _currentActionSeekers.TryGetValue(s, out var act) ? act : 2;
-                if (a == 0) s.Rotate(-rot);
-                if (a == 1) s.Rotate(+rot);
-                if (a == 3) s.Rotate(-rot);
-                if (a == 4) s.Rotate(+rot);
+                long aNow = _currentActionSeekers.TryGetValue(s, out var act) ? act : actCfg.Forward;
+                if (aNow == actCfg.TurnLeft || aNow == actCfg.ForwardLeft) s.Rotate(-rot);
+                if (aNow == actCfg.TurnRight || aNow == actCfg.ForwardRight) s.Rotate(+rot);
             }
             foreach (var h in hiders)
             {
                 float rot = Config.Hider.RotationStepDegrees;
-                long a = _currentActionHiders.TryGetValue(h, out var act) ? act : 2;
-                if (a == 0) h.Rotate(-rot);
-                if (a == 1) h.Rotate(+rot);
-                if (a == 3) h.Rotate(-rot);
-                if (a == 4) h.Rotate(+rot);
+                long aNow = _currentActionHiders.TryGetValue(h, out var act) ? act : actCfg.Forward;
+                if (aNow == actCfg.TurnLeft || aNow == actCfg.ForwardLeft) h.Rotate(-rot);
+                if (aNow == actCfg.TurnRight || aNow == actCfg.ForwardRight) h.Rotate(+rot);
             }
 
-            // Движение с учётом соседей (все остальные агенты)
+            // 4) Движение вперёд (часть действия) с учётом соседей
             foreach (var s in seekers)
             {
-                long a = _currentActionSeekers.TryGetValue(s, out var act) ? act : 2;
-                if (a == 2 || a == 3 || a == 4)
+                long aNow = _currentActionSeekers.TryGetValue(s, out var act) ? act : actCfg.Forward;
+                if (aNow == actCfg.Forward || aNow == actCfg.ForwardLeft || aNow == actCfg.ForwardRight)
                 {
                     var neighbors = new List<Agent3D>();
                     foreach (var s2 in seekers) if (!ReferenceEquals(s2, s)) neighbors.Add(s2);
@@ -431,8 +437,8 @@ namespace ToolUse.Core.RaylibThreeD
             }
             foreach (var h in hiders)
             {
-                long a = _currentActionHiders.TryGetValue(h, out var act) ? act : 2;
-                if (a == 2 || a == 3 || a == 4)
+                long aNow = _currentActionHiders.TryGetValue(h, out var act) ? act : actCfg.Forward;
+                if (aNow == actCfg.Forward || aNow == actCfg.ForwardLeft || aNow == actCfg.ForwardRight)
                 {
                     var neighbors = new List<Agent3D>();
                     foreach (var h2 in hiders) if (!ReferenceEquals(h2, h)) neighbors.Add(h2);
@@ -441,7 +447,7 @@ namespace ToolUse.Core.RaylibThreeD
                 }
             }
 
-            // Обновление визуального исследования
+            // 5) Побочные эффекты шага: обновление визуального исследования
             foreach (var s in seekers) s.UpdateVisualExploration(World);
             foreach (var h in hiders)  h.UpdateVisualExploration(World);
 
@@ -450,10 +456,29 @@ namespace ToolUse.Core.RaylibThreeD
             foreach (var h in hiders)
                 hiderVisibleNow[h] = seekers.Any(s => s.CanSee(h, World));
 
-            // Сохранение переходов и обучение: общий DQN на роль
+            // 6) Состояния ПОСЛЕ действия (state_{t+1})
+            var seekerStatesAfter = new Dictionary<Agent3D, State>(seekers.Count);
+            var hiderStatesAfter  = new Dictionary<Agent3D, State>(hiders.Count);
+
             foreach (var s in seekers)
             {
-                // Рассчитываем дельты исследования Seeker
+                var target = GetNearestOpponent(s, hiders);
+                var ad = new SimAdapter3D(World, s, target);
+                var st = ad.GetSeekerState();
+                seekerStatesAfter[s] = st;
+            }
+            foreach (var h in hiders)
+            {
+                var watcher = GetNearestOpponent(h, seekers);
+                var ad = new SimAdapter3D(World, watcher, h);
+                var st = ad.GetHiderState();
+                hiderStatesAfter[h] = st;
+            }
+
+            // 7) Награды и запись переходов за текущий шаг
+            foreach (var s in seekers)
+            {
+                // Дельты исследования Seeker
                 var prev = _prevExploreCountsSeekers.TryGetValue(s, out var p) ? p : (0, 0);
                 int afterPhysical = s.GetExploredCount();
                 int afterVisual   = s.GetVisuallyExploredCount();
@@ -463,7 +488,6 @@ namespace ToolUse.Core.RaylibThreeD
                 bool seesAny = hiders.Any(h => s.CanSee(h, World));
                 s.IsSeeingTarget = seesAny;
 
-                // Обновляем last-known цели на командном blackboard'е Seeker'ов
                 if (seesAny)
                 {
                     foreach (var t in hiders.Where(h => s.CanSee(h, World)))
@@ -472,16 +496,14 @@ namespace ToolUse.Core.RaylibThreeD
 
                 float reward = ComputeSeekerRewardFor(s, newPhysical, newVisual, seesAny);
 
-                // Бонус за поимку распределяем поровну между всеми Seeker в этот кадр
                 if (giveCatchBonus)
                     reward += perSeekerCatchBonus;
 
-                // Штраф за поворотное действие (влево/вправо/комбо)
-                long seekerActNow = _currentActionSeekers.TryGetValue(s, out var actNowS) ? actNowS : 2;
-                if (seekerActNow == 0 || seekerActNow == 1 || seekerActNow == 3 || seekerActNow == 4)
+                long actionThisStep = _currentActionSeekers.TryGetValue(s, out var actNowS) ? actNowS : actCfg.Forward;
+                if (actionThisStep == actCfg.TurnLeft || actionThisStep == actCfg.TurnRight ||
+                    actionThisStep == actCfg.ForwardLeft || actionThisStep == actCfg.ForwardRight)
                     reward -= MathF.Max(0f, Config.Seeker.RotationPenalty);
 
-                // Штраф за отсутствие прогресса (не приблизился к ближайшему Hider и не исследовал новое)
                 var nearestForS = GetNearestOpponent(s, hiders);
                 float curDistS = Vector3.Distance(s.Position, nearestForS.Position);
                 float lastDistS = _lastDistToNearestHider.TryGetValue(s, out var prevDistS) ? prevDistS : curDistS;
@@ -489,51 +511,42 @@ namespace ToolUse.Core.RaylibThreeD
                     reward -= MathF.Max(0f, Config.Seeker.NoProgressPenalty);
                 _lastDistToNearestHider[s] = curDistS;
 
-                // Запись перехода, если есть предыдущее состояние
-                if (_prevStateSeekers.TryGetValue(s, out var prevState) && _prevActionSeekers.TryGetValue(s, out var prevAction))
-                {
-                    var nextState = seekerStatesNow[s];
-                    _seekerAgent.Store(prevState.ToArray(World.Size), prevAction, reward, nextState.ToArray(World.Size), isTerminalThisStep);
-                    _seekerAgent.Learn();
-                    _accSeekerReward += reward;
-                }
+                // Запись перехода: (state_t, action_t, reward_t, state_{t+1})
+                var stateBefore = seekerStatesBefore[s];
+                var stateAfter  = seekerStatesAfter[s];
+                _seekerAgent.Store(stateBefore.ToArray(World.Size), actionThisStep, reward, stateAfter.ToArray(World.Size), isTerminalThisStep);
+                _accSeekerReward += reward;
 
-                // Обновляем «предыдущие» для следующего шага
-                _prevStateSeekers[s] = seekerStatesNow[s];
-                _prevActionSeekers[s] = _currentActionSeekers.TryGetValue(s, out var act) ? act : 2;
                 _prevExploreCountsSeekers[s] = (afterPhysical, afterVisual);
             }
 
-            // После начисления бонуса всем — помечаем как выданный
             if (giveCatchBonus) _catchBonusGiven = true;
 
             foreach (var h in hiders)
             {
                 bool visibleNow = hiderVisibleNow[h];
 
-                // Обновляем last-known цели на командном blackboard'е Hider'ов
                 foreach (var t in seekers.Where(s => h.CanSee(s, World)))
                     _hidersBoard.ReportSeenTarget(t, t.Position, Timer);
 
                 float reward = ComputeHiderRewardFor(h, seekers, visibleNow);
 
-                // Штраф за поворотное действие (влево/вправо/комбо)
-                long hiderActNow = _currentActionHiders.TryGetValue(h, out var actNowH) ? actNowH : 2;
-                if (hiderActNow == 0 || hiderActNow == 1 || hiderActNow == 3 || hiderActNow == 4)
+                long actionThisStep = _currentActionHiders.TryGetValue(h, out var actNowH) ? actNowH : actCfg.Forward;
+                if (actionThisStep == actCfg.TurnLeft || actionThisStep == actCfg.TurnRight ||
+                    actionThisStep == actCfg.ForwardLeft || actionThisStep == actCfg.ForwardRight)
                     reward -= MathF.Max(0f, Config.Hider.RotationPenalty);
 
-                if (_prevStateHiders.TryGetValue(h, out var prevState) && _prevActionHiders.TryGetValue(h, out var prevAction))
-                {
-                    var nextState = hiderStatesNow[h];
-                    _hiderAgent.Store(prevState.ToArray(World.Size), prevAction, reward, nextState.ToArray(World.Size), isTerminalThisStep);
-                    _hiderAgent.Learn();
-                    _accHiderReward += reward;
-                }
+                var stateBefore = hiderStatesBefore[h];
+                var stateAfter  = hiderStatesAfter[h];
+                _hiderAgent.Store(stateBefore.ToArray(World.Size), actionThisStep, reward, stateAfter.ToArray(World.Size), isTerminalThisStep);
+                _accHiderReward += reward;
 
-                _prevStateHiders[h] = hiderStatesNow[h];
-                _prevActionHiders[h] = _currentActionHiders.TryGetValue(h, out var act) ? act : 2;
                 _wasHiderVisiblePrevMap[h] = visibleNow;
             }
+
+            // 8) Обучение (один вызов на роль)
+            _seekerAgent.Learn();
+            _hiderAgent.Learn();
 
             // Синхронизация знаний команды (union известных стен)
             MergeTeamKnowledge();
@@ -648,6 +661,14 @@ namespace ToolUse.Core.RaylibThreeD
             r += expPhysBonus + expVisualBonus;
             ExplorationScore += expPhysBonus + expVisualBonus;
 
+            // Вклад за изменение дистанции до ближайшего Hider (положительный при сближении)
+            var hidersList = (Hiders != null && Hiders.Count > 0) ? Hiders : new List<Agent3D> { Hider };
+            var nearestH = GetNearestOpponent(s, hidersList);
+            float curDist = Vector3.Distance(s.Position, nearestH.Position);
+            float lastDist = _lastDistToNearestHider.TryGetValue(s, out var prevDist) ? prevDist : curDist;
+            float distDeltaToward = lastDist - curDist; // >0 если приблизился
+            r += distDeltaToward * MathF.Max(0f, Config.Seeker.ProximityRewardMultiplier);
+
             if (float.IsNaN(r) || float.IsInfinity(r))
                 throw new Exception($"[NaN/Inf] ComputeSeekerRewardFor: {r}");
             return r;
@@ -659,12 +680,15 @@ namespace ToolUse.Core.RaylibThreeD
             if (visibleNow) reward -= Config.Hider.RewardWhenVisible;
             else            reward += Config.Hider.RewardWhenHidden;
 
-            if (visibleNow) reward -= Config.Hider.RewardWhenSeenBySeeker;
-
             // расстояние до ближайшего seeker
             var nearest = GetNearestOpponent(h, seekers);
             float currentDistance = Vector3.Distance(nearest.Position, h.Position);
             float lastDist = _lastDistToNearestSeeker.TryGetValue(h, out var prev) ? prev : currentDistance;
+
+            // Вклад за изменение дистанции (положительный при удалении)
+            float distDeltaAway = currentDistance - lastDist; // >0 если удалился
+            reward += distDeltaAway * MathF.Max(0f, Config.Hider.ProximityRewardMultiplier);
+
             if (currentDistance > lastDist) reward += Config.Hider.RewardWhenIncreasingDistance;
             else if (currentDistance <= lastDist + _noProgressDistanceEps) reward -= MathF.Max(0f, Config.Hider.NoProgressPenalty);
             _lastDistToNearestSeeker[h] = currentDistance;
@@ -1002,6 +1026,12 @@ namespace ToolUse.Core.RaylibThreeD
 
             string visibilityText = IsHiderVisible ? "VISIBLE" : "HIDDEN";
 
+            // Доп. метрики для баров
+            float timePercent = Math.Clamp(sessionDurationSeconds > 0f ? (Timer / sessionDurationSeconds) : 0f, 0f, 1f);
+            string catchLine = $"Catch: {_caughtFrames}/{Math.Max(1, Config.FramesForCatch)}";
+            int l2W = Raylib.MeasureText(l2, headerFont);
+            int catchW = Raylib.MeasureText(catchLine, lineFont);
+
             // Подсчет размеров подложки
             int maxTextW = 0;
             maxTextW = Math.Max(maxTextW, Raylib.MeasureText(l1, headerFont));
@@ -1017,22 +1047,27 @@ namespace ToolUse.Core.RaylibThreeD
             int hScoreW = Raylib.MeasureText(hScore, lineFont);
             int barPad = 10;
 
-            // Учтем ширину прогресс-баров: начинаются после текста очков
+            // Учтем ширину прогресс-баров: начинаются после текста
             int contentW = Math.Max(
                 maxTextW,
-                Math.Max(sScoreW + barPad + barWidth, hScoreW + barPad + barWidth)
+                Math.Max(
+                    Math.Max(sScoreW + barPad + barWidth, hScoreW + barPad + barWidth),
+                    Math.Max(l2W + barPad + barWidth, catchW + barPad + barWidth)
+                )
             );
             int boxW = pad * 2 + contentW;
 
-            // Высота: 2 заголовка + 2 секции с барами + дистанция + видимость + (опционально) CAUGHT
+            // Высота: 2 заголовка + бар времени + 2 секции с барами + дистанция + видимость + бар поимки + (опц.) CAUGHT
             int boxH = pad * 2
                        + headerStep * 2
+                       + (barHeight + 6) // Time bar
                        + lineStep // Seekers line
                        + (barHeight + 6) // Seekers bar
                        + lineStep // Hiders line
                        + (barHeight + 6) // Hiders bar
                        + lineStep // Distance
-                       + lineStep; // Visibility
+                       + lineStep // Visibility
+                       + (barHeight + 6); // Catch bar
             if (_isHiderCaught) boxH += (lineFont + 8);
 
             // Подложка
@@ -1043,7 +1078,16 @@ namespace ToolUse.Core.RaylibThreeD
 
             // Заголовки
             Raylib.DrawText(l1, x, y, headerFont, Color.White); y += headerStep;
-            Raylib.DrawText(l2, x, y, headerFont, timeColor); y += headerStep;
+
+            // Время + бар времени (рисуем бар до смещения y)
+            Raylib.DrawText(l2, x, y, headerFont, timeColor);
+            int barXTime = x + l2W + barPad;
+            int barYTime = y + (headerFont / 2) - (barHeight / 2);
+            var timeBarColor = new Color(100, 200, 255, 255);
+            Raylib.DrawRectangle(barXTime, barYTime, (int)(barWidth * timePercent), barHeight, timeBarColor);
+            Raylib.DrawRectangleLines(barXTime, barYTime, barWidth, barHeight, Color.White);
+            y += headerStep;
+            y += (barHeight + 6);
 
             // Секция Seekers
             var seekerColor = new Color(60, 120, 255, 255);
@@ -1070,6 +1114,16 @@ namespace ToolUse.Core.RaylibThreeD
             Raylib.DrawText(distLine, x, y, lineFont, new Color(160, 160, 160, 255)); y += lineStep;
             Color visibilityColor = IsHiderVisible ? Color.Red : new Color(0, 200, 60, 255);
             Raylib.DrawText($"Hiders: {visibilityText}", x, y, lineFont, visibilityColor); y += lineStep;
+
+            // Прогресс поимки (накапливаемые кадры видимости)
+            var catchColor = new Color(255, 140, 0, 255);
+            Raylib.DrawText(catchLine, x, y, lineFont, catchColor);
+            int barXC = x + catchW + barPad;
+            int barYC = y + (lineFont / 2) - (barHeight / 2);
+            float catchPercent = Math.Clamp(Config.FramesForCatch > 0 ? (_caughtFrames / (float)Config.FramesForCatch) : 0f, 0f, 1f);
+            Raylib.DrawRectangle(barXC, barYC, (int)(barWidth * catchPercent), barHeight, catchColor);
+            Raylib.DrawRectangleLines(barXC, barYC, barWidth, barHeight, Color.White);
+            y += (barHeight + 6);
 
             if (_isHiderCaught)
                 Raylib.DrawText("CAUGHT!", x, y, 18, Color.Red);
