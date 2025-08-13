@@ -54,7 +54,7 @@ namespace ToolUse.Core.RaylibThreeD
 
         private bool _isHiderVisible = false;
         private float _lastVisibilityCheck = 0f;
-        private const float _visibilityCheckInterval = 0.05f;
+        private float _visibilityCheckInterval = 0.05f;
 
         private static readonly string SessionCounterFile = Path.Combine(
             Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".",
@@ -144,6 +144,12 @@ namespace ToolUse.Core.RaylibThreeD
             // Теперь используем GameConfig.Instance (все параметры уже загружены)
             Config = GameConfig.Instance;
             sessionDurationSeconds = Config.SessionDurationSeconds;
+
+            // Параметры из конфига (вместо хардкода)
+            _visibilityCheckInterval = MathF.Max(0.001f, Config.VisibilityCheckInterval);
+            _actionRepeat = Math.Max(1, Config.ActionRepeat);
+            _noProgressDistanceEps = Math.Max(0f, Config.NoProgressDistanceEps);
+            _noProgressSeconds = Math.Max(0f, Config.NoProgressSeconds);
 
             World = new World3D(worldSize);
             World.GenerateStaticGrid();
@@ -263,12 +269,13 @@ namespace ToolUse.Core.RaylibThreeD
 
             if (_isHiderCaught || Timer > Config.SessionDurationSeconds)
             {
+                try { OnSessionCompleted?.Invoke(); } catch { }
                 Restart();
             }
         }
 
         // Action repeat and progress tracking
-        private readonly int _actionRepeat = 2;
+        private int _actionRepeat = 2;
         private int _seekerRepeatLeft = 0, _hiderRepeatLeft = 0;
         private long _currentSeekerAction = 0, _currentHiderAction = 0;
 
@@ -283,8 +290,8 @@ namespace ToolUse.Core.RaylibThreeD
         private float _noProgressTimer = 0f;
         private float _lastDistanceForProgress = 0f;
         private int _lastSeekerVisualExploredForProgress = 0;
-        private const float _noProgressDistanceEps = 0.05f;
-        private const float _noProgressSeconds = 5f;
+        private float _noProgressDistanceEps = 0.05f;
+        private float _noProgressSeconds = 5f;
 
         // ---- Переменные для мультиагентного шага ----
         // Предыдущее состояние и действие для каждого агента
@@ -302,6 +309,9 @@ namespace ToolUse.Core.RaylibThreeD
         // Для наград Hider: последняя дистанция до ближайшего Seeker и видимость на прошлом шаге
         private readonly Dictionary<Agent3D, float> _lastDistToNearestSeeker = new();
         private readonly Dictionary<Agent3D, bool>  _wasHiderVisiblePrevMap  = new();
+
+        // Для наград Seeker: последняя дистанция до ближайшего Hider (для штрафа за отсутствие прогресса)
+        private readonly Dictionary<Agent3D, float> _lastDistToNearestHider = new();
 
         // Для наград Seeker: предыдущие счётчики исследования (физическое/визуальное)
         private readonly Dictionary<Agent3D, (int phys, int vis)> _prevExploreCountsSeekers = new();
@@ -323,6 +333,9 @@ namespace ToolUse.Core.RaylibThreeD
                 var st = ad.GetSeekerState();
                 CheckNaN(st.ToArray(World.Size), "seekerState");
                 seekerStatesNow[s] = st;
+
+                if (!_lastDistToNearestHider.ContainsKey(s))
+                    _lastDistToNearestHider[s] = Vector3.Distance(s.Position, target.Position);
 
                 if (!_prevExploreCountsSeekers.ContainsKey(s))
                     _prevExploreCountsSeekers[s] = (s.GetExploredCount(), s.GetVisuallyExploredCount());
@@ -372,19 +385,21 @@ namespace ToolUse.Core.RaylibThreeD
             // Применяем повороты
             foreach (var s in seekers)
             {
+                float rot = Config.Seeker.RotationStepDegrees;
                 long a = _currentActionSeekers.TryGetValue(s, out var act) ? act : 2;
-                if (a == 0) s.Rotate(-10f);
-                if (a == 1) s.Rotate(+10f);
-                if (a == 3) s.Rotate(-10f);
-                if (a == 4) s.Rotate(+10f);
+                if (a == 0) s.Rotate(-rot);
+                if (a == 1) s.Rotate(+rot);
+                if (a == 3) s.Rotate(-rot);
+                if (a == 4) s.Rotate(+rot);
             }
             foreach (var h in hiders)
             {
+                float rot = Config.Hider.RotationStepDegrees;
                 long a = _currentActionHiders.TryGetValue(h, out var act) ? act : 2;
-                if (a == 0) h.Rotate(-10f);
-                if (a == 1) h.Rotate(+10f);
-                if (a == 3) h.Rotate(-10f);
-                if (a == 4) h.Rotate(+10f);
+                if (a == 0) h.Rotate(-rot);
+                if (a == 1) h.Rotate(+rot);
+                if (a == 3) h.Rotate(-rot);
+                if (a == 4) h.Rotate(+rot);
             }
 
             // Движение с учётом соседей (все остальные агенты)
@@ -442,6 +457,19 @@ namespace ToolUse.Core.RaylibThreeD
 
                 float reward = ComputeSeekerRewardFor(s, newPhysical, newVisual, seesAny);
 
+                // Штраф за поворотное действие (влево/вправо/комбо)
+                long seekerActNow = _currentActionSeekers.TryGetValue(s, out var actNowS) ? actNowS : 2;
+                if (seekerActNow == 0 || seekerActNow == 1 || seekerActNow == 3 || seekerActNow == 4)
+                    reward -= MathF.Max(0f, Config.Seeker.RotationPenalty);
+
+                // Штраф за отсутствие прогресса (не приблизился к ближайшему Hider и не исследовал новое)
+                var nearestForS = GetNearestOpponent(s, hiders);
+                float curDistS = Vector3.Distance(s.Position, nearestForS.Position);
+                float lastDistS = _lastDistToNearestHider.TryGetValue(s, out var prevDistS) ? prevDistS : curDistS;
+                if (curDistS > lastDistS - _noProgressDistanceEps && newPhysical == 0 && newVisual == 0 && !seesAny)
+                    reward -= MathF.Max(0f, Config.Seeker.NoProgressPenalty);
+                _lastDistToNearestHider[s] = curDistS;
+
                 // Запись перехода, если есть предыдущее состояние
                 if (_prevStateSeekers.TryGetValue(s, out var prevState) && _prevActionSeekers.TryGetValue(s, out var prevAction))
                 {
@@ -466,6 +494,11 @@ namespace ToolUse.Core.RaylibThreeD
                     _hidersBoard.ReportSeenTarget(t, t.Position, Timer);
 
                 float reward = ComputeHiderRewardFor(h, seekers, visibleNow);
+
+                // Штраф за поворотное действие (влево/вправо/комбо)
+                long hiderActNow = _currentActionHiders.TryGetValue(h, out var actNowH) ? actNowH : 2;
+                if (hiderActNow == 0 || hiderActNow == 1 || hiderActNow == 3 || hiderActNow == 4)
+                    reward -= MathF.Max(0f, Config.Hider.RotationPenalty);
 
                 if (_prevStateHiders.TryGetValue(h, out var prevState) && _prevActionHiders.TryGetValue(h, out var prevAction))
                 {
@@ -595,6 +628,7 @@ namespace ToolUse.Core.RaylibThreeD
             float currentDistance = Vector3.Distance(nearest.Position, h.Position);
             float lastDist = _lastDistToNearestSeeker.TryGetValue(h, out var prev) ? prev : currentDistance;
             if (currentDistance > lastDist) reward += Config.Hider.RewardWhenIncreasingDistance;
+            else if (currentDistance <= lastDist + _noProgressDistanceEps) reward -= MathF.Max(0f, Config.Hider.NoProgressPenalty);
             _lastDistToNearestSeeker[h] = currentDistance;
 
             if (!visibleNow) reward += Config.Hider.RewardWhenHiddenBehindWall;
@@ -700,6 +734,7 @@ namespace ToolUse.Core.RaylibThreeD
 
             Session++;
             TotalSessions++;
+            SaveTotalSessions();
 
             Timer = 0f;
             SeekerScore = 0f;
@@ -729,7 +764,7 @@ namespace ToolUse.Core.RaylibThreeD
             Vector3 seekerPos = World.GetRandomValidAgentPosition(Config.Seeker.AgentRadius, 0f);
             Vector3 hiderPos = World.GetRandomValidAgentPosition(Config.Hider.AgentRadius, 0f);
             int attempts = 0;
-            while (attempts < 50 && Vector3.Distance(seekerPos, hiderPos) < 5f)
+            while (attempts < 50 && Vector3.Distance(seekerPos, hiderPos) < Config.MinInitialSeparation)
             {
                 hiderPos = World.GetRandomValidAgentPosition(Config.Hider.AgentRadius, 0f);
                 attempts++;
@@ -781,7 +816,28 @@ namespace ToolUse.Core.RaylibThreeD
                 Hiders[0].Direction = Hider.Direction;
             }
 
+            // Полный сброс исследования и знаний для нового эпизода
             Seeker.ResetExploration();
+            Seeker.KnownWalls.Clear();
+            Hider.ResetExploration();
+            Hider.KnownWalls.Clear();
+
+            if (Seekers != null && Seekers.Count > 0)
+            {
+                foreach (var s in Seekers)
+                {
+                    s.ResetExploration();
+                    s.KnownWalls.Clear();
+                }
+            }
+            if (Hiders != null && Hiders.Count > 0)
+            {
+                foreach (var h in Hiders)
+                {
+                    h.ResetExploration();
+                    h.KnownWalls.Clear();
+                }
+            }
 
             _prevSeekerState = null;
             _prevHiderState = null;
@@ -803,6 +859,7 @@ namespace ToolUse.Core.RaylibThreeD
             _lastDistToNearestSeeker.Clear();
             _wasHiderVisiblePrevMap.Clear();
             _prevExploreCountsSeekers.Clear();
+            _lastDistToNearestHider.Clear();
         }
 
         public void Reset(Agent3D newSeeker, Agent3D newHider)
@@ -830,7 +887,28 @@ namespace ToolUse.Core.RaylibThreeD
             EnsureAgentOnValidCell(Seeker);
             EnsureAgentOnValidCell(Hider);
 
+            // Полный сброс исследования и знаний
             Seeker.ResetExploration();
+            Seeker.KnownWalls.Clear();
+            Hider.ResetExploration();
+            Hider.KnownWalls.Clear();
+
+            if (Seekers != null && Seekers.Count > 0)
+            {
+                foreach (var s in Seekers)
+                {
+                    s.ResetExploration();
+                    s.KnownWalls.Clear();
+                }
+            }
+            if (Hiders != null && Hiders.Count > 0)
+            {
+                foreach (var h in Hiders)
+                {
+                    h.ResetExploration();
+                    h.KnownWalls.Clear();
+                }
+            }
 
             _prevSeekerState = null;
             _prevHiderState = null;
@@ -852,6 +930,7 @@ namespace ToolUse.Core.RaylibThreeD
             _lastDistToNearestSeeker.Clear();
             _wasHiderVisiblePrevMap.Clear();
             _prevExploreCountsSeekers.Clear();
+            _lastDistToNearestHider.Clear();
 
             CheckNaN(Seeker.Position, "Reset:Seeker.Position");
             CheckNaN(Hider.Position, "Reset:Hider.Position");
@@ -859,8 +938,6 @@ namespace ToolUse.Core.RaylibThreeD
 
         public void Draw()
         {
-            Raylib.BeginDrawing();
-            Raylib.ClearBackground(new Color(245, 245, 245, 255));
             Raylib.BeginMode3D(_camera);
             {
                 World.Draw(true);

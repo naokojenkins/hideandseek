@@ -7,6 +7,8 @@ using Raylib_cs;
 using ToolUse.Core.Config;
 using ToolUse.Core.RL;
 using ToolUse.Core.RaylibThreeD;
+using TorchSharp;
+using static TorchSharp.torch;
 
 namespace ToolUse.Sim
 {
@@ -84,6 +86,18 @@ namespace ToolUse.Sim
             config = GameConfig.Instance;
             Console.WriteLine($"[DEBUG] Loaded config: GridSize={config.World.GridSize}, CellSize={config.World.CellSize}");
             Console.WriteLine($"[DEBUG] SessionDurationSeconds = {config.SessionDurationSeconds}");
+
+            // Seeding for reproducibility
+            if (config.Seed != 0)
+            {
+                try { Raylib.SetRandomSeed((uint)config.Seed); } catch { }
+                try
+                {
+                    torch.random.manual_seed(config.Seed);
+                    if (torch.cuda.is_available()) torch.cuda.manual_seed_all(config.Seed);
+                }
+                catch { }
+            }
 
             gridSize = config.World.GridSize;
 
@@ -275,12 +289,6 @@ namespace ToolUse.Sim
                     Directory.CreateDirectory(ModelDir);
                     seekerDQN.SaveAll(SeekerModelPath, SeekerStatePath);
                     hiderDQN.SaveAll(HiderModelPath, HiderStatePath);
-
-                    System.Threading.Thread.Sleep(100);
-                    if (!isExiting)
-                    {
-                        Reset();
-                    }
                 };
 
                 simulation.OnSessionCompleted += sessionCompletedHandler;

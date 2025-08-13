@@ -26,7 +26,8 @@ namespace ToolUse.Core.RL
             Direction = direction;
             CanSee = see;
             IsSeenBySeeker = isSeenBySeeker;
-            KnownWallsFlat = knownWalls ?? Array.Empty<bool>();
+            // Защитное копирование, чтобы состояние не зависело от внешних мутаций knownWalls
+            KnownWallsFlat = knownWalls != null ? knownWalls.ToArray() : Array.Empty<bool>();
         }
 
         // Старый конструктор для обратной совместимости

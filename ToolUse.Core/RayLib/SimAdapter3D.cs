@@ -30,14 +30,16 @@ namespace ToolUse.Core.RaylibThreeD
         private readonly float _rewardWhenVisible;
         private readonly float _rewardWhenHidden;
 
+        // Шаг поворота из конфига
+        private readonly float _rotStepSeeker;
+        private readonly float _rotStepHider;
+
         public SimAdapter3D(World3D world, Agent3D seeker, Agent3D hider)
         {
             _world = world;
             _seeker = seeker;
             _hider = hider;
-            _hider._seeker = _seeker;
-            _hider._world = _world;
-            _seeker._world = _world;
+            // Adapter remains pure: no mutations of agent internals here.
 
             var cfg = GameConfig.Instance;
 
@@ -56,13 +58,17 @@ namespace ToolUse.Core.RaylibThreeD
             _rewardWhenVisible = cfg.Hider.RewardWhenVisible;
             _rewardWhenHidden = cfg.Hider.RewardWhenHidden;
 
+            // Шаги поворота для ролей
+            _rotStepSeeker = cfg.Seeker.RotationStepDegrees;
+            _rotStepHider  = cfg.Hider.RotationStepDegrees;
+
             _oldSeekerPosition = _seeker.Position;
             _oldHiderPosition = _hider.Position;
         }
 
         public State GetSeekerState()
         {
-            int sector = (int)(MathF.Round(_seeker.Direction / 45f) % 8);
+            int sector = (int)MathF.Floor((((_seeker.Direction % 360f) + 360f) % 360f + 22.5f) / 45f) % 8;
             bool[] knownWalls = _seeker.TeamBoard != null
                 ? _seeker.TeamBoard.GetKnownWallsFlat(_world.Size)
                 : _seeker.GetKnownWallsFlat(_world.Size);
@@ -81,7 +87,7 @@ namespace ToolUse.Core.RaylibThreeD
 
         public State GetHiderState()
         {
-            int sector = (int)(MathF.Round(_hider.Direction / 45f) % 8);
+            int sector = (int)MathF.Floor((((_hider.Direction % 360f) + 360f) % 360f + 22.5f) / 45f) % 8;
             bool[] knownWalls = _hider.TeamBoard != null
                 ? _hider.TeamBoard.GetKnownWallsFlat(_world.Size)
                 : _hider.GetKnownWallsFlat(_world.Size);
@@ -93,7 +99,7 @@ namespace ToolUse.Core.RaylibThreeD
                 _seeker.GridX,
                 _seeker.GridZ,
                 sector,
-                IsVisible(),
+                _hider.CanSee(_seeker, _world),
                 knownWalls,
                 isSeenBySeeker
             );
@@ -121,11 +127,13 @@ namespace ToolUse.Core.RaylibThreeD
             }
             else if (agent == _hider)
             {
-                proximityMultiplier = _proximityRewardMultiplierHider;
+                // Для Hider поощряем увеличение дистанции: множитель должен быть отрицательным
+                proximityMultiplier = _proximityRewardMultiplierHider > 0 ? -_proximityRewardMultiplierHider : _proximityRewardMultiplierHider;
                 rotationPenalty = _rotationPenaltyHider;
                 noProgressPenalty = _noProgressPenaltyHider;
 
-                reward += _hider.IsSeenBy(_seeker, _world) ? _rewardWhenVisible : _rewardWhenHidden;
+                // При видимости — штраф, при скрытности — награда
+                reward += _hider.IsSeenBy(_seeker, _world) ? -_rewardWhenVisible : _rewardWhenHidden;
             }
             else
             {
@@ -157,13 +165,15 @@ namespace ToolUse.Core.RaylibThreeD
             _oldSeekerPosition = _seeker.Position;
             _oldHiderPosition = _hider.Position;
 
+            float rot = agent.IsSeeker ? _rotStepSeeker : _rotStepHider;
+
             switch (action)
             {
                 case 0:
-                    agent.Rotate(-10f); // Влево
+                    agent.Rotate(-rot); // Влево
                     break;
                 case 1:
-                    agent.Rotate(+10f); // Вправо
+                    agent.Rotate(+rot); // Вправо
                     break;
                 case 2:
                     // Вперёд (движение происходит отдельно)

@@ -19,6 +19,8 @@ namespace ToolUse.Core.RL
         public int StateSize { get; set; }  // для проверки совместимости состояния
         public int ActionSize { get; set; } // для проверки совместимости действий
         public List<Experience> Buffer { get; set; } = new();
+        // Не влияет на поведение при загрузке, только для информации
+        public int Seed { get; set; }
     }
 
     public class DQNAgent
@@ -34,7 +36,7 @@ namespace ToolUse.Core.RL
         private readonly int replayBufferSize;
         private readonly PrioritizedReplayBuffer buffer;
         private readonly torch.Device device;
-        private readonly Random rng = new Random();
+        private readonly Random rng;
 
         private readonly DQNModel model;
         private readonly DQNModel targetModel;
@@ -98,6 +100,10 @@ namespace ToolUse.Core.RL
 
             device = deviceOverride ?? (torch.cuda.is_available() ? torch.CUDA : torch.CPU);
 
+            // Deterministic RNG from config seed (if provided)
+            var cfgSeed = GameConfig.Instance.Seed;
+            rng = cfgSeed != 0 ? new Random(cfgSeed) : new Random();
+
             model = new DQNModel(stateSize, actionSize, dqnCfg.Hidden1, dqnCfg.Hidden2).to(device);
             targetModel = new DQNModel(stateSize, actionSize, dqnCfg.Hidden1, dqnCfg.Hidden2).to(device);
 
@@ -106,7 +112,7 @@ namespace ToolUse.Core.RL
             else
                 optimizer = torch.optim.Adam(model.parameters(), dqnCfg.LearningRate);
 
-            buffer = new PrioritizedReplayBuffer(replayBufferSize);
+            buffer = new PrioritizedReplayBuffer(replayBufferSize, rng: rng);
 
             UpdateTargetModel();
         }
@@ -294,9 +300,8 @@ namespace ToolUse.Core.RL
 
         private float CalcBeta()
         {
-            if (betaStart >= betaEnd) return betaEnd;
-            var t = Math.Min(1.0f, learnSteps / (float)betaFrames);
-            return betaStart + (betaEnd - betaStart) * t;
+            // Централизованный расчёт beta через конфиг (линейная интерполяция с насыщением)
+            return GameConfig.Instance.DQN.GetBetaAtStep(learnSteps);
         }
 
         private void UpdateTargetModel()
@@ -340,7 +345,8 @@ namespace ToolUse.Core.RL
                 Steps = steps,
                 StateSize = stateSize,
                 ActionSize = actionSize,
-                Buffer = buffer.ToList()
+                Buffer = buffer.ToList(),
+                Seed = GameConfig.Instance.Seed
             };
             File.WriteAllText(statePath, JsonConvert.SerializeObject(agentState, Formatting.Indented));
             Console.WriteLine($"[DEBUG] Model and state saved to {weightsPath}, {statePath}");
@@ -472,11 +478,13 @@ namespace ToolUse.Core.RL
         private readonly List<PrioritizedExperience> buffer = new();
         private readonly float alpha = 0.6f;
         private readonly float epsilon = 1e-6f;
+        private readonly Random rnd;
 
-        public PrioritizedReplayBuffer(int capacity, float alpha = 0.6f)
+        public PrioritizedReplayBuffer(int capacity, float alpha = 0.6f, Random? rng = null)
         {
             this.capacity = capacity;
             this.alpha = alpha;
+            this.rnd = rng ?? new Random();
         }
 
         public int Count => buffer.Count;
@@ -508,7 +516,6 @@ namespace ToolUse.Core.RL
                 cdf[i] = cum;
             }
 
-            var rnd = new Random();
             var indices = new List<int>(batchSize);
 
             if (stratified)

@@ -65,6 +65,18 @@ namespace ToolUse.Core.Config
         /// </summary>
         public int Seed { get; set; } = 12345;
 
+        // --- Параметры симуляции (ранее были захардкожены) ---
+        /// <summary> Повтор действий (action repeat) для среды. </summary>
+        public int ActionRepeat { get; set; } = 2;
+        /// <summary> Интервал проверки видимости (сек). </summary>
+        public float VisibilityCheckInterval { get; set; } = 0.05f;
+        /// <summary> Порог изменения дистанции для детектора «нет прогресса». </summary>
+        public float NoProgressDistanceEps { get; set; } = 0.05f;
+        /// <summary> Время без прогресса до рестарта эпизода (сек). </summary>
+        public float NoProgressSeconds { get; set; } = 5f;
+        /// <summary> Минимальная стартовая дистанция между Seeker и Hider при ресете. </summary>
+        public float MinInitialSeparation { get; set; } = 5f;
+
         /// <summary>
         /// Приватный загрузчик (используйте только через Instance).
         /// </summary>
@@ -157,6 +169,8 @@ namespace ToolUse.Core.Config
         public float AgentRadius { get; set; } = 0.3f;
         /// <summary> Скорость агента. </summary>
         public float Speed { get; set; } = 2.0f;
+        /// <summary> Шаг поворота при дискретных действиях (градусы). </summary>
+        public float RotationStepDegrees { get; set; } = 10.0f;
 
         /// <summary> Количество агентов данной роли. </summary>
         public int Count { get; set; } = 2;
@@ -235,5 +249,20 @@ namespace ToolUse.Core.Config
         public int BetaFrames { get; set; } = 100000;
         /// <summary> Использовать стратифицированную выборку из PER. </summary>
         public bool UseStratifiedSampling { get; set; } = true;
+
+/// <summary>
+/// Вычисляет текущее значение beta на шаге обучения step:
+/// линейная интерполяция от BetaStart к BetaEnd за BetaFrames шагов с насыщением.
+/// </summary>
+public float GetBetaAtStep(int step)
+{
+    if (BetaFrames <= 0) return BetaEnd;
+    if (step <= 0) return BetaStart;
+    if (step >= BetaFrames) return BetaEnd;
+
+    float t = (float)step / BetaFrames;
+    t = Math.Clamp(t, 0f, 1f);
+    return BetaStart + (BetaEnd - BetaStart) * t;
+}
     }
 }
