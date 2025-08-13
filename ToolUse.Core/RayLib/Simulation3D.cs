@@ -86,6 +86,9 @@ namespace ToolUse.Core.RaylibThreeD
         private bool _catchBonusGiven = false;
         private bool _wasHiderVisiblePrev = false;
 
+        // Флаг, чтобы выходить из Update в кадре, где произошел Restart
+        private bool _justRestarted = false;
+
         static Simulation3D()
         {
             LoadTotalSessions();
@@ -244,6 +247,13 @@ namespace ToolUse.Core.RaylibThreeD
         {
             Timer += deltaTime;
             UpdateRLAgents(deltaTime);
+
+            if (_justRestarted)
+            {
+                _justRestarted = false;
+                return;
+            }
+
             UpdateCamera();
 
             _lastVisibilityCheck += deltaTime;
@@ -271,6 +281,7 @@ namespace ToolUse.Core.RaylibThreeD
             {
                 try { OnSessionCompleted?.Invoke(); } catch { }
                 Restart();
+                return;
             }
         }
 
@@ -728,6 +739,8 @@ namespace ToolUse.Core.RaylibThreeD
 
         public void Restart()
         {
+            _justRestarted = true;
+
             // Log previous session metrics before resetting
             if (_framesInSession > 0)
                 AppendSessionMetrics();
