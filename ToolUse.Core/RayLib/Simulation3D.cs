@@ -12,7 +12,7 @@ using System.Collections.Generic;
 
 namespace ToolUse.Core.RaylibThreeD
 {
-    public class Simulation3D
+    public partial class Simulation3D
     {
         private float _lastHiderDistance = 0f;
         public World3D World { get; }
@@ -1185,11 +1185,5 @@ namespace ToolUse.Core.RaylibThreeD
         }
 
         public static void ForceSaveTotalSessions() => SaveTotalSessions();
-
-        private class SessionCounterData
-        {
-            public int TotalSessions { get; set; }
-            public DateTime LastUpdate { get; set; }
-        }
     }
 }

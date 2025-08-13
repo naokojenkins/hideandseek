@@ -11,18 +11,6 @@ using ToolUse.Core.Config;
 
 namespace ToolUse.Core.RL
 {
-    [Serializable]
-    public class DQNAgentState
-    {
-        public float Epsilon { get; set; }
-        public int Steps { get; set; }
-        public int StateSize { get; set; }  // для проверки совместимости состояния
-        public int ActionSize { get; set; } // для проверки совместимости действий
-        public List<Experience> Buffer { get; set; } = new();
-        // Не влияет на поведение при загрузке, только для информации
-        public int Seed { get; set; }
-    }
-
     public class DQNAgent
     {
         private readonly int stateSize;
@@ -34,7 +22,7 @@ namespace ToolUse.Core.RL
         private float epsilon;
         private readonly int batchSize;
         private readonly int replayBufferSize;
-        private readonly PrioritizedReplayBuffer buffer;
+        private readonly IReplayBuffer buffer;
         private readonly torch.Device device;
         private readonly Random rng;
 
@@ -45,6 +33,12 @@ namespace ToolUse.Core.RL
         private int updateTargetEvery;
         private int steps = 0;
         private readonly bool useDoubleDQN = true;
+
+        // Abstractions
+        private readonly ILossCalculator lossCalculator;
+        private readonly ITargetUpdater targetUpdater;
+        private readonly IExplorationPolicy explorationPolicy;
+        private readonly IOptimizerFactory optimizerFactory;
 
         // New training controls
         private readonly int warmupSize;
@@ -63,6 +57,7 @@ namespace ToolUse.Core.RL
         private readonly float betaEnd;
         private readonly int betaFrames;
         private readonly bool useStratifiedSampling;
+        private readonly IBetaScheduler betaScheduler;
         private int learnSteps = 0;
 
         // Logging
@@ -97,6 +92,7 @@ namespace ToolUse.Core.RL
             this.betaEnd = dqnCfg.BetaEnd;
             this.betaFrames = Math.Max(1, dqnCfg.BetaFrames);
             this.useStratifiedSampling = dqnCfg.UseStratifiedSampling;
+            this.betaScheduler = new LinearBetaScheduler(this.betaStart, this.betaEnd, this.betaFrames);
 
             device = deviceOverride ?? (torch.cuda.is_available() ? torch.CUDA : torch.CPU);
 
@@ -113,6 +109,16 @@ namespace ToolUse.Core.RL
                 optimizer = torch.optim.Adam(model.parameters(), dqnCfg.LearningRate);
 
             buffer = new PrioritizedReplayBuffer(replayBufferSize, rng: rng);
+
+            // Strategy components
+            lossCalculator = useHuberLoss ? new HuberLossCalculator() : new MSELossCalculator();
+            targetUpdater = useSoftTarget ? new SoftTargetUpdater(tau) : new HardTargetUpdater(updateTargetEvery);
+            explorationPolicy = new EpsilonGreedyPolicy(epsilonStart, epsilonMin, epsilonDecay) { Epsilon = epsilonStart };
+            epsilon = explorationPolicy.Epsilon;
+
+            // Optimizer factory
+            optimizerFactory = new AdamOptimizerFactory();
+            optimizer = optimizerFactory.Create(model);
 
             UpdateTargetModel();
         }
@@ -161,7 +167,7 @@ namespace ToolUse.Core.RL
             var input = torch.tensor(state, device: device).reshape(1, stateSize);
             CheckNaN(input, "ChooseAction:tensor_input");
 
-                            if (rng.NextDouble() < epsilon)
+                            if (explorationPolicy.ShouldExplore(rng))
                 return rng.Next(actionSize);
 
             using (torch.no_grad())
@@ -252,11 +258,7 @@ namespace ToolUse.Core.RL
 
                 var weightsTensor = torch.tensor(weightsArr, dtype: ScalarType.Float32, device: device).unsqueeze(1);
 
-                torch.Tensor lossTensor;
-                if (useHuberLoss)
-                    lossTensor = functional.smooth_l1_loss(qValues, targets, Reduction.None);
-                else
-                    lossTensor = functional.mse_loss(qValues, targets, Reduction.None);
+                torch.Tensor lossTensor = lossCalculator.Calculate(qValues, targets);
 
                 var loss = (lossTensor * weightsTensor).mean();
 
@@ -279,13 +281,10 @@ namespace ToolUse.Core.RL
                 learnSteps++;
                 steps++;
 
-                if (useSoftTarget)
-                    SoftUpdateTargetModel(tau);
-                else if (steps % updateTargetEvery == 0)
-                    UpdateTargetModel();
+                targetUpdater.Update(model, targetModel, steps);
 
-                if (epsilon > epsilonMin)
-                    epsilon *= epsilonDecay;
+                                    explorationPolicy.Step();
+                                    epsilon = explorationPolicy.Epsilon;
 
                 // simple EMA loss log
                 float l = loss.ToSingle();
@@ -300,8 +299,7 @@ namespace ToolUse.Core.RL
 
         private float CalcBeta()
         {
-            // Централизованный расчёт beta через конфиг (линейная интерполяция с насыщением)
-            return GameConfig.Instance.DQN.GetBetaAtStep(learnSteps);
+            return betaScheduler.GetBeta(learnSteps);
         }
 
         private void UpdateTargetModel()
@@ -384,6 +382,7 @@ namespace ToolUse.Core.RL
                         if (stateSizeOk && actionSizeOk)
                         {
                             epsilon = state.Epsilon;
+                            if (explorationPolicy != null) explorationPolicy.Epsilon = epsilon;
                             steps = state.Steps;
 
                             buffer.Clear();
@@ -424,190 +423,5 @@ namespace ToolUse.Core.RL
         }
     }
 
-    public class DQNModel : Module
-    {
-        private readonly Linear fc1;
-        private readonly Linear fc2;
-        private readonly Linear valueStream;
-        private readonly Linear advantageStream;
 
-        public DQNModel(int inputSize, int outputSize, int hidden1 = 256, int hidden2 = 256)
-            : base("DQNModel")
-        {
-            fc1 = Linear(inputSize, hidden1);
-            fc2 = Linear(hidden1, hidden2);
-            valueStream = Linear(hidden2, 1);
-            advantageStream = Linear(hidden2, outputSize);
-            RegisterComponents();
-        }
-
-        public torch.Tensor forward(torch.Tensor x)
-        {
-            x = functional.relu(fc1.forward(x));
-            x = functional.relu(fc2.forward(x));
-            var value = valueStream.forward(x);
-            var advantage = advantageStream.forward(x);
-            return value + (advantage - advantage.mean(new long[] { 1 }, keepdim: true));
-        }
-    }
-
-    [Serializable]
-    public class Experience
-    {
-        public float[] State;
-        public long Action;
-        public float Reward;
-        public float[] NextState;
-        public bool Done;
-
-        public Experience(float[] state, long action, float reward, float[] nextState, bool done)
-        {
-            State = state;
-            Action = action;
-            Reward = reward;
-            NextState = nextState;
-            Done = done;
-        }
-    }
-
-    public class PrioritizedReplayBuffer : IEnumerable<Experience>
-    {
-        private class PrioritizedExperience
-        {
-            public Experience Experience { get; set; }
-            public float Priority { get; set; }
-        }
-
-        private readonly int capacity;
-        private readonly List<PrioritizedExperience> buffer = new();
-        private readonly float alpha = 0.6f;
-        private readonly float epsilon = 1e-6f;
-        private readonly Random rnd;
-
-        public PrioritizedReplayBuffer(int capacity, float alpha = 0.6f, Random? rng = null)
-        {
-            this.capacity = capacity;
-            this.alpha = alpha;
-            this.rnd = rng ?? new Random();
-        }
-
-        public int Count => buffer.Count;
-
-        public void Add(Experience exp, float error = 1.0f)
-        {
-            buffer.Add(new PrioritizedExperience
-            {
-                Experience = exp,
-                Priority = (float)Math.Pow(Math.Abs(error) + epsilon, alpha)
-            });
-
-            if (buffer.Count > capacity)
-                buffer.RemoveAt(0);
-        }
-
-        public (float[][] States, long[] Actions, float[] Rewards, float[][] NextStates, bool[] Dones, float[] Weights, int[] Indices)
-            Sample(int batchSize, float beta, bool stratified)
-        {
-            float totalPriority = buffer.Sum(x => x.Priority);
-            if (totalPriority <= 0f) totalPriority = 1e-6f;
-
-            float[] probabilities = buffer.Select(x => x.Priority / totalPriority).ToArray();
-            var cdf = new float[probabilities.Length];
-            float cum = 0f;
-            for (int i = 0; i < probabilities.Length; i++)
-            {
-                cum += probabilities[i];
-                cdf[i] = cum;
-            }
-
-            var indices = new List<int>(batchSize);
-
-            if (stratified)
-            {
-                for (int i = 0; i < batchSize; i++)
-                {
-                    float u0 = i / (float)batchSize;
-                    float u1 = (i + 1) / (float)batchSize;
-                    float u = u0 + (float)rnd.NextDouble() * (u1 - u0);
-                    // бинарный поиск по cdf
-                    int lo = 0, hi = cdf.Length - 1, found = hi;
-                    while (lo <= hi)
-                    {
-                        int mid = (lo + hi) / 2;
-                        if (u <= cdf[mid])
-                        {
-                            found = mid;
-                            hi = mid - 1;
-                        }
-                        else lo = mid + 1;
-                    }
-                    indices.Add(found);
-                }
-            }
-            else
-            {
-                for (int i = 0; i < batchSize; i++)
-                {
-                    float u = (float)rnd.NextDouble();
-                    int lo = 0, hi = cdf.Length - 1, found = hi;
-                    while (lo <= hi)
-                    {
-                        int mid = (lo + hi) / 2;
-                        if (u <= cdf[mid])
-                        {
-                            found = mid;
-                            hi = mid - 1;
-                        }
-                        else lo = mid + 1;
-                    }
-                    indices.Add(found);
-                }
-            }
-
-            // Importance-sampling weights
-            int N = buffer.Count;
-            float[] weights = indices.Select(idx =>
-            {
-                float p = Math.Max(probabilities[idx], 1e-8f);
-                return (float)Math.Pow(N * p, -beta);
-            }).ToArray();
-
-            float maxWeight = weights.Max();
-            if (maxWeight <= 0f) maxWeight = 1f;
-            weights = weights.Select(w => w / maxWeight).ToArray();
-
-            return (
-                indices.Select(i => buffer[i].Experience.State).ToArray(),
-                indices.Select(i => buffer[i].Experience.Action).ToArray(),
-                indices.Select(i => buffer[i].Experience.Reward).ToArray(),
-                indices.Select(i => buffer[i].Experience.NextState).ToArray(),
-                indices.Select(i => buffer[i].Experience.Done).ToArray(),
-                weights,
-                indices.ToArray()
-            );
-        }
-
-        public IEnumerator<Experience> GetEnumerator() => buffer.Select(x => x.Experience).GetEnumerator();
-        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => buffer.Select(x => x.Experience).GetEnumerator();
-        public void Clear() => buffer.Clear();
-        public List<Experience> ToList() => buffer.Select(x => x.Experience).ToList();
-
-        public void UpdatePriorities(int[] indices, float[] errors)
-        {
-            for (int i = 0; i < indices.Length; i++)
-            {
-                int idx = indices[i];
-                float error = errors[i];
-                buffer[idx].Priority = (float)Math.Pow(Math.Abs(error) + epsilon, alpha);
-            }
-        }
-    }
-
-    public static class TensorExtensions
-    {
-        public static float[] ToArray_Float(this torch.Tensor tensor)
-        {
-            return tensor.cpu().data<float>().ToArray();
-        }
-    }
 }
