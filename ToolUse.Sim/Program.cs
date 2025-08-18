@@ -117,6 +117,11 @@ namespace ToolUse.Sim
             seekerDQN = new DQNAgent(stateSize, actionSize, config.DQN);
             hiderDQN  = new DQNAgent(stateSize, actionSize, config.DQN);
 
+            // Hider: при видимости действует жадно (без exploration), если включено в конфиге
+            hiderDQN.SetForceExploitWhenSeen(config.Hider.ForceExploitWhenSeen);
+            // Для Seeker не используем эту механику
+            seekerDQN.SetForceExploitWhenSeen(false);
+
             // Создаём папку для моделей
             Directory.CreateDirectory(ModelDir);
 
@@ -143,6 +148,7 @@ namespace ToolUse.Sim
                             break;
 
                         simulation?.HandleInput();
+                        UpdateDqnContexts();
                         simulation?.Update(1f / FPS);
 
                         Raylib.BeginDrawing();
@@ -184,6 +190,7 @@ namespace ToolUse.Sim
                     }
                     else
                     {
+                        UpdateDqnContexts();
                         simulation?.Update(1f / FPS);
 
                         // Обновление каждую секунду
@@ -229,6 +236,22 @@ namespace ToolUse.Sim
             Console.WriteLine($"Обнаружено ячеек (Seeker): {simulation.Seeker.GetTotalExploredCount()}");
             Console.WriteLine($"Обнаружено ячеек (Hider): {simulation.Hider.GetTotalExploredCount()}");
             Console.WriteLine("==============================");
+        }
+
+        // Выставляет внешние флаги для DQN перед шагом симуляции
+        static void UpdateDqnContexts()
+        {
+            if (simulation == null) return;
+            try
+            {
+                bool isHiderSeen = simulation.Seeker.CanSee(simulation.Hider, simulation.World);
+                hiderDQN?.SetExternalContext(new ExternalContext { IsHider = true, IsHiderSeen = isHiderSeen });
+                seekerDQN?.SetExternalContext(new ExternalContext { IsHider = false, IsHiderSeen = false });
+            }
+            catch
+            {
+                // на случай, если симуляция ещё не инициализирована полностью
+            }
         }
 
         static void Shutdown()

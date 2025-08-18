@@ -95,18 +95,72 @@ namespace ToolUse.Core.Config
                 if (File.Exists(path))
                 {
                     string json = File.ReadAllText(path);
-                    return JsonConvert.DeserializeObject<GameConfig>(json) ?? new GameConfig();
+                    var cfg = JsonConvert.DeserializeObject<GameConfig>(json) ?? new GameConfig();
+                    NormalizeConfig(cfg);
+                    return cfg;
                 }
                 else
                 {
                     Console.WriteLine($"[DEBUG] Config file not found: {path}, using defaults");
-                    return new GameConfig();
+                    var cfg = new GameConfig();
+                    NormalizeConfig(cfg);
+                    return cfg;
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[ERROR] Failed to load config: {ex.Message}");
-                return new GameConfig();
+                var cfg = new GameConfig();
+                NormalizeConfig(cfg);
+                return cfg;
+            }
+
+            // Локальные помощники нормализации: приводят знаки к целям ролей
+            void NormalizeConfig(GameConfig cfg)
+            {
+                bool seekerChanged = NormalizeSeeker(cfg.Seeker);
+                bool hiderChanged  = NormalizeHider(cfg.Hider);
+                if (seekerChanged) Console.WriteLine("[CONFIG] Normalized Seeker rewards/signs to match hide-and-seek objectives.");
+                if (hiderChanged)  Console.WriteLine("[CONFIG] Normalized Hider rewards/signs to match hide-and-seek objectives.");
+            }
+
+            bool NormalizeSeeker(AgentConfig a)
+            {
+                bool changed = false;
+
+                // Видимость Hider должна поощряться
+                if (a.RewardWhenHiderVisible < 0) { a.RewardWhenHiderVisible = Math.Abs(a.RewardWhenHiderVisible); changed = true; }
+                if (a.PointsPerSecondWhenHiderVisible < 0) { a.PointsPerSecondWhenHiderVisible = Math.Abs(a.PointsPerSecondWhenHiderVisible); changed = true; }
+
+                // Скрытность Hider должна штрафоваться
+                if (a.RewardWhenHiderHidden > 0) { a.RewardWhenHiderHidden = -Math.Abs(a.RewardWhenHiderHidden); changed = true; }
+                if (a.PointsPerSecondWhenHiderHidden > 0) { a.PointsPerSecondWhenHiderHidden = -Math.Abs(a.PointsPerSecondWhenHiderHidden); changed = true; }
+
+                // Бонус за поимку — неотрицательный
+                if (a.CatchBonus < 0) { a.CatchBonus = Math.Abs(a.CatchBonus); changed = true; }
+
+                return changed;
+            }
+
+            bool NormalizeHider(AgentConfig a)
+            {
+                bool changed = false;
+
+                // Быть видимым должно штрафоваться
+                if (a.RewardWhenVisible > 0) { a.RewardWhenVisible = -Math.Abs(a.RewardWhenVisible); changed = true; }
+                if (a.PointsPerSecondWhenVisible > 0) { a.PointsPerSecondWhenVisible = -Math.Abs(a.PointsPerSecondWhenVisible); changed = true; }
+                if (a.RewardWhenSeenBySeeker > 0) { a.RewardWhenSeenBySeeker = -Math.Abs(a.RewardWhenSeenBySeeker); changed = true; }
+
+                // Быть скрытым должно поощряться
+                if (a.RewardWhenHidden < 0) { a.RewardWhenHidden = Math.Abs(a.RewardWhenHidden); changed = true; }
+                if (a.PointsPerSecondWhenHidden < 0) { a.PointsPerSecondWhenHidden = Math.Abs(a.PointsPerSecondWhenHidden); changed = true; }
+
+                // Позитивные бонусы
+                if (a.EscapeBonus < 0) { a.EscapeBonus = Math.Abs(a.EscapeBonus); changed = true; }
+                if (a.RewardWhenIncreasingDistance < 0) { a.RewardWhenIncreasingDistance = Math.Abs(a.RewardWhenIncreasingDistance); changed = true; }
+                if (a.RewardWhenHiddenBehindWall < 0) { a.RewardWhenHiddenBehindWall = Math.Abs(a.RewardWhenHiddenBehindWall); changed = true; }
+
+                return changed;
             }
         }
     }
@@ -137,13 +191,13 @@ namespace ToolUse.Core.Config
         /// <summary> Награда Seeker, если Hider скрыт. </summary>
         public float RewardWhenHiderHidden { get; set; } = -0.05f;
         /// <summary> Награда Hider, если его видно. </summary>
-        public float RewardWhenVisible { get; set; } = 0.6f;
+        public float RewardWhenVisible { get; set; } = -0.6f;
         /// <summary> Награда Hider, если его не видно. </summary>
         public float RewardWhenHidden { get; set; } = 0.15f;
 
         // === Дополнительные награды для Hider ===
         /// <summary> Награда Hider, если его видит Seeker. </summary>
-        public float RewardWhenSeenBySeeker { get; set; } = 0.5f;
+        public float RewardWhenSeenBySeeker { get; set; } = -0.5f;
         /// <summary> Награда Hider за увеличение расстояния. </summary>
         public float RewardWhenIncreasingDistance { get; set; } = 0.2f;
         /// <summary> Награда Hider за прятки за стеной. </summary>
@@ -189,6 +243,18 @@ namespace ToolUse.Core.Config
         public float RotationPenalty { get; set; } = 0.01f;
         /// <summary> Штраф за отсутствие прогресса. </summary>
         public float NoProgressPenalty { get; set; } = 0.02f;
+
+        /// <summary>
+        /// Если true, агент (для Hider) при том, что его видят, действует жадно на этот шаг
+        /// (игнорирует epsilon-exploration), чтобы удерживать или увеличивать дистанцию.
+        /// </summary>
+        public bool ForceExploitWhenSeen { get; set; } = true;
+
+        /// <summary>
+        /// Включить добавочный shaping награды на стороне агента: если Hider находится в луче/конусе видимости Seeker,
+        /// к базовой награде добавляется RewardWhenSeenBySeeker (знак/величину задаёт конфиг).
+        /// </summary>
+        public bool ApplyVisibilityShapingInAgent { get; set; } = true;
     }
 
     /// <summary>

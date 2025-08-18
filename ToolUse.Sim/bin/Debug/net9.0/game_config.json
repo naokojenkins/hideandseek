@@ -70,6 +70,6 @@
     "Count": 1
   },
   "SessionDurationSeconds": 60,
-  "FramesForCatch": 120,
-  "TimeScale": 8
+  "FramesForCatch": 90,
+  "TimeScale": 1
 }

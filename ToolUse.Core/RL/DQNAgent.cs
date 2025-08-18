@@ -38,7 +38,6 @@ namespace ToolUse.Core.RL
         private readonly ILossCalculator lossCalculator;
         private readonly ITargetUpdater targetUpdater;
         private readonly IExplorationPolicy explorationPolicy;
-        private readonly IOptimizerFactory optimizerFactory;
 
         // New training controls
         private readonly int warmupSize;
@@ -62,6 +61,12 @@ namespace ToolUse.Core.RL
 
         // Logging
         private float emaLoss = 0f;
+
+        // Внешний контекст, выставляемый окружением на шаг (роль/видимость)
+        private ExternalContext externalContext = new ExternalContext();
+
+        // Если true, и агент — Hider, то при видимости действует жадно (без exploration)
+        private bool forceExploitWhenSeen = false;
 
         public DQNAgent(int stateSize, int actionSize, DQNConfig dqnCfg, torch.Device? deviceOverride = null)
         {
@@ -116,9 +121,7 @@ namespace ToolUse.Core.RL
             explorationPolicy = new EpsilonGreedyPolicy(epsilonStart, epsilonMin, epsilonDecay) { Epsilon = epsilonStart };
             epsilon = explorationPolicy.Epsilon;
 
-            // Optimizer factory
-            optimizerFactory = new AdamOptimizerFactory();
-            optimizer = optimizerFactory.Create(model);
+            // Optimizer already configured above (Adam/AdamW)
 
             UpdateTargetModel();
         }
@@ -161,25 +164,54 @@ namespace ToolUse.Core.RL
                 throw new Exception($"[NaN/Inf] {tag}: has Inf");
         }
 
+        /// <summary>
+        /// Устанавливает внешний контекст (роль/видимость) для текущего шага.
+        /// </summary>
+        public void SetExternalContext(ExternalContext ctx)
+        {
+            externalContext = ctx ?? new ExternalContext();
+        }
+
+        /// <summary>
+        /// Включает/выключает режим «жадного действия при видимости» (актуально для Hider).
+        /// </summary>
+        public void SetForceExploitWhenSeen(bool enabled)
+        {
+            forceExploitWhenSeen = enabled;
+        }
+
         public long ChooseAction(float[] state)
         {
             CheckNaN(state, "ChooseAction:input");
             var input = torch.tensor(state, device: device).reshape(1, stateSize);
             CheckNaN(input, "ChooseAction:tensor_input");
 
-                            if (explorationPolicy.ShouldExplore(rng))
-                return rng.Next(actionSize);
+            long action;
+                // Если включено и агент - Hider, а его видят, то принудительно выбираем жадное действие
+                bool forceExploit = forceExploitWhenSeen && externalContext != null && externalContext.IsHider && externalContext.IsHiderSeen;
 
-            using (torch.no_grad())
+                if (!forceExploit && explorationPolicy.ShouldExplore(rng))
             {
-                var qVals = model.forward(input);
-                CheckNaN(qVals, "ChooseAction:Q-values");
-                var t = qVals.argmax(Convert.ToInt64(1));
-                long action = t.item<long>();
-                if (action < 0 || action >= actionSize)
-                    throw new Exception($"[ChooseAction] Invalid action index: {action}");
-                return action;
+                action = rng.Next(actionSize);
             }
+            else
+            {
+                using (torch.no_grad())
+                {
+                    var qVals = model.forward(input);
+                    CheckNaN(qVals, "ChooseAction:Q-values");
+                    var t = qVals.argmax(Convert.ToInt64(1));
+                    action = t.item<long>();
+                    if (action < 0 || action >= actionSize)
+                        throw new Exception($"[ChooseAction] Invalid action index: {action}");
+                }
+            }
+
+            // Decay epsilon every environment step
+            explorationPolicy.Step();
+            epsilon = explorationPolicy.Epsilon;
+
+            return action;
         }
 
         public void Store(float[] state, long action, float reward, float[] nextState, bool done)
@@ -189,8 +221,26 @@ namespace ToolUse.Core.RL
             if (float.IsNaN(reward) || float.IsInfinity(reward))
                 throw new Exception($"[NaN/Inf] Store:reward={reward}");
 
-            // Reward clipping and scaling
             float r = reward;
+
+            // Visibility-based shaping for Hider: add reward/penalty when seen by Seeker (before clipping/scaling)
+            try
+            {
+                var cfg = GameConfig.Instance;
+                if (externalContext != null &&
+                    externalContext.IsHider &&
+                    cfg.Hider.ApplyVisibilityShapingInAgent &&
+                    externalContext.IsHiderSeen)
+                {
+                    r += cfg.Hider.RewardWhenSeenBySeeker;
+                }
+            }
+            catch
+            {
+                // конфиг/контекст могут быть недоступны на ранних этапах — просто пропускаем shaping
+            }
+
+            // Reward clipping and scaling
             if (rewardClipAbs > 0f)
                 r = Math.Clamp(r, -rewardClipAbs, rewardClipAbs);
             r *= rewardScale;
@@ -282,9 +332,6 @@ namespace ToolUse.Core.RL
                 steps++;
 
                 targetUpdater.Update(model, targetModel, steps);
-
-                                    explorationPolicy.Step();
-                                    epsilon = explorationPolicy.Epsilon;
 
                 // simple EMA loss log
                 float l = loss.ToSingle();
