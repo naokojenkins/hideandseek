@@ -5,10 +5,11 @@ using System.Reflection;
 using Newtonsoft.Json;
 using Raylib_cs;
 using ToolUse.Core.RL;
-using ToolUse.Core.Config;
+                    using ToolUse.Core.Config;
 using ToolUse.Core.RaylibThreeD;
 using System.Linq;
 using System.Collections.Generic;
+using System.Text;
 
 namespace ToolUse.Core.RaylibThreeD
 {
@@ -92,14 +93,30 @@ namespace ToolUse.Core.RaylibThreeD
         private void CheckNaN(float[] arr, string tag)
         {
             for (int i = 0; i < arr.Length; i++)
+            {
                 if (float.IsNaN(arr[i]) || float.IsInfinity(arr[i]))
+                {
+                    try
+                    {
+                        LogNumericIssue(tag, $"Array<float> length={arr.Length}, badIndex={i}, value={arr[i]}");
+                    }
+                    catch { }
                     throw new Exception($"[NaN/Inf] {tag}: Index {i} value {arr[i]}");
+                }
+            }
         }
         private void CheckNaN(Vector3 v, string tag)
         {
             if (float.IsNaN(v.X) || float.IsNaN(v.Y) || float.IsNaN(v.Z) ||
                 float.IsInfinity(v.X) || float.IsInfinity(v.Y) || float.IsInfinity(v.Z))
+            {
+                try
+                {
+                    LogNumericIssue(tag, $"Vector3 value=({v.X}, {v.Y}, {v.Z})");
+                }
+                catch { }
                 throw new Exception($"[NaN/Inf] {tag}: {v}");
+            }
         }
 
         // Вспомогательная проверка без броска исключения
@@ -479,7 +496,40 @@ namespace ToolUse.Core.RaylibThreeD
                     var neighbors = new List<Agent3D>();
                     foreach (var s2 in seekers) if (!ReferenceEquals(s2, s)) neighbors.Add(s2);
                     neighbors.AddRange(hiders);
-                    s.MoveWithCollisionAvoidance(World, deltaTime, neighbors);
+
+                    // Фильтрация проблемных соседей: невалидные позиции или нулевая/NaN дистанция
+                    var filtered = new List<Agent3D>(neighbors.Count);
+                    bool hadOverlaps = false;
+                    foreach (var n in neighbors)
+                    {
+                        if (!IsFiniteVec(s.Position) || !IsFiniteVec(n.Position))
+                        {
+                            try { LogNumericIssue("NeighborsFilter.Seeker", $"Non-finite pos: self={s.Position}, other={n.Position}"); } catch { }
+                            continue;
+                        }
+                        float d = Vector3.Distance(s.Position, n.Position);
+                        if (float.IsNaN(d) || float.IsInfinity(d) || d < 1e-5f)
+                        {
+                            hadOverlaps = true;
+                            try { LogNumericIssue("NeighborsFilter.Seeker", $"Too close/invalid distance: d={d} self={s.Position} other={n.Position}"); } catch { }
+                            continue;
+                        }
+                        filtered.Add(n);
+                    }
+
+                    try
+                    {
+                        s.MoveWithCollisionAvoidance(World, deltaTime, filtered);
+                    }
+                    catch (ArithmeticException ex)
+                    {
+                        try { LogNumericIssue("MoveWithCollisionAvoidance.Seeker", $"ArithmeticException: {ex.Message} self={s.Position} neighbors={filtered.Count} hadOverlaps={hadOverlaps} dt={deltaTime}"); } catch { }
+                        // пропускаем движение в этом кадре
+                    }
+                    catch (Exception ex)
+                    {
+                        try { LogNumericIssue("MoveWithCollisionAvoidance.Seeker", $"Exception: {ex.Message} self={s.Position} neighbors={filtered.Count} hadOverlaps={hadOverlaps} dt={deltaTime}"); } catch { }
+                    }
                 }
             }
             foreach (var h in hiders)
@@ -490,7 +540,39 @@ namespace ToolUse.Core.RaylibThreeD
                     var neighbors = new List<Agent3D>();
                     foreach (var h2 in hiders) if (!ReferenceEquals(h2, h)) neighbors.Add(h2);
                     neighbors.AddRange(seekers);
-                    h.MoveWithCollisionAvoidance(World, deltaTime, neighbors);
+
+                    // Фильтрация проблемных соседей: невалидные позиции или нулевая/NaN дистанция
+                    var filtered = new List<Agent3D>(neighbors.Count);
+                    bool hadOverlaps = false;
+                    foreach (var n in neighbors)
+                    {
+                        if (!IsFiniteVec(h.Position) || !IsFiniteVec(n.Position))
+                        {
+                            try { LogNumericIssue("NeighborsFilter.Hider", $"Non-finite pos: self={h.Position}, other={n.Position}"); } catch { }
+                            continue;
+                        }
+                        float d = Vector3.Distance(h.Position, n.Position);
+                        if (float.IsNaN(d) || float.IsInfinity(d) || d < 1e-5f)
+                        {
+                            hadOverlaps = true;
+                            try { LogNumericIssue("NeighborsFilter.Hider", $"Too close/invalid distance: d={d} self={h.Position} other={n.Position}"); } catch { }
+                            continue;
+                        }
+                        filtered.Add(n);
+                    }
+
+                    try
+                    {
+                        h.MoveWithCollisionAvoidance(World, deltaTime, filtered);
+                    }
+                    catch (ArithmeticException ex)
+                    {
+                        try { LogNumericIssue("MoveWithCollisionAvoidance.Hider", $"ArithmeticException: {ex.Message} self={h.Position} neighbors={filtered.Count} hadOverlaps={hadOverlaps} dt={deltaTime}"); } catch { }
+                    }
+                    catch (Exception ex)
+                    {
+                        try { LogNumericIssue("MoveWithCollisionAvoidance.Hider", $"Exception: {ex.Message} self={h.Position} neighbors={filtered.Count} hadOverlaps={hadOverlaps} dt={deltaTime}"); } catch { }
+                    }
                 }
             }
 
@@ -1234,6 +1316,157 @@ namespace ToolUse.Core.RaylibThreeD
                 File.WriteAllText(SessionCounterFile, json);
             }
             catch { }
+        }
+
+        // Централизованное логирование числовых проблем (NaN/Inf)
+        private void LogNumericIssue(string tag, string details)
+        {
+            try
+            {
+                string logsDir = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "logs");
+                Directory.CreateDirectory(logsDir);
+                string file = Path.Combine(logsDir, "numeric_issues.log");
+                string line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {tag}: {details}";
+                File.AppendAllLines(file, new[] { line });
+            }
+            catch { }
+        }
+
+        private static string FormatVec(Vector3 v)
+        {
+            bool bad = !(float.IsFinite(v.X) && float.IsFinite(v.Y) && float.IsFinite(v.Z));
+            return $"(X={v.X}, Y={v.Y}, Z={v.Z}){(bad ? " [BAD]" : "")}";
+        }
+
+        // Подробная диагностика состояния симуляции
+        public void DumpDiagnostics(Exception? ex = null)
+        {
+            try
+            {
+                string logsDir = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "logs");
+                Directory.CreateDirectory(logsDir);
+                string file = Path.Combine(logsDir, $"diagnostics_{DateTime.Now:yyyyMMdd_HHmmss_fff}.log");
+
+                var sb = new StringBuilder(4096);
+                sb.AppendLine("==== Simulation3D Diagnostics ====");
+                sb.AppendLine($"Time: {DateTime.Now:O}");
+                if (ex != null)
+                {
+                    sb.AppendLine("Exception:");
+                    sb.AppendLine(ex.ToString());
+                }
+
+                sb.AppendLine();
+                sb.AppendLine($"Session: {Session}  TotalSessions: {TotalSessions}");
+                sb.AppendLine($"Timer: {Timer:F6}  SessionDurationSeconds: {sessionDurationSeconds:F6}");
+                sb.AppendLine($"Scores: Seeker={SeekerScore:F6} Hider={HiderScore:F6} Exploration={ExplorationScore:F6}");
+                sb.AppendLine($"Flags: IsHiderVisible={IsHiderVisible} IsHiderCaught={_isHiderCaught} CaughtFrames={_caughtFrames}");
+                sb.AppendLine($"VisibilityCheck: last={_lastVisibilityCheck:F6} interval={_visibilityCheckInterval:F6}");
+                sb.AppendLine($"NoProgress: timer={_noProgressTimer:F6} lastDist={_lastDistanceForProgress:F6} eps={_noProgressDistanceEps:F6} seconds={_noProgressSeconds:F6}");
+                sb.AppendLine($"ActionRepeat={_actionRepeat}");
+
+                // Конфиг-критичные параметры
+                try
+                {
+                    float ts = (!float.IsFinite(Config?.TimeScale ?? 1f) || (Config?.TimeScale ?? 1f) <= 0f) ? 1f : (Config?.TimeScale ?? 1f);
+                    int framesThreshold = Math.Max(1, (int)MathF.Round((Config?.FramesForCatch ?? 1) / ts));
+                    sb.AppendLine("Config:");
+                    sb.AppendLine($"  TimeScale={Config?.TimeScale}");
+                    sb.AppendLine($"  FramesForCatch={Config?.FramesForCatch} -> effective={framesThreshold}");
+                    sb.AppendLine($"  Seeker.RotationStepDegrees={Config?.Seeker.RotationStepDegrees}");
+                    sb.AppendLine($"  Hider.RotationStepDegrees={Config?.Hider.RotationStepDegrees}");
+                }
+                catch (Exception cex)
+                {
+                    sb.AppendLine($"[WARN] Failed to read Config details: {cex.Message}");
+                }
+
+                // Мир и камера
+                try
+                {
+                    sb.AppendLine();
+                    sb.AppendLine("World/Camera:");
+                    sb.AppendLine($"  World.Size={World?.Size}");
+                    sb.AppendLine($"  Camera.Position={FormatVec(_camera.Position)}");
+                    sb.AppendLine($"  Camera.Target={FormatVec(_camera.Target)}");
+                    sb.AppendLine($"  Camera.Up={FormatVec(_camera.Up)}  FovY={_camera.FovY}");
+                }
+                catch (Exception wex)
+                {
+                    sb.AppendLine($"[WARN] Failed to dump world/camera: {wex.Message}");
+                }
+
+                // Агенты
+                try
+                {
+                    var seekers = (Seekers != null && Seekers.Count > 0) ? Seekers : new List<Agent3D> { Seeker };
+                    var hiders  = (Hiders  != null && Hiders.Count  > 0) ? Hiders  : new List<Agent3D> { Hider  };
+
+                    sb.AppendLine();
+                    sb.AppendLine($"Seekers ({seekers.Count}):");
+                    for (int i = 0; i < seekers.Count; i++)
+                    {
+                        var s = seekers[i];
+                        sb.AppendLine($"  S[{i}] Pos={FormatVec(s.Position)} Dir={s.Direction} IsSeeingTarget={s.IsSeeingTarget}");
+                    }
+
+                    sb.AppendLine($"Hiders ({hiders.Count}):");
+                    for (int i = 0; i < hiders.Count; i++)
+                    {
+                        var h = hiders[i];
+                        sb.AppendLine($"  H[{i}] Pos={FormatVec(h.Position)} Dir={h.Direction} IsSeeingTarget={h.IsSeeingTarget}");
+                    }
+                }
+                catch (Exception aex)
+                {
+                    sb.AppendLine($"[WARN] Failed to dump agents: {aex.Message}");
+                }
+
+                // Метрики
+                sb.AppendLine();
+                sb.AppendLine("Metrics:");
+                sb.AppendLine($"  FramesInSession={_framesInSession}  VisibleFrames={_visibleFrames}  SumDistance={_sumDistance:F6}");
+                sb.AppendLine($"  AccSeekerReward={_accSeekerReward:F6}  AccHiderReward={_accHiderReward:F6}");
+
+                // Внутренние карты (только размеры)
+                try
+                {
+                    sb.AppendLine();
+                    sb.AppendLine("Internal maps:");
+                    sb.AppendLine($"  _prevStateSeekers={_prevStateSeekers.Count}");
+                    sb.AppendLine($"  _prevStateHiders={_prevStateHiders.Count}");
+                    sb.AppendLine($"  _prevActionSeekers={_prevActionSeekers.Count}");
+                    sb.AppendLine($"  _prevActionHiders={_prevActionHiders.Count}");
+                    sb.AppendLine($"  _repeatLeftSeekers={_repeatLeftSeekers.Count}");
+                    sb.AppendLine($"  _repeatLeftHiders={_repeatLeftHiders.Count}");
+                    sb.AppendLine($"  _currentActionSeekers={_currentActionSeekers.Count}");
+                    sb.AppendLine($"  _currentActionHiders={_currentActionHiders.Count}");
+                    sb.AppendLine($"  _lastDistToNearestSeeker={_lastDistToNearestSeeker.Count}");
+                    sb.AppendLine($"  _lastDistToNearestHider={_lastDistToNearestHider.Count}");
+                    sb.AppendLine($"  _prevExploreCountsSeekers={_prevExploreCountsSeekers.Count}");
+                }
+                catch (Exception mex)
+                {
+                    sb.AppendLine($"[WARN] Failed to dump maps: {mex.Message}");
+                }
+
+                // Сохранение
+                File.WriteAllText(file, sb.ToString());
+
+                try
+                {
+                    Console.WriteLine($"[DEBUG] Диагностика сохранена: {file}");
+                }
+                catch { }
+            }
+            catch (Exception ex2)
+            {
+                try
+                {
+                    Console.WriteLine($"[ERROR] Не удалось сохранить диагностику: {ex2}");
+                }
+                catch { }
+            }
         }
 
         public static void ForceSaveTotalSessions() => SaveTotalSessions();

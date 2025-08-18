@@ -199,7 +199,15 @@ namespace ToolUse.Sim
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[ERROR] Критическая ошибка: {ex.Message}");
+                Console.WriteLine($"[ERROR] Критическая ошибка: {ex}");
+                try
+                {
+                    simulation?.DumpDiagnostics(ex);
+                }
+                catch (Exception dx)
+                {
+                    Console.WriteLine($"[ERROR] DumpDiagnostics failed: {dx}");
+                }
             }
             finally
             {
@@ -287,14 +295,46 @@ namespace ToolUse.Sim
                 var seekers = new List<Agent3D>(seekerCount);
                 var hiders  = new List<Agent3D>(hiderCount);
 
+                // Локальная функция сравнения по XZ (игнорируем Y)
+                static bool TooCloseXZ(Vector3 a, Vector3 b, float minDist)
+                {
+                    float dx = a.X - b.X;
+                    float dz = a.Z - b.Z;
+                    return (dx * dx + dz * dz) < (minDist * minDist);
+                }
+
+                float sameTeamMinSeparationS = MathF.Max(2f * seekerRadius, 0.6f);
+                float sameTeamMinSeparationH = MathF.Max(2f * hiderRadius, 0.6f);
+                float crossTeamMinSeparation = MathF.Max(config.MinInitialSeparation, 1.0f);
+
+                // Seeker'ы: избегаем совпадений внутри команды
                 for (int i = 0; i < seekerCount; i++)
                 {
-                    Vector3 pos = world.GetRandomValidAgentPosition(seekerRadius, 0f);
+                    Vector3 pos;
+                    int attempts = 0;
+                    do
+                    {
+                        pos = world.GetRandomValidAgentPosition(seekerRadius, 0f);
+                        attempts++;
+                        if (attempts > 200) break; // защита от бесконечного цикла
+                    }
+                    while (seekers.Any(s => TooCloseXZ(s.Position, pos, sameTeamMinSeparationS)));
                     seekers.Add(new Agent3D(pos, true, Raylib.GetRandomValue(0, 359)));
                 }
+
+                // Hider'ы: избегаем совпадений внутри команды и слишком близких к любым Seeker'ам
                 for (int i = 0; i < hiderCount; i++)
                 {
-                    Vector3 pos = world.GetRandomValidAgentPosition(hiderRadius, 0f);
+                    Vector3 pos;
+                    int attempts = 0;
+                    do
+                    {
+                        pos = world.GetRandomValidAgentPosition(hiderRadius, 0f);
+                        attempts++;
+                        if (attempts > 200) break;
+                    }
+                    while (hiders.Any(h => TooCloseXZ(h.Position, pos, sameTeamMinSeparationH)) ||
+                           seekers.Any(s => TooCloseXZ(s.Position, pos, crossTeamMinSeparation)));
                     hiders.Add(new Agent3D(pos, false, Raylib.GetRandomValue(0, 359)));
                 }
 
