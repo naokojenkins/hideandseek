@@ -138,6 +138,11 @@ namespace ToolUse.Sim
                 Raylib.SetTargetFPS(FPS);
             }
 
+            // Настройка ускорения времени: несколько подшагов симуляции за кадр при постоянном dt
+            int stepLoops = Math.Max(1, (int)MathF.Round(MathF.Max(1f, config.TimeScale)));
+            float stepDt = 1f / FPS;
+            Console.WriteLine($"[DEBUG] TimeScale={config.TimeScale} => loops/frame={stepLoops}, dt/loop={stepDt:F4}s, sim-sec per real-sec ≈ {stepLoops}");
+
             try
             {
                 while (!isExiting)
@@ -148,8 +153,13 @@ namespace ToolUse.Sim
                             break;
 
                         simulation?.HandleInput();
-                        UpdateDqnContexts();
-                        simulation?.Update(1f / FPS);
+
+                        // Несколько подшагов симуляции за кадр при фиксированном dt
+                        for (int sub = 0; sub < stepLoops; sub++)
+                        {
+                            UpdateDqnContexts();
+                            simulation?.Update(stepDt);
+                        }
 
                         Raylib.BeginDrawing();
                         Raylib.ClearBackground(new Color(245, 245, 245, 255));
@@ -190,8 +200,12 @@ namespace ToolUse.Sim
                     }
                     else
                     {
-                        UpdateDqnContexts();
-                        simulation?.Update(1f / FPS);
+                        // Несколько подшагов симуляции за «итерацию» при фиксированном dt
+                        for (int sub = 0; sub < stepLoops; sub++)
+                        {
+                            UpdateDqnContexts();
+                            simulation?.Update(stepDt);
+                        }
 
                         // Обновление каждую секунду
                         if ((DateTime.Now - lastConsoleUpdate).TotalSeconds >= 1)

@@ -296,14 +296,13 @@ namespace ToolUse.Core.RaylibThreeD
 
         public void Update(float deltaTime)
         {
-            // Масштабируем логическое время симуляции (с защитой от NaN/Inf/некорректных значений)
-            float timeScale = (!float.IsFinite(Config.TimeScale) || Config.TimeScale <= 0f) ? 1.0f : Config.TimeScale;
-            float dt = deltaTime * timeScale;
+            // Используем фиксированный dt: ускорение времени выполняется в Program.cs за счёт подшагов
+            float dt = deltaTime;
 
             Timer += dt;
 
-            // Эффективный порог «кадров видимости» с учётом сжатия времени
-            int framesThreshold = Math.Max(1, (int)MathF.Round(Config.FramesForCatch / timeScale));
+            // Порог «кадров видимости» без дополнительного масштабирования
+            int framesThreshold = Math.Max(1, Config.FramesForCatch);
 
             // Предсказание завершения эпизода в этом кадре
             bool willCatchThisStep = IsHiderVisible && (_caughtFrames + 1 >= framesThreshold);
@@ -1160,8 +1159,7 @@ namespace ToolUse.Core.RaylibThreeD
 
             // Доп. метрики для баров
             float timePercent = Math.Clamp(sessionDurationSeconds > 0f ? (Timer / sessionDurationSeconds) : 0f, 0f, 1f);
-            float tsHud = (!float.IsFinite(Config.TimeScale) || Config.TimeScale <= 0f) ? 1.0f : Config.TimeScale;
-            int effectiveFramesForCatch = Math.Max(1, (int)MathF.Round(Config.FramesForCatch / tsHud));
+            int effectiveFramesForCatch = Math.Max(1, Config.FramesForCatch);
             string catchLine = $"Catch: {_caughtFrames}/{effectiveFramesForCatch}";
             int l2W = Raylib.MeasureText(l2, headerFont);
             int catchW = Raylib.MeasureText(catchLine, lineFont);
@@ -1368,8 +1366,7 @@ namespace ToolUse.Core.RaylibThreeD
                 // Конфиг-критичные параметры
                 try
                 {
-                    float ts = (!float.IsFinite(Config?.TimeScale ?? 1f) || (Config?.TimeScale ?? 1f) <= 0f) ? 1f : (Config?.TimeScale ?? 1f);
-                    int framesThreshold = Math.Max(1, (int)MathF.Round((Config?.FramesForCatch ?? 1) / ts));
+                    int framesThreshold = Math.Max(1, Config?.FramesForCatch ?? 1);
                     sb.AppendLine("Config:");
                     sb.AppendLine($"  TimeScale={Config?.TimeScale}");
                     sb.AppendLine($"  FramesForCatch={Config?.FramesForCatch} -> effective={framesThreshold}");
