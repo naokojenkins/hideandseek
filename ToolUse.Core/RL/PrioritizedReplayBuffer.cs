@@ -39,6 +39,22 @@ namespace ToolUse.Core.RL
                 buffer.RemoveAt(0);
         }
 
+        private static int FindIndexInCdf(float[] cdf, float u)
+        {
+            int lo = 0, hi = cdf.Length - 1, found = hi;
+            while (lo <= hi)
+            {
+                int mid = (lo + hi) / 2;
+                if (u <= cdf[mid])
+                {
+                    found = mid;
+                    hi = mid - 1;
+                }
+                else lo = mid + 1;
+            }
+            return found;
+        }
+
         public (float[][] States, long[] Actions, float[] Rewards, float[][] NextStates, bool[] Dones, float[] Weights, int[] Indices)
             Sample(int batchSize, float beta, bool stratified)
         {
@@ -63,19 +79,7 @@ namespace ToolUse.Core.RL
                     float u0 = i / (float)batchSize;
                     float u1 = (i + 1) / (float)batchSize;
                     float u = u0 + (float)rnd.NextDouble() * (u1 - u0);
-                    // бинарный поиск по cdf
-                    int lo = 0, hi = cdf.Length - 1, found = hi;
-                    while (lo <= hi)
-                    {
-                        int mid = (lo + hi) / 2;
-                        if (u <= cdf[mid])
-                        {
-                            found = mid;
-                            hi = mid - 1;
-                        }
-                        else lo = mid + 1;
-                    }
-                    indices.Add(found);
+                    indices.Add(FindIndexInCdf(cdf, u));
                 }
             }
             else
@@ -83,18 +87,7 @@ namespace ToolUse.Core.RL
                 for (int i = 0; i < batchSize; i++)
                 {
                     float u = (float)rnd.NextDouble();
-                    int lo = 0, hi = cdf.Length - 1, found = hi;
-                    while (lo <= hi)
-                    {
-                        int mid = (lo + hi) / 2;
-                        if (u <= cdf[mid])
-                        {
-                            found = mid;
-                            hi = mid - 1;
-                        }
-                        else lo = mid + 1;
-                    }
-                    indices.Add(found);
+                    indices.Add(FindIndexInCdf(cdf, u));
                 }
             }
 

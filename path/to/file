@@ -1,0 +1,13 @@
+{
+  "ProximityRewardMultiplier": 0.1,
+  "RotationPenalty": 0.01,
+  "NoProgressPenalty": 0.02,
+  "SeekerRewards": {
+    "WhenSeenBySeeker": 0.5,
+    "WhenIncreasingDistance": 0.2,
+    "WhenHiddenBehindWall": 0.15
+  },
+  "SessionDurationSeconds": 60,
+  "FramesForCatch": 90,
+  "TimeScale": 10
+}

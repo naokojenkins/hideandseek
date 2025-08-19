@@ -12,6 +12,9 @@ namespace ToolUse.Core.RL
         private readonly Linear valueStream;
         private readonly Linear advantageStream;
 
+        // Avoid per-call allocation in mean dimension argument
+        private static readonly long[] ReduceDim = new long[] { 1 };
+
         public DQNModel(int inputSize, int outputSize, int hidden1 = 256, int hidden2 = 256)
             : base("DQNModel")
         {
@@ -28,7 +31,7 @@ namespace ToolUse.Core.RL
             x = functional.relu(fc2.forward(x));
             var value = valueStream.forward(x);
             var advantage = advantageStream.forward(x);
-            return value + (advantage - advantage.mean(new long[] { 1 }, keepdim: true));
+            return value + (advantage - advantage.mean(ReduceDim, keepdim: true));
         }
     }
 }
