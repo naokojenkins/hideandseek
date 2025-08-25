@@ -1,0 +1,62 @@
+# Standard .NET/.NET Core ignores
+bin/
+obj/
+**/bin/
+**/obj/
+
+# Build artifacts
+*.dll
+*.exe
+*.pdb
+*.mdb
+*.cache
+*.log
+*.tmp
+*.temp
+
+# Rider/IDE
+.idea/
+.vscode/
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+ToolUseCSharp.sln.DotSettings.user
+
+# NuGet
+*.nupkg
+**/packages/*
+*.snupkg
+*.nuspec
+.nuget/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Coverage/Test results
+TestResult*/
+*.coverage
+*.coveragexml
+
+# Generated data directories
+qtables/
+models/
+**/qtables/
+**/models/
+
+# Logs and runtime output
+logs/
+**/logs/
+
+# Python/other tooling caches just in case
+__pycache__/
+*.pyc
+
+# Resharper/JetBrains cache
+_ReSharper*/
+*.[Rr]e[Ss]harper
+
+# Local debug configs
+*.launchSettings.json
