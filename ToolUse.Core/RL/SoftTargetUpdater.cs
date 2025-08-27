@@ -1,29 +1,41 @@
-using System.Linq;
+using System.Collections;
 using TorchSharp;
 
 namespace ToolUse.Core.RL
 {
     public class SoftTargetUpdater : ITargetUpdater
     {
-        private readonly float tau;
+        private readonly float _tau;
 
         public SoftTargetUpdater(float tau)
         {
-            this.tau = tau;
+            if (float.IsNaN(tau) || float.IsInfinity(tau)) throw new ArgumentOutOfRangeException(nameof(tau), "tau must be finite");
+            if (tau <= 0f || tau > 1f) throw new ArgumentOutOfRangeException(nameof(tau), "tau must be in (0,1]");
+            _tau = tau;
         }
 
         public void Update(object model, object target, int step)
         {
+            if (model is null) throw new ArgumentNullException(nameof(model));
+            if (target is null) throw new ArgumentNullException(nameof(target));
+
             using (torch.no_grad())
             {
                 dynamic m = model;
                 dynamic t = target;
-                var current = ((System.Collections.IEnumerable)m.parameters()).Cast<dynamic>().ToArray();
-                var tgt = ((System.Collections.IEnumerable)t.parameters()).Cast<dynamic>().ToArray();
-                for (int i = 0; i < current.Length; i++)
+
+                // Collect parameters without LINQ allocations
+                var currentList = new System.Collections.Generic.List<dynamic>();
+                foreach (var p in (IEnumerable)m.parameters()) currentList.Add(p);
+                var targetList = new System.Collections.Generic.List<dynamic>();
+                foreach (var p in (IEnumerable)t.parameters()) targetList.Add(p);
+
+                if (currentList.Count != targetList.Count)
+                    throw new InvalidOperationException($"SoftTargetUpdater.Update: parameter count mismatch: {currentList.Count} vs {targetList.Count}");
+                for (int i = 0; i < currentList.Count; i++)
                 {
-                    tgt[i].mul_(1 - tau);
-                    tgt[i].add_(current[i] * tau);
+                    targetList[i].mul_(1 - _tau);
+                    targetList[i].add_(currentList[i] * _tau);
                 }
             }
         }

@@ -16,7 +16,7 @@ namespace ToolUse.Core.RaylibThreeD
         public Color WallColor { get; set; }
         public int RoomSize { get; set; }
 
-        private readonly Random _rng = new();
+        private readonly Random _rng = ToolUse.Core.Config.Reproducibility.CreateRandom("World3D");
 
         public World3D(int size)
         {

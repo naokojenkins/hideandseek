@@ -1,21 +1,19 @@
 using System;
 using System.IO;
 using System.Numerics;
-using System.Reflection;
 using Newtonsoft.Json;
 using Raylib_cs;
 using ToolUse.Core.RL;
-                    using ToolUse.Core.Config;
-using ToolUse.Core.RaylibThreeD;
+using ToolUse.Core.Config;
 using System.Linq;
 using System.Collections.Generic;
 using System.Text;
+using ToolUse.Core.IO;
 
 namespace ToolUse.Core.RaylibThreeD
 {
     public partial class Simulation3D
     {
-        private float _lastHiderDistance = 0f;
         public World3D World { get; }
         public Agent3D Seeker { get; set; }
         public Agent3D Hider { get; set; }
@@ -57,10 +55,7 @@ namespace ToolUse.Core.RaylibThreeD
         private float _lastVisibilityCheck = 0f;
         private float _visibilityCheckInterval = 0.05f;
 
-        private static readonly string SessionCounterFile = Path.Combine(
-            Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".",
-            "qtables",
-            "total_sessions.json");
+        private static string SessionCounterFile => Path.Combine(PathService.GetQtablesDirectory(), "total_sessions.json");
 
         private static readonly JsonSerializerSettings JsonSettings = new()
         {
@@ -387,6 +382,8 @@ namespace ToolUse.Core.RaylibThreeD
         // Для наград Seeker: предыдущие счётчики исследования (физическое/визуальное)
         private readonly Dictionary<Agent3D, (int phys, int vis)> _prevExploreCountsSeekers = new();
 
+        public bool EnableLearning { get; set; } = true;
+
         private void UpdateRLAgents(float deltaTime, bool isTerminalByCatchThisStep, bool isTerminalByTimeoutThisStep)
         {
             // Списки активных агентов (если коллекции пусты — используем одиночные)
@@ -673,8 +670,11 @@ namespace ToolUse.Core.RaylibThreeD
             }
 
             // 8) Обучение (один вызов на роль)
-            _seekerAgent.Learn();
-            _hiderAgent.Learn();
+            if (EnableLearning)
+            {
+                _seekerAgent.Learn();
+                _hiderAgent.Learn();
+            }
 
             // Синхронизация знаний команды (union известных стен)
             MergeTeamKnowledge();
@@ -837,18 +837,19 @@ namespace ToolUse.Core.RaylibThreeD
         {
             try
             {
-                string logsDir = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "logs");
-                Directory.CreateDirectory(logsDir);
-                string file = Path.Combine(logsDir, "metrics.csv");
-                bool writeHeader = !File.Exists(file);
-                using (var sw = new StreamWriter(file, append: true))
-                {
-                    if (writeHeader)
-                        sw.WriteLine("total_session,session_time,caught,visibility_ratio,avg_distance,seeker_physical,seeker_visual,seeker_total,acc_seeker_reward,acc_hider_reward");
-                    float visibilityRatio = _framesInSession > 0 ? (float)_visibleFrames / _framesInSession : 0f;
-                    float avgDistance = _framesInSession > 0 ? _sumDistance / _framesInSession : 0f;
-                    sw.WriteLine($"{TotalSessions},{Timer:F3},{_isHiderCaught},{visibilityRatio:F3},{avgDistance:F3},{Seeker.GetExploredCount()},{Seeker.GetVisuallyExploredCount()},{Seeker.GetTotalExploredCount()},{_accSeekerReward:F3},{_accHiderReward:F3}");
-                }
+                float visibilityRatio = _framesInSession > 0 ? (float)_visibleFrames / _framesInSession : 0f;
+                float avgDistance = _framesInSession > 0 ? _sumDistance / _framesInSession : 0f;
+                ToolUse.Core.IO.MetricsRecorder.Instance.RecordEpisode(
+                    totalSession: TotalSessions,
+                    sessionTime: Timer,
+                    caught: _isHiderCaught,
+                    visibilityRatio: visibilityRatio,
+                    avgDistance: avgDistance,
+                    seekerPhysical: Seeker.GetExploredCount(),
+                    seekerVisual: Seeker.GetVisuallyExploredCount(),
+                    seekerTotal: Seeker.GetTotalExploredCount(),
+                    accSeekerReward: _accSeekerReward,
+                    accHiderReward: _accHiderReward);
             }
             catch { }
         }
@@ -1115,6 +1116,22 @@ namespace ToolUse.Core.RaylibThreeD
 
         private void DrawHUD()
         {
+            // FPS overlay (top-right)
+            try
+            {
+                int fps = Raylib.GetFPS();
+                string fpsText = $"FPS: {fps}";
+                int fpsFont = 16;
+                int fpsPad = 8;
+                int fpsW = Raylib.MeasureText(fpsText, fpsFont);
+                int screenW = Raylib.GetScreenWidth();
+                // shadow
+                Raylib.DrawText(fpsText, screenW - fpsW - fpsPad + 1, fpsPad + 1, fpsFont, new Color(0,0,0,180));
+                // text
+                Raylib.DrawText(fpsText, screenW - fpsW - fpsPad, fpsPad, fpsFont, Color.Yellow);
+            }
+            catch { }
+
             // Параметры оформления (уменьшенные шрифты)
             int pad = 8;
             int headerFont = 18;
@@ -1294,7 +1311,7 @@ namespace ToolUse.Core.RaylibThreeD
                     TotalSessions = 0;
                     return;
                 }
-                string json = File.ReadAllText(SessionCounterFile);
+                string json = File.ReadAllText(SessionCounterFile, Encoding.UTF8);
                 var data = JsonConvert.DeserializeObject<SessionCounterData>(json, JsonSettings);
                 TotalSessions = data?.TotalSessions ?? 0;
             }
@@ -1311,7 +1328,7 @@ namespace ToolUse.Core.RaylibThreeD
                     LastUpdate = DateTime.Now
                 };
                 string json = JsonConvert.SerializeObject(data, Formatting.Indented, JsonSettings);
-                File.WriteAllText(SessionCounterFile, json);
+                File.WriteAllText(SessionCounterFile, json, Encoding.UTF8);
             }
             catch { }
         }
@@ -1321,11 +1338,10 @@ namespace ToolUse.Core.RaylibThreeD
         {
             try
             {
-                string logsDir = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "logs");
-                Directory.CreateDirectory(logsDir);
+                string logsDir = PathService.GetLogsDirectory();
                 string file = Path.Combine(logsDir, "numeric_issues.log");
                 string line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {tag}: {details}";
-                File.AppendAllLines(file, new[] { line });
+                File.AppendAllLines(file, new[] { line }, Encoding.UTF8);
             }
             catch { }
         }
@@ -1341,8 +1357,7 @@ namespace ToolUse.Core.RaylibThreeD
         {
             try
             {
-                string logsDir = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "logs");
-                Directory.CreateDirectory(logsDir);
+                string logsDir = PathService.GetLogsDirectory();
                 string file = Path.Combine(logsDir, $"diagnostics_{DateTime.Now:yyyyMMdd_HHmmss_fff}.log");
 
                 var sb = new StringBuilder(4096);
@@ -1448,7 +1463,7 @@ namespace ToolUse.Core.RaylibThreeD
                 }
 
                 // Сохранение
-                File.WriteAllText(file, sb.ToString());
+                File.WriteAllText(file, sb.ToString(), Encoding.UTF8);
 
                 try
                 {
@@ -1467,5 +1482,16 @@ namespace ToolUse.Core.RaylibThreeD
         }
 
         public static void ForceSaveTotalSessions() => SaveTotalSessions();
+
+        // Public API to reset the global total sessions counter and persist it
+        public static void ResetTotalSessions()
+        {
+            try
+            {
+                TotalSessions = 0;
+                SaveTotalSessions();
+            }
+            catch { }
+        }
     }
 }

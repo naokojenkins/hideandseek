@@ -12,6 +12,7 @@
     <PackageReference Include="Raylib-cs" Version="7.0.1" />
     <PackageReference Include="TorchSharp" Version="0.105.1" />
     <PackageReference Include="TorchSharp-cpu" Version="0.105.1" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
   </ItemGroup>
 
 </Project>

@@ -11,6 +11,8 @@ namespace ToolUse.Core.Config
     public class GameConfig
     {
         private static GameConfig? _instance;
+        /// <summary> Schema version for game_config.json to allow migrations. </summary>
+        public int Version { get; set; } = 2;
 
         /// <summary>
         /// Единый глобальный экземпляр конфига (лениво загружается из файла один раз).
@@ -23,6 +25,14 @@ namespace ToolUse.Core.Config
                     _instance = Load();
                 return _instance;
             }
+        }
+
+        /// <summary>
+        /// Allows setting the singleton instance from external configuration/bootstrap logic.
+        /// </summary>
+        public static void SetInstance(GameConfig cfg)
+        {
+            _instance = cfg ?? throw new ArgumentNullException(nameof(cfg));
         }
 
         /// <summary>
@@ -47,8 +57,16 @@ namespace ToolUse.Core.Config
 
         /// <summary>
         /// Параметры DQN (структура, lr, gamma, replay buffer).
+        /// Legacy: kept for backward compatibility. Prefer Training/Model/ReplayBuffer sections.
         /// </summary>
         public DQNConfig DQN { get; set; } = new DQNConfig();
+
+        /// <summary>
+        /// New, more structured configuration sections. If not present in JSON, they will be auto-filled from DQN.
+        /// </summary>
+        public TrainingConfig Training { get; set; } = new TrainingConfig();
+        public ModelConfig Model { get; set; } = new ModelConfig();
+        public ReplayBufferConfig ReplayBuffer { get; set; } = new ReplayBufferConfig();
 
         /// <summary>
         /// Пространство действий (семантика и количество действий).
@@ -89,19 +107,51 @@ namespace ToolUse.Core.Config
         /// </summary>
         private static GameConfig Load(string? path = null)
         {
-            path ??= ConfigPath;
+            // Resolve path without touching GameConfig-dependent services to avoid recursion
+            string resolvedPath = SafeResolveConfigPath(path ?? ConfigPath);
+
+            static string SafeResolveConfigPath(string fileName)
+            {
+                try
+                {
+                    if (System.IO.Path.IsPathFullyQualified(fileName))
+                    {
+                        var abs = System.IO.Path.GetFullPath(fileName);
+                        if (File.Exists(abs)) return abs;
+                    }
+
+                    // Try under base directory /configs first, then base directory
+                    string baseDir = AppContext.BaseDirectory;
+                    string underConfigs = System.IO.Path.GetFullPath(System.IO.Path.Combine(baseDir, "configs", fileName));
+                    if (File.Exists(underConfigs)) return underConfigs;
+
+                    string underBase = System.IO.Path.GetFullPath(System.IO.Path.Combine(baseDir, fileName));
+                    if (File.Exists(underBase)) return underBase;
+
+                    // Fallback: current working directory
+                    return System.IO.Path.GetFullPath(fileName);
+                }
+                catch
+                {
+                    return fileName;
+                }
+            }
+
             try
             {
-                if (File.Exists(path))
+                if (File.Exists(resolvedPath))
                 {
-                    string json = File.ReadAllText(path);
+                    using var fs = new FileStream(resolvedPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    using var sr = new StreamReader(fs);
+                    string json = sr.ReadToEnd();
                     var cfg = JsonConvert.DeserializeObject<GameConfig>(json) ?? new GameConfig();
+                    MigrateIfNeeded(cfg);
                     NormalizeConfig(cfg);
                     return cfg;
                 }
                 else
                 {
-                    Console.WriteLine($"[DEBUG] Config file not found: {path}, using defaults");
+                    Console.WriteLine($"[DEBUG] Config file not found: {resolvedPath}, using defaults");
                     var cfg = new GameConfig();
                     NormalizeConfig(cfg);
                     return cfg;
@@ -109,7 +159,7 @@ namespace ToolUse.Core.Config
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[ERROR] Failed to load config: {ex.Message}");
+                Console.WriteLine($"[ERROR] Failed to load config from '{resolvedPath}': {ex.Message}");
                 var cfg = new GameConfig();
                 NormalizeConfig(cfg);
                 return cfg;
@@ -122,6 +172,44 @@ namespace ToolUse.Core.Config
                 bool hiderChanged  = NormalizeHider(cfg.Hider);
                 if (seekerChanged) Console.WriteLine("[CONFIG] Normalized Seeker rewards/signs to match hide-and-seek objectives.");
                 if (hiderChanged)  Console.WriteLine("[CONFIG] Normalized Hider rewards/signs to match hide-and-seek objectives.");
+            }
+
+            void MigrateIfNeeded(GameConfig cfg)
+            {
+                // When Version is missing or < 2, map legacy DQN fields into new sections
+                if (cfg.Version < 2)
+                {
+                    Console.WriteLine("[CONFIG] Migrating legacy configuration to v2 schema...");
+                    cfg.Training ??= new TrainingConfig();
+                    cfg.Model ??= new ModelConfig();
+                    cfg.ReplayBuffer ??= new ReplayBufferConfig();
+
+                    // Map from legacy DQN
+                    cfg.Model.Hidden1 = cfg.DQN.Hidden1;
+                    cfg.Model.Hidden2 = cfg.DQN.Hidden2;
+                    cfg.Model.Gamma = cfg.DQN.Gamma;
+                    cfg.Training.BatchSize = cfg.DQN.BatchSize;
+                    cfg.ReplayBuffer.Size = cfg.DQN.ReplayBufferSize;
+                    cfg.ReplayBuffer.WarmupSize = cfg.DQN.WarmupSize;
+                    cfg.Training.StepsPerUpdate = cfg.DQN.StepsPerUpdate;
+                    cfg.Model.LearningRate = cfg.DQN.LearningRate;
+                    cfg.Model.UseHuberLoss = cfg.DQN.UseHuberLoss;
+                    cfg.Model.MaxGradNorm = cfg.DQN.MaxGradNorm;
+                    cfg.Model.UseAdamW = cfg.DQN.UseAdamW;
+                    cfg.Model.WeightDecay = cfg.DQN.WeightDecay;
+                    cfg.Model.UpdateTargetEvery = cfg.DQN.UpdateTargetEvery;
+                    cfg.Model.UseSoftTarget = cfg.DQN.UseSoftTarget;
+                    cfg.Model.TargetUpdateTau = cfg.DQN.TargetUpdateTau;
+                    cfg.Model.RewardClipAbs = cfg.DQN.RewardClipAbs;
+                    cfg.Model.RewardScale = cfg.DQN.RewardScale;
+                    cfg.ReplayBuffer.BetaStart = cfg.DQN.BetaStart;
+                    cfg.ReplayBuffer.BetaEnd = cfg.DQN.BetaEnd;
+                    cfg.ReplayBuffer.BetaFrames = cfg.DQN.BetaFrames;
+                    cfg.ReplayBuffer.UseStratifiedSampling = cfg.DQN.UseStratifiedSampling;
+
+                    cfg.Version = 2;
+                    Console.WriteLine("[CONFIG] Migration complete (schema v2).");
+                }
             }
 
             bool NormalizeSeeker(AgentConfig a)
@@ -162,6 +250,90 @@ namespace ToolUse.Core.Config
 
                 return changed;
             }
+        }
+
+        /// <summary>
+        /// Validate configuration; returns a string array of errors (empty if valid).
+        /// </summary>
+        public string[] Validate()
+        {
+            var errors = new System.Collections.Generic.List<string>();
+            if (World.GridSize <= 0) errors.Add("World.GridSize must be > 0.");
+            if (World.CellSize <= 0) errors.Add("World.CellSize must be > 0.");
+            if (World.WallHeight <= 0) errors.Add("World.WallHeight must be > 0.");
+            if (World.RoomSize <= 0) errors.Add("World.RoomSize must be > 0.");
+
+            if (SessionDurationSeconds <= 0) errors.Add("SessionDurationSeconds must be > 0.");
+            if (FramesForCatch <= 0) errors.Add("FramesForCatch must be > 0.");
+            if (ActionRepeat <= 0) errors.Add("ActionRepeat must be > 0.");
+            if (VisibilityCheckInterval <= 0) errors.Add("VisibilityCheckInterval must be > 0.");
+            if (NoProgressDistanceEps < 0) errors.Add("NoProgressDistanceEps must be >= 0.");
+            if (NoProgressSeconds < 0) errors.Add("NoProgressSeconds must be >= 0.");
+            if (MinInitialSeparation < 0) errors.Add("MinInitialSeparation must be >= 0.");
+            if (TimeScale <= 0) errors.Add("TimeScale must be > 0.");
+
+            // Sub-config validations
+            errors.AddRange(Training.Validate());
+            errors.AddRange(Model.Validate());
+            errors.AddRange(ReplayBuffer.Validate());
+            if (Actions == null) errors.Add("Actions (ActionSpaceConfig) must not be null.");
+            else errors.AddRange(Actions.Validate());
+
+            return errors.ToArray();
+        }
+
+        /// <summary>
+        /// Builds an effective DQNConfig by mapping values from the new structured sections
+        /// (Model, Training, ReplayBuffer). This allows legacy components expecting DQNConfig
+        /// to work without reading legacy DQN section from config files.
+        /// </summary>
+        public DQNConfig BuildEffectiveDqnConfig()
+        {
+            var d = new DQNConfig
+            {
+                // Architecture
+                Hidden1 = Model.Hidden1,
+                Hidden2 = Model.Hidden2,
+
+                // Core RL
+                Gamma = Model.Gamma,
+
+                // Epsilon-greedy
+                EpsilonStart = Model.EpsilonStart,
+                EpsilonMin = Model.EpsilonMin,
+                EpsilonDecay = Model.EpsilonDecay,
+
+                // Training loop
+                BatchSize = Training.BatchSize,
+                StepsPerUpdate = Training.StepsPerUpdate,
+
+                // Replay buffer
+                ReplayBufferSize = ReplayBuffer.Size,
+                WarmupSize = ReplayBuffer.WarmupSize,
+
+                // Optimizer/Loss
+                LearningRate = Model.LearningRate,
+                UseHuberLoss = Model.UseHuberLoss,
+                MaxGradNorm = Model.MaxGradNorm,
+                UseAdamW = Model.UseAdamW,
+                WeightDecay = Model.WeightDecay,
+
+                // Target net
+                UpdateTargetEvery = Model.UpdateTargetEvery,
+                UseSoftTarget = Model.UseSoftTarget,
+                TargetUpdateTau = Model.TargetUpdateTau,
+
+                // Reward processing
+                RewardClipAbs = Model.RewardClipAbs,
+                RewardScale = Model.RewardScale,
+
+                // PER / sampling
+                BetaStart = ReplayBuffer.BetaStart,
+                BetaEnd = ReplayBuffer.BetaEnd,
+                BetaFrames = ReplayBuffer.BetaFrames,
+                UseStratifiedSampling = ReplayBuffer.UseStratifiedSampling,
+            };
+            return d;
         }
     }
 

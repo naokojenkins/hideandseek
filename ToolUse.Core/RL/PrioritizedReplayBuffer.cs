@@ -1,42 +1,67 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace ToolUse.Core.RL
 {
+    /// <summary>
+    /// A simple Prioritized Experience Replay (PER) buffer with proportional prioritization.
+    /// </summary>
+    /// <remarks>
+    /// Priorities are computed as (|error| + epsilon)^alpha. Sampling probability is priority / sum(priority).
+    /// Sample returns importance-sampling (IS) weights normalized so that max(weight) == 1 within the batch.
+    /// </remarks>
     public class PrioritizedReplayBuffer : IReplayBuffer, IEnumerable<Experience>
     {
+        public const float DefaultAlpha = 0.6f;
+        public const float DefaultEpsilon = 1e-6f;
+        private const float MinTotalPriority = 1e-6f;
+        private const float MinProbability = 1e-8f;
+        private const float MaxBetaClamp = 10f;
+
         private class PrioritizedExperience
         {
             public Experience Experience { get; set; }
             public float Priority { get; set; }
         }
 
-        private readonly int capacity;
-        private readonly List<PrioritizedExperience> buffer = new();
-        private readonly float alpha = 0.6f;
-        private readonly float epsilon = 1e-6f;
-        private readonly Random rnd;
+        private readonly int _capacity;
+        private readonly List<PrioritizedExperience> _buffer = new();
+                // Back-compat: legacy tests reflect on a private field named 'buffer'. Keep alias pointing to the same list.
+                private readonly List<PrioritizedExperience> buffer;
+        private readonly float _alpha = DefaultAlpha;
+        private readonly float _epsilon = DefaultEpsilon;
+        private readonly Random _random;
 
-        public PrioritizedReplayBuffer(int capacity, float alpha = 0.6f, Random? rng = null)
+        /// <summary>
+        /// Creates a new PER buffer.
+        /// </summary>
+        /// <param name="capacity">Max number of items stored. Oldest items are evicted when capacity is exceeded.</param>
+        /// <param name="alpha">Priority exponent controlling how strongly sampling favors high-error items.</param>
+        /// <param name="rng">Optional RNG for sampling.</param>
+        public PrioritizedReplayBuffer(int capacity, float alpha = DefaultAlpha, Random? rng = null)
         {
-            this.capacity = capacity;
-            this.alpha = alpha;
-            this.rnd = rng ?? new Random();
+            _capacity = capacity;
+            _alpha = alpha;
+            _random = rng ?? new Random();
+            buffer = _buffer; // back-compat alias initialization
+            // Preallocate list capacity to minimize resizing/memory fragmentation
+            try { _buffer.Capacity = Math.Max(_buffer.Capacity, capacity); } catch { /* ignore if capacity invalid */ }
         }
 
-        public int Count => buffer.Count;
+        /// <inheritdoc />
+        public int Count => _buffer.Count;
 
+        /// <inheritdoc />
         public void Add(Experience exp, float error = 1.0f)
         {
-            buffer.Add(new PrioritizedExperience
+            _buffer.Add(new PrioritizedExperience
             {
                 Experience = exp,
-                Priority = (float)Math.Pow(Math.Abs(error) + epsilon, alpha)
+                Priority = (float)Math.Pow(Math.Abs(error) + _epsilon, _alpha)
             });
 
-            if (buffer.Count > capacity)
-                buffer.RemoveAt(0);
+            if (_buffer.Count > _capacity)
+                _buffer.RemoveAt(0);
         }
 
         private static int FindIndexInCdf(float[] cdf, float u)
@@ -55,77 +80,133 @@ namespace ToolUse.Core.RL
             return found;
         }
 
+        /// <inheritdoc />
         public (float[][] States, long[] Actions, float[] Rewards, float[][] NextStates, bool[] Dones, float[] Weights, int[] Indices)
             Sample(int batchSize, float beta, bool stratified)
         {
-            float totalPriority = buffer.Sum(x => x.Priority);
-            if (totalPriority <= 0f) totalPriority = 1e-6f;
+            if (batchSize <= 0) throw new ArgumentOutOfRangeException(nameof(batchSize), "Sample: batchSize must be > 0");
+            if (_buffer.Count == 0) throw new InvalidOperationException("Sample: buffer is empty");
+            if (batchSize > _buffer.Count) batchSize = _buffer.Count; // clamp to available size
+            if (float.IsNaN(beta) || float.IsInfinity(beta)) throw new ArgumentOutOfRangeException(nameof(beta), "Sample: beta must be finite");
+            beta = Math.Clamp(beta, 0f, MaxBetaClamp); // typical range [0,1], but allow up to 10 as defensive
 
-            float[] probabilities = buffer.Select(x => x.Priority / totalPriority).ToArray();
-            var cdf = new float[probabilities.Length];
+            // Compute total priority without LINQ allocations
+            float totalPriority = 0f;
+            for (int i = 0; i < _buffer.Count; i++) totalPriority += _buffer[i].Priority;
+            if (totalPriority <= 0f) totalPriority = MinTotalPriority;
+
+            // Build CDF directly from normalized priorities, avoiding probabilities[] allocation
+            int n = _buffer.Count;
+            var cdf = new float[n];
             float cum = 0f;
-            for (int i = 0; i < probabilities.Length; i++)
+            for (int i = 0; i < n; i++)
             {
-                cum += probabilities[i];
+                cum += _buffer[i].Priority / totalPriority;
                 cdf[i] = cum;
             }
+            if (n == 0 || cdf[n - 1] <= 0f) throw new InvalidOperationException("Sample: invalid CDF generated");
 
-            var indices = new List<int>(batchSize);
-
+            // Draw indices
+            var indices = new int[batchSize];
             if (stratified)
             {
                 for (int i = 0; i < batchSize; i++)
                 {
                     float u0 = i / (float)batchSize;
                     float u1 = (i + 1) / (float)batchSize;
-                    float u = u0 + (float)rnd.NextDouble() * (u1 - u0);
-                    indices.Add(FindIndexInCdf(cdf, u));
+                    float u = u0 + (float)_random.NextDouble() * (u1 - u0);
+                    indices[i] = FindIndexInCdf(cdf, u);
                 }
             }
             else
             {
                 for (int i = 0; i < batchSize; i++)
                 {
-                    float u = (float)rnd.NextDouble();
-                    indices.Add(FindIndexInCdf(cdf, u));
+                    float u = (float)_random.NextDouble();
+                    indices[i] = FindIndexInCdf(cdf, u);
                 }
             }
 
-            // Importance-sampling weights
-            int N = buffer.Count;
-            float[] weights = indices.Select(idx =>
+            // Importance-sampling weights, normalized so that max == 1 in the batch
+            int N = n;
+            var weights = new float[batchSize];
+            float maxWeight = 0f;
+            for (int i = 0; i < batchSize; i++)
             {
-                float p = Math.Max(probabilities[idx], 1e-8f);
-                return (float)Math.Pow(N * p, -beta);
-            }).ToArray();
+                int idx = indices[i];
+                if ((uint)idx >= (uint)n) throw new IndexOutOfRangeException($"Sample: sampled index {idx} out of range [0,{n})");
+                float p = _buffer[idx].Priority / totalPriority;
+                if (p < MinProbability) p = MinProbability;
+                float w = (float)Math.Pow(N * p, -beta);
+                weights[i] = w;
+                if (w > maxWeight && float.IsFinite(w)) maxWeight = w;
+            }
+            if (maxWeight <= 0f || float.IsNaN(maxWeight) || float.IsInfinity(maxWeight)) maxWeight = 1f;
+            for (int i = 0; i < batchSize; i++)
+            {
+                float w = weights[i];
+                weights[i] = (float.IsFinite(w) && w > 0f) ? (w / maxWeight) : 1f;
+            }
 
-            float maxWeight = weights.Max();
-            if (maxWeight <= 0f) maxWeight = 1f;
-            weights = weights.Select(w => w / maxWeight).ToArray();
+            // Materialize outputs without LINQ
+            var states = new float[batchSize][];
+            var actions = new long[batchSize];
+            var rewards = new float[batchSize];
+            var nextStates = new float[batchSize][];
+            var dones = new bool[batchSize];
+            for (int i = 0; i < batchSize; i++)
+            {
+                var e = _buffer[indices[i]].Experience;
+                states[i] = e.State;
+                actions[i] = e.Action;
+                rewards[i] = e.Reward;
+                nextStates[i] = e.NextState;
+                dones[i] = e.Done;
+            }
 
             return (
-                indices.Select(i => buffer[i].Experience.State).ToArray(),
-                indices.Select(i => buffer[i].Experience.Action).ToArray(),
-                indices.Select(i => buffer[i].Experience.Reward).ToArray(),
-                indices.Select(i => buffer[i].Experience.NextState).ToArray(),
-                indices.Select(i => buffer[i].Experience.Done).ToArray(),
+                states,
+                actions,
+                rewards,
+                nextStates,
+                dones,
                 weights,
-                indices.ToArray()
+                indices
             );
         }
 
-        public IEnumerator<Experience> GetEnumerator() => buffer.Select(x => x.Experience).GetEnumerator();
-        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => buffer.Select(x => x.Experience).GetEnumerator();
-        public void Clear() => buffer.Clear();
-        public List<Experience> ToList() => buffer.Select(x => x.Experience).ToList();
+        public System.Collections.Generic.IEnumerator<Experience> GetEnumerator()
+        {
+            // Avoid multiple LINQ enumerators. Simple manual enumerator is fine given infrequent use.
+            foreach (var item in _buffer) yield return item.Experience;
+        }
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+        public void Clear() => _buffer.Clear();
+        public List<Experience> ToList()
+        {
+            var list = new List<Experience>(_buffer.Count);
+            for (int i = 0; i < _buffer.Count; i++) list.Add(_buffer[i].Experience);
+            return list;
+        }
 
+        /// <inheritdoc />
         public void UpdatePriorities(int[] indices, float[] errors)
         {
+            if (indices is null) throw new ArgumentNullException(nameof(indices));
+            if (errors is null) throw new ArgumentNullException(nameof(errors));
+            if (indices.Length != errors.Length) throw new ArgumentException("UpdatePriorities: indices and errors length mismatch");
             for (int i = 0; i < indices.Length; i++)
             {
                 int idx = indices[i];
+                if (idx < 0 || idx >= _buffer.Count)
+                {
+                    // Log and skip invalid indices
+                    System.Console.WriteLine($"[WARN][PER] UpdatePriorities: index {idx} is out of bounds [0,{_buffer.Count}). Skipping.");
+                    continue;
+                }
                 float error = errors[i];
-                buffer[idx].Priority = (float)Math.Pow(Math.Abs(error) + epsilon, alpha);
+                if (float.IsNaN(error) || float.IsInfinity(error)) error = 0f;
+                _buffer[idx].Priority = (float)Math.Pow(Math.Abs(error) + _epsilon, _alpha);
             }
         }
     }

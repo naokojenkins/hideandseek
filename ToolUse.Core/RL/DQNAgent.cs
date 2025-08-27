@@ -1,13 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using Newtonsoft.Json;
 using TorchSharp;
 using static TorchSharp.torch;
 using static TorchSharp.torch.nn;
-using TorchSharp.Modules;
 using ToolUse.Core.Config;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using ToolUse.Core.IO;
 
 namespace ToolUse.Core.RL
 {
@@ -60,7 +61,9 @@ namespace ToolUse.Core.RL
         private int learnSteps = 0;
 
         // Logging
+        private readonly ILogger<DQNAgent> _log;
         private float emaLoss = 0f;
+        private MetricsRecorder _metrics => MetricsRecorder.Instance;
 
         // Внешний контекст, выставляемый окружением на шаг (роль/видимость)
         private ExternalContext externalContext = new ExternalContext();
@@ -68,8 +71,14 @@ namespace ToolUse.Core.RL
         // Если true, и агент — Hider, то при видимости действует жадно (без exploration)
         private bool forceExploitWhenSeen = false;
 
-        public DQNAgent(int stateSize, int actionSize, DQNConfig dqnCfg, torch.Device? deviceOverride = null)
+        public DQNAgent(int stateSize, int actionSize, DQNConfig dqnCfg, torch.Device? deviceOverride = null, IDeviceProvider? deviceProvider = null, IOptimizerFactory? optimizerFactory = null, IReplayBufferFactory? replayBufferFactory = null, ILogger<DQNAgent>? logger = null)
         {
+            _log = logger ?? NullLogger<DQNAgent>.Instance;
+
+            if (stateSize <= 0) throw new ArgumentOutOfRangeException(nameof(stateSize), "stateSize must be > 0");
+            if (actionSize <= 0) throw new ArgumentOutOfRangeException(nameof(actionSize), "actionSize must be > 0");
+            if (dqnCfg is null) throw new ArgumentNullException(nameof(dqnCfg));
+
             this.stateSize = stateSize;
             this.actionSize = actionSize;
 
@@ -99,29 +108,44 @@ namespace ToolUse.Core.RL
             this.useStratifiedSampling = dqnCfg.UseStratifiedSampling;
             this.betaScheduler = new LinearBetaScheduler(this.betaStart, this.betaEnd, this.betaFrames);
 
-            device = deviceOverride ?? (torch.cuda.is_available() ? torch.CUDA : torch.CPU);
+            // Device selection via provider when available
+            if (deviceOverride != null)
+                device = deviceOverride;
+            else if (deviceProvider != null)
+                device = deviceProvider.GetDevice();
+            else
+                device = torch.cuda.is_available() ? torch.CUDA : torch.CPU;
 
-            // Deterministic RNG from config seed (if provided)
-            var cfgSeed = GameConfig.Instance.Seed;
-            rng = cfgSeed != 0 ? new Random(cfgSeed) : new Random();
+            // Deterministic RNG: use centralized reproducibility provider
+            rng = ToolUse.Core.Config.Reproducibility.CreateRandom("DQNAgent");
 
             model = new DQNModel(stateSize, actionSize, dqnCfg.Hidden1, dqnCfg.Hidden2).to(device);
             targetModel = new DQNModel(stateSize, actionSize, dqnCfg.Hidden1, dqnCfg.Hidden2).to(device);
 
-            if (useAdamW)
-                optimizer = torch.optim.AdamW(model.parameters(), dqnCfg.LearningRate, weight_decay: weightDecay);
+            // Optimizer via factory when provided; else fallback to legacy creation
+            if (optimizerFactory != null)
+            {
+                optimizer = optimizerFactory.Create(model);
+            }
             else
-                optimizer = torch.optim.Adam(model.parameters(), dqnCfg.LearningRate);
+            {
+                if (useAdamW)
+                    optimizer = torch.optim.AdamW(model.parameters(), dqnCfg.LearningRate, weight_decay: weightDecay);
+                else
+                    optimizer = torch.optim.Adam(model.parameters(), dqnCfg.LearningRate);
+            }
 
-            buffer = new PrioritizedReplayBuffer(replayBufferSize, rng: rng);
+            // Replay buffer via factory when provided; else default PER buffer
+            if (replayBufferFactory != null)
+                buffer = replayBufferFactory.Create(replayBufferSize, rng: rng);
+            else
+                buffer = new PrioritizedReplayBuffer(replayBufferSize, rng: rng);
 
             // Strategy components
             lossCalculator = useHuberLoss ? new HuberLossCalculator() : new MSELossCalculator();
             targetUpdater = useSoftTarget ? new SoftTargetUpdater(tau) : new HardTargetUpdater(updateTargetEvery);
             explorationPolicy = new EpsilonGreedyPolicy(epsilonStart, epsilonMin, epsilonDecay) { Epsilon = epsilonStart };
             epsilon = explorationPolicy.Epsilon;
-
-            // Optimizer already configured above (Adam/AdamW)
 
             UpdateTargetModel();
         }
@@ -169,7 +193,8 @@ namespace ToolUse.Core.RL
         /// </summary>
         public void SetExternalContext(ExternalContext ctx)
         {
-            externalContext = ctx ?? new ExternalContext();
+            if (ctx is null) throw new ArgumentNullException(nameof(ctx));
+            externalContext = ctx;
         }
 
         /// <summary>
@@ -180,8 +205,20 @@ namespace ToolUse.Core.RL
             forceExploitWhenSeen = enabled;
         }
 
+        public void SetEpsilon(float value)
+        {
+            if (explorationPolicy != null)
+            {
+                explorationPolicy.Epsilon = Math.Clamp(value, 0f, 1f);
+                epsilon = explorationPolicy.Epsilon;
+            }
+        }
+
         public long ChooseAction(float[] state)
         {
+            if (state is null) throw new ArgumentNullException(nameof(state));
+            if (state.Length != stateSize) throw new ArgumentOutOfRangeException(nameof(state), $"state length must be {stateSize}, got {state.Length}");
+
             CheckNaN(state, "ChooseAction:input");
             var input = torch.tensor(state, device: device).reshape(1, stateSize);
             CheckNaN(input, "ChooseAction:tensor_input");
@@ -216,6 +253,12 @@ namespace ToolUse.Core.RL
 
         public void Store(float[] state, long action, float reward, float[] nextState, bool done)
         {
+            if (state is null) throw new ArgumentNullException(nameof(state));
+            if (nextState is null) throw new ArgumentNullException(nameof(nextState));
+            if (state.Length != stateSize) throw new ArgumentOutOfRangeException(nameof(state), $"state length must be {stateSize}, got {state.Length}");
+            if (nextState.Length != stateSize) throw new ArgumentOutOfRangeException(nameof(nextState), $"nextState length must be {stateSize}, got {nextState.Length}");
+            if (action < 0 || action >= actionSize) throw new ArgumentOutOfRangeException(nameof(action), $"action must be in [0,{actionSize - 1}], got {action}");
+
             CheckNaN(state, "Store:state");
             CheckNaN(nextState, "Store:nextState");
             if (float.IsNaN(reward) || float.IsInfinity(reward))
@@ -271,7 +314,10 @@ namespace ToolUse.Core.RL
 
                 var actions = torch.tensor(actionsArr, dtype: ScalarType.Int64, device: device).unsqueeze(1);
                 var rewards = torch.tensor(rewardsArr, dtype: ScalarType.Float32, device: device).unsqueeze(1);
-                var dones = torch.tensor(donesArr.Select(x => x ? 1.0f : 0.0f).ToArray(), dtype: ScalarType.Float32, device: device).unsqueeze(1);
+                // Convert bool[] to float[] without LINQ to reduce allocations on hot path
+                                var donesFloat = new float[donesArr.Length];
+                                for (int i = 0; i < donesArr.Length; i++) donesFloat[i] = donesArr[i] ? 1.0f : 0.0f;
+                                var dones = torch.tensor(donesFloat, dtype: ScalarType.Float32, device: device).unsqueeze(1);
 
                 var qModelOutput = model.forward(states);
                 CheckNaN(qModelOutput, "Learn:model.forward(states)");
@@ -339,7 +385,27 @@ namespace ToolUse.Core.RL
                 emaLoss = 0.98f * emaLoss + 0.02f * l;
                 if (steps % 500 == 0)
                 {
-                    Console.WriteLine($"[DQN] steps={steps} eps={epsilon:F3} beta={beta:F3} buf={buffer.Count} emaLoss={emaLoss:F4}");
+                    // Compute simple Q stats on this batch
+                    float qMean = 0f, qMax = 0f;
+                    try
+                    {
+                        using (var qAll = qModelOutput.detach().cpu())
+                        {
+                            var arr = qAll.ToArray_Float();
+                            if (arr.Length > 0)
+                            {
+                                double sum = 0;
+                                double max = double.NegativeInfinity;
+                                for (int i = 0; i < arr.Length; i++) { sum += arr[i]; if (arr[i] > max) max = arr[i]; }
+                                qMean = (float)(sum / arr.Length);
+                                qMax = (float)max;
+                            }
+                        }
+                    }
+                    catch { /* ignore metric calc errors */ }
+
+                    _log.LogInformation("Training step metrics: steps={Steps} epsilon={Eps:F3} beta={Beta:F3} buffer={BufferCount} emaLoss={EmaLoss:F4} qMean={QMean:F4} qMax={QMax:F4}", steps, epsilon, beta, buffer.Count, emaLoss, qMean, qMax);
+                    try { _metrics.RecordTraining(steps, epsilon, beta, buffer.Count, emaLoss, qMean, qMax); } catch { }
                 }
             }
         }
@@ -354,20 +420,6 @@ namespace ToolUse.Core.RL
             targetModel.load_state_dict(model.state_dict());
         }
 
-        private void SoftUpdateTargetModel(float tau)
-        {
-            using (torch.no_grad())
-            {
-                var current = model.parameters().ToArray();
-                var target = targetModel.parameters().ToArray();
-                for (int i = 0; i < current.Length; i++)
-                {
-                    // target = (1 - tau) * target + tau * current
-                    target[i].mul_(1 - tau);
-                    target[i].add_(current[i] * tau);
-                }
-            }
-        }
 
         private static float[,] JaggedTo2D(float[][] array)
         {
@@ -394,7 +446,7 @@ namespace ToolUse.Core.RL
                 Seed = GameConfig.Instance.Seed
             };
             File.WriteAllText(statePath, JsonConvert.SerializeObject(agentState, Formatting.Indented));
-            Console.WriteLine($"[DEBUG] Model and state saved to {weightsPath}, {statePath}");
+            _log.LogDebug("Model and state saved to weights={WeightsPath}, state={StatePath}", weightsPath, statePath);
         }
 
         public void LoadAll(string weightsPath, string statePath)
@@ -406,11 +458,11 @@ namespace ToolUse.Core.RL
                 {
                     model.load(weightsPath);
                     targetModel.load(weightsPath);
-                    Console.WriteLine($"[DEBUG] Model loaded from {weightsPath}");
+                    _log.LogDebug("Model loaded from {WeightsPath}", weightsPath);
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[WARN] Failed to load model weights '{weightsPath}': {ex.Message}. Starting with fresh weights.");
+                    _log.LogWarning(ex, "Failed to load model weights '{WeightsPath}': {Message}. Starting with fresh weights.", weightsPath, ex.Message);
                     try { File.Delete(weightsPath); } catch { /* ignore */ }
                 }
             }
@@ -447,11 +499,11 @@ namespace ToolUse.Core.RL
                                     added++;
                                 }
                             }
-                            Console.WriteLine($"[DEBUG] State loaded from {statePath} (buffer entries: {added})");
+                            _log.LogDebug("State loaded from {StatePath} (buffer entries: {Added})", statePath, added);
                         }
                         else
                         {
-                            Console.WriteLine($"[WARN] Incompatible agent state '{statePath}' (saved: {state.StateSize}/{state.ActionSize}, current: {stateSize}/{actionSize}). Ignoring saved buffer/state.");
+                            _log.LogWarning("Incompatible agent state '{StatePath}' (saved: {SavedStateSize}/{SavedActionSize}, current: {StateSize}/{ActionSize}). Ignoring saved buffer/state.", statePath, state.StateSize, state.ActionSize, stateSize, actionSize);
                             epsilon = epsilonStart;
                             steps = 0;
                             buffer.Clear();
@@ -460,7 +512,7 @@ namespace ToolUse.Core.RL
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[WARN] Failed to load agent state '{statePath}': {ex.Message}. Resetting state.");
+                    _log.LogWarning(ex, "Failed to load agent state '{StatePath}': {Message}. Resetting state.", statePath, ex.Message);
                     try { File.Delete(statePath); } catch { /* ignore */ }
                     epsilon = epsilonStart;
                     steps = 0;
