@@ -56,6 +56,42 @@ namespace ToolUse.Sim
             // Build and validate configuration: appsettings.json / game_config.json / env / args
             ConfigBootstrapper.Initialize(args);
 
+            // Reconfigure Serilog sinks based on Training.DataRoot/LogsPath from the loaded config
+            try
+            {
+                string dataRoot = GameConfig.Instance.Training.DataRoot ?? ".";
+                string logsRel = GameConfig.Instance.Training.LogsPath ?? "logs";
+
+                string effectiveLogsDir = System.IO.Path.IsPathRooted(logsRel)
+                    ? logsRel
+                    : System.IO.Path.GetFullPath(System.IO.Path.Combine(AppContext.BaseDirectory, dataRoot, logsRel));
+
+                ToolUse.Core.IO.PathService.EnsureDirectoryExists(effectiveLogsDir);
+
+                if (ToolUse.Core.IO.PathService.CanWriteToDirectory(effectiveLogsDir))
+                {
+                    var configuredLogsPath = System.IO.Path.Combine(effectiveLogsDir, "app-.log");
+                    Log.Logger = new LoggerConfiguration()
+                        .MinimumLevel.Is(level)
+                        .MinimumLevel.Override("Microsoft", Serilog.Events.LogEventLevel.Warning)
+                        .MinimumLevel.Override("ToolUse", Serilog.Events.LogEventLevel.Debug)
+                        .Enrich.FromLogContext()
+                        .WriteTo.Console(outputTemplate: "{Timestamp:HH:mm:ss} [{Level:u3}] {SourceContext} {Message:lj}{NewLine}{Exception}")
+                        .WriteTo.File(configuredLogsPath, rollingInterval: RollingInterval.Day, retainedFileCountLimit: 7, shared: true, flushToDiskInterval: TimeSpan.FromSeconds(3))
+                        .CreateLogger();
+
+                    Log.Information("Logging reconfigured to: {Path}", configuredLogsPath);
+                }
+                else
+                {
+                    Log.Warning("No write permission to configured logs directory: {Dir}. Continuing with console-only logging.", effectiveLogsDir);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[WARN] Failed to reconfigure logging to Training.LogsPath/DataRoot: {ex.Message}");
+            }
+
             // Initialize global RNGs and log effective seed
             int effectiveSeed = GameConfig.Instance.Training.Seed ?? GameConfig.Instance.Seed;
             Reproducibility.Initialize(effectiveSeed);
@@ -245,8 +281,8 @@ namespace ToolUse.Sim
             Console.WriteLine("  render             Run with 3D visualization (no learning)");
             Console.WriteLine("  reset              Backup learning data and reset session counter, then exit\n");
             Console.WriteLine("Options:");
-            Console.WriteLine("  --configPath=PATH  Path to game_config.json (default: game_config.json)");
-            Console.WriteLine("                     Agents overrides are read from agents_config.json next to it if present.");
+            Console.WriteLine($"  --configPath=PATH  Path to {GameConfig.ConfigPath} (default: {GameConfig.ConfigPath})");
+            Console.WriteLine($"                     Agents overrides are read from {AgentsConfig.FileName} next to it if present.");
             Console.WriteLine("  --seed=N           Global seed (overrides GameConfig.Seed/Training.Seed)");
             Console.WriteLine("  --device=(auto|cpu|cuda)  Preferred device (default: auto)");
             Console.WriteLine("  --logLevel=(Verbose|Debug|Information|Warning|Error|Fatal)  Logging level (default: Information)");
