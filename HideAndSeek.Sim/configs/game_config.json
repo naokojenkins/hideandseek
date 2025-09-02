@@ -1,0 +1,65 @@
+{
+  "Version": 2,
+  "Seed": 12345,
+  "Training": {
+    "BatchSize": 128,
+    "StepsPerUpdate": 2,
+    "Device": "Auto",
+    "DataRoot": ".",
+    "ModelsPath": "models",
+    "LogsPath": "logs",
+    "AutosaveSeconds": 300,
+    "CheckpointKeepLast": 5,
+    "ResumeFromLatest": true
+  },
+  "Model": {
+    "Hidden1": 256,
+    "Hidden2": 256,
+    "LearningRate": 0.0005,
+    "UseHuberLoss": true,
+    "MaxGradNorm": 10.0,
+    "UseAdamW": true,
+    "WeightDecay": 0.0001,
+    "Gamma": 0.99,
+    "RewardClipAbs": 1.0,
+    "RewardScale": 1.0,
+    "UpdateTargetEvery": 200,
+    "UseSoftTarget": true,
+    "TargetUpdateTau": 0.005,
+    "EpsilonStart": 1.0,
+    "EpsilonMin": 0.05,
+    "EpsilonDecay": 0.995
+  },
+  "ReplayBuffer": {
+    "Size": 20000,
+    "WarmupSize": 1280,
+    "UseStratifiedSampling": true,
+    "BetaStart": 0.4,
+    "BetaEnd": 1.0,
+    "BetaFrames": 100000
+  },
+  "World": {
+    "GridSize": 20,
+    "CellSize": 1.0,
+    "WallHeight": 2.0,
+    "RoomSize": 8
+  },
+  "SessionDurationSeconds": 60.0,
+  "FramesForCatch": 60,
+  "ActionRepeat": 2,
+  "VisibilityCheckInterval": 0.05,
+  "NoProgressDistanceEps": 0.05,
+  "NoProgressSeconds": 5.0,
+  "MinInitialSeparation": 5.0,
+  "TimeScale": 10.0,
+  "Actions": {
+    "TurnLeft": 0,
+    "TurnRight": 1,
+    "Forward": 2,
+    "ForwardLeft": 3,
+    "ForwardRight": 4,
+    "Idle": 5,
+    "Backward": 6,
+    "Count": 7
+  }
+}
