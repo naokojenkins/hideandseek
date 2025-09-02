@@ -381,6 +381,8 @@ namespace ToolUse.Core.RaylibThreeD
 
         // Для наград Seeker: предыдущие счётчики исследования (физическое/визуальное)
         private readonly Dictionary<Agent3D, (int phys, int vis)> _prevExploreCountsSeekers = new();
+        // Накапливаемый штраф за отсутствие прогресса для каждого Seeker (растёт по шагам до лимита)
+        private readonly Dictionary<Agent3D, float> _noProgressPenaltyAccumSeekers = new();
 
         public bool EnableLearning { get; set; } = true;
 
@@ -601,6 +603,11 @@ namespace ToolUse.Core.RaylibThreeD
             }
 
             // 7) Награды и запись переходов за текущий шаг
+            // Вычисляем текущую массовую видимость и факт нового обнаружения (false->true)
+            bool anyVisibleNow = hiderVisibleNow.Values.Any(v => v);
+            bool detectionNow = anyVisibleNow && !_wasHiderVisiblePrev;
+            int seekersSeeingNow = seekers.Count(s => hiders.Any(h => s.CanSee(h, World)));
+
             foreach (var s in seekers)
             {
                 // Дельты исследования Seeker
@@ -621,19 +628,39 @@ namespace ToolUse.Core.RaylibThreeD
 
                 float reward = ComputeSeekerRewardFor(s, newPhysical, newVisual, seesAny);
 
+                // Разовый бонус за обнаружение, разделённый между теми, кто видит цель
+                if (detectionNow && seesAny && seekersSeeingNow > 0)
+                {
+                    reward += Config.Seeker.DetectBonus / seekersSeeingNow;
+                }
+
                 if (giveCatchBonus)
                     reward += perSeekerCatchBonus;
 
                 long actionThisStep = _currentActionSeekers.TryGetValue(s, out var actNowS) ? actNowS : actCfg.Forward;
-                if (actionThisStep == actCfg.TurnLeft || actionThisStep == actCfg.TurnRight ||
-                    actionThisStep == actCfg.ForwardLeft || actionThisStep == actCfg.ForwardRight)
+                // Штраф за поворот — только если поворот не дал прироста видимости/исследования
+                bool isRotationAction = (actionThisStep == actCfg.TurnLeft || actionThisStep == actCfg.TurnRight ||
+                                         actionThisStep == actCfg.ForwardLeft || actionThisStep == actCfg.ForwardRight);
+                if (isRotationAction && newPhysical == 0 && newVisual == 0)
                     reward -= MathF.Max(0f, Config.Seeker.RotationPenalty);
 
                 var nearestForS = GetNearestOpponent(s, hiders);
                 float curDistS = Vector3.Distance(s.Position, nearestForS.Position);
                 float lastDistS = _lastDistToNearestHider.TryGetValue(s, out var prevDistS) ? prevDistS : curDistS;
-                if (curDistS > lastDistS - _noProgressDistanceEps && newPhysical == 0 && newVisual == 0 && !seesAny)
-                    reward -= MathF.Max(0f, Config.Seeker.NoProgressPenalty);
+
+                bool noProgress = (curDistS > lastDistS - _noProgressDistanceEps) && newPhysical == 0 && newVisual == 0 && !seesAny;
+                if (noProgress)
+                {
+                    float accum = _noProgressPenaltyAccumSeekers.TryGetValue(s, out var a) ? a : 0f;
+                    accum = MathF.Min(Config.Seeker.NoProgressPenaltyMax, accum + MathF.Max(0f, Config.Seeker.NoProgressPenaltyStep));
+                    _noProgressPenaltyAccumSeekers[s] = accum;
+                    reward -= accum;
+                }
+                else
+                {
+                    _noProgressPenaltyAccumSeekers[s] = 0f;
+                }
+
                 _lastDistToNearestHider[s] = curDistS;
 
                 // Запись перехода: (state_t, action_t, reward_t, state_{t+1})
@@ -644,6 +671,9 @@ namespace ToolUse.Core.RaylibThreeD
 
                 _prevExploreCountsSeekers[s] = (afterPhysical, afterVisual);
             }
+
+            // Обновляем флаг для следующего шага
+            _wasHiderVisiblePrev = anyVisibleNow;
 
             if (giveCatchBonus) _catchBonusGiven = true;
 
@@ -789,13 +819,23 @@ namespace ToolUse.Core.RaylibThreeD
             r += expPhysBonus + expVisualBonus;
             ExplorationScore += expPhysBonus + expVisualBonus;
 
-            // Вклад за изменение дистанции до ближайшего Hider (положительный при сближении)
+            // Вклад за изменение дистанции / potential-based shaping к ближайшему Hider
             var hidersList = (Hiders != null && Hiders.Count > 0) ? Hiders : new List<Agent3D> { Hider };
             var nearestH = GetNearestOpponent(s, hidersList);
             float curDist = Vector3.Distance(s.Position, nearestH.Position);
             float lastDist = _lastDistToNearestHider.TryGetValue(s, out var prevDist) ? prevDist : curDist;
-            float distDeltaToward = lastDist - curDist; // >0 если приблизился
-            r += distDeltaToward * MathF.Max(0f, Config.Seeker.ProximityRewardMultiplier);
+
+            if (Config.Seeker.UsePotentialShaping)
+            {
+                // Φ(s) = -d, r' = r + γΦ(s') - Φ(s) = r + (d - γ d')
+                float shaping = lastDist - MathF.Max(0f, Config.Model.Gamma) * curDist;
+                r += shaping;
+            }
+            else
+            {
+                float distDeltaToward = lastDist - curDist; // >0 если приблизился
+                r += distDeltaToward * MathF.Max(0f, Config.Seeker.ProximityRewardMultiplier);
+            }
 
             if (float.IsNaN(r) || float.IsInfinity(r))
                 throw new Exception($"[NaN/Inf] ComputeSeekerRewardFor: {r}");

@@ -411,10 +411,14 @@ namespace ToolUse.Core.Config
         // === Новые параметры для гибкой настройки поведения ===
         /// <summary> Множитель награды за близость к цели. </summary>
         public float ProximityRewardMultiplier { get; set; } = 0.1f;
-        /// <summary> Штраф за повороты. </summary>
+        /// <summary> Базовый штраф за поворот (применяется только если поворот не увеличил видимую/исследованную область).</summary>
         public float RotationPenalty { get; set; } = 0.01f;
-        /// <summary> Штраф за отсутствие прогресса. </summary>
+        /// <summary> БАЗОВЫЙ штраф за отсутствие прогресса (для обратной совместимости). </summary>
         public float NoProgressPenalty { get; set; } = 0.02f;
+        /// <summary> Шаг штрафа за отсутствие прогресса (накапливается до лимита).</summary>
+        public float NoProgressPenaltyStep { get; set; } = 0.02f;
+        /// <summary> Максимальный накопленный штраф за отсутствие прогресса.</summary>
+        public float NoProgressPenaltyMax { get; set; } = 0.2f;
 
         /// <summary>
         /// Если true, агент (для Hider) при том, что его видят, действует жадно на этот шаг
@@ -427,6 +431,16 @@ namespace ToolUse.Core.Config
         /// к базовой награде добавляется RewardWhenSeenBySeeker (знак/величину задаёт конфиг).
         /// </summary>
         public bool ApplyVisibilityShapingInAgent { get; set; } = true;
+
+        // === Новые параметры для поиска и shaping ===
+        /// <summary> Разовый бонус Seeker за первое обнаружение Hider в эпизоде (false→true в текущем шаге). Делится между увидевшими. </summary>
+        public float DetectBonus { get; set; } = 0.8f;
+        /// <summary> Если true, использовать potential-based shaping для Seeker: r += d - gamma*d' (Φ=-d). </summary>
+        public bool UsePotentialShaping { get; set; } = true;
+        /// <summary> Минимальное значение epsilon во время фазы поиска (IsHiderSeen=false) для Seeker. </summary>
+        public float EpsilonWhenSearching { get; set; } = 0.6f;
+        /// <summary> Доля смешивания Q с эвристическим приоритетом действий в фазе поиска (Q'=(1-α)Q+αP).</summary>
+        public float HeuristicAlphaSearch { get; set; } = 0.2f;
     }
 
     /// <summary>

@@ -225,9 +225,23 @@ namespace ToolUse.Core.RL
 
             long action;
                 // Если включено и агент - Hider, а его видят, то принудительно выбираем жадное действие
-                bool forceExploit = forceExploitWhenSeen && externalContext != null && externalContext.IsHider && externalContext.IsHiderSeen;
+                bool forceExploit = forceExploitWhenSeen && externalContext != null && externalContext.IsHiderSeen;
 
-                if (!forceExploit && explorationPolicy.ShouldExplore(rng))
+                bool isSeekerSearchPhase = externalContext != null && !externalContext.IsHider && !externalContext.IsHiderSeen;
+                bool explore;
+                if (!forceExploit && isSeekerSearchPhase)
+                {
+                    // Повышенная directed exploration в фазе поиска: используем повышенный epsilon
+                    float epsSearch = 0.6f;
+                    try { epsSearch = MathF.Max(explorationPolicy.Epsilon, GameConfig.Instance.Seeker.EpsilonWhenSearching); } catch { }
+                    explore = rng.NextDouble() < epsSearch;
+                }
+                else
+                {
+                    explore = !forceExploit && explorationPolicy.ShouldExplore(rng);
+                }
+
+                if (explore)
             {
                 action = rng.Next(actionSize);
             }
@@ -237,6 +251,34 @@ namespace ToolUse.Core.RL
                 {
                     var qVals = model.forward(input);
                     CheckNaN(qVals, "ChooseAction:Q-values");
+
+                    // Heuristic mixing during Seeker search phase to downweight useless rotations
+                    bool isSeekerSearch = externalContext != null && !externalContext.IsHider && !externalContext.IsHiderSeen;
+                    float alpha = 0f;
+                    try { alpha = isSeekerSearch ? MathF.Max(0f, MathF.Min(1f, GameConfig.Instance.Seeker.HeuristicAlphaSearch)) : 0f; } catch { }
+
+                    if (alpha > 0f && isSeekerSearch)
+                    {
+                        try
+                        {
+                            var act = ToolUse.Core.Config.GameConfig.Instance.Actions;
+                            // Priority vector P: prefer Forward, then ForwardLeft/Right; penalize pure turns, idle, backward
+                            var pArr = new float[actionSize];
+                            for (int i = 0; i < actionSize; i++) pArr[i] = 0f;
+                            if (act.Forward >= 0 && act.Forward < actionSize) pArr[act.Forward] = 1.0f;
+                            if (act.ForwardLeft >= 0 && act.ForwardLeft < actionSize) pArr[act.ForwardLeft] = 0.5f;
+                            if (act.ForwardRight >= 0 && act.ForwardRight < actionSize) pArr[act.ForwardRight] = 0.5f;
+                            if (act.TurnLeft >= 0 && act.TurnLeft < actionSize) pArr[act.TurnLeft] = -0.5f;
+                            if (act.TurnRight >= 0 && act.TurnRight < actionSize) pArr[act.TurnRight] = -0.5f;
+                            if (act.Idle >= 0 && act.Idle < actionSize) pArr[act.Idle] = -0.3f;
+                            if (act.Backward >= 0 && act.Backward < actionSize) pArr[act.Backward] = -0.3f;
+
+                            var pTensor = torch.tensor(pArr, device: device).reshape(1, actionSize);
+                            qVals = (1 - alpha) * qVals + alpha * pTensor;
+                        }
+                        catch { /* heuristic optional */ }
+                    }
+
                     var t = qVals.argmax(Convert.ToInt64(1));
                     action = t.item<long>();
                     if (action < 0 || action >= actionSize)

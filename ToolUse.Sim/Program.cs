@@ -115,11 +115,21 @@ namespace ToolUse.Sim
                 useVisualization = mode switch
                 {
                     "train" => false,
+                    "vis-train" => true,
                     "eval" => !headlessFlag,
                     "render" => true,
                     "reset" => false,
+                    "help" => false,
                     _ => true
                 };
+            }
+
+            // Handle help if selected from interactive menu
+            if (mode == "help")
+            {
+                PrintHelp();
+                Log.CloseAndFlush();
+                return;
             }
 
             // DI composition root
@@ -182,6 +192,10 @@ namespace ToolUse.Sim
             {
                 app.SetEvalMode(true);
             }
+            else
+            {
+                app.SetEvalMode(false);
+            }
 
             using var cts = new System.Threading.CancellationTokenSource();
 
@@ -234,7 +248,7 @@ namespace ToolUse.Sim
         {
             if (args == null || args.Length == 0) return string.Empty;
             var first = args[0].Trim().ToLowerInvariant();
-            if (first is "train" or "eval" or "render" or "help" or "reset" or "-h" or "--help")
+            if (first is "train" or "vis-train" or "eval" or "render" or "help" or "reset" or "-h" or "--help")
                 return first == "-h" || first == "--help" ? "help" : first;
             return string.Empty;
         }
@@ -247,15 +261,16 @@ namespace ToolUse.Sim
             Console.WriteLine("  1) train   — headless training");
             Console.WriteLine("  2) eval    — headless evaluation (no learning)");
             Console.WriteLine("  3) render  — 3D visualization (no learning)");
-            Console.WriteLine("  4) help    — show CLI help");
-            Console.WriteLine("  5) reset   — backup learning data and reset session counter");
-            Console.Write("Enter choice [1-5] (default 1): ");
+            Console.WriteLine("  4) vis-train — 3D visualization with learning");
+            Console.WriteLine("  5) help    — show CLI help");
+            Console.WriteLine("  6) reset   — backup learning data and reset session counter");
+            Console.Write("Enter choice [1-6] (default 1): ");
 
             string? input = Console.ReadLine()?.Trim();
             if (string.IsNullOrEmpty(input)) input = "1"; // safe default: train
-            while (input != "1" && input != "2" && input != "3" && input != "4" && input != "5")
+            while (input != "1" && input != "2" && input != "3" && input != "4" && input != "5" && input != "6")
             {
-                Console.Write("Invalid input. Enter 1, 2, 3, 4 or 5: ");
+                Console.Write("Invalid input. Enter 1, 2, 3, 4, 5 or 6: ");
                 input = Console.ReadLine()?.Trim();
                 if (string.IsNullOrEmpty(input)) input = "1";
             }
@@ -265,8 +280,9 @@ namespace ToolUse.Sim
                 case "1": visualization = false; return "train";
                 case "2": visualization = false; return "eval";
                 case "3": visualization = true;  return "render";
-                case "4": PrintHelp(); visualization = false; return "train"; // print help then continue with safe default
-                case "5": visualization = false; return "reset";
+                case "4": visualization = true;  return "vis-train";
+                case "5": visualization = false; return "help";
+                case "6": visualization = false; return "reset";
                 default: visualization = false; return "train";
             }
         }
@@ -277,6 +293,7 @@ namespace ToolUse.Sim
             Console.WriteLine("  ToolUse.Sim [subcommand] [options]\n");
             Console.WriteLine("Subcommands:");
             Console.WriteLine("  train              Run training in headless mode");
+            Console.WriteLine("  vis-train          Run training with 3D visualization (learning enabled)");
             Console.WriteLine("  eval               Run evaluation (no learning), headless by default");
             Console.WriteLine("  render             Run with 3D visualization (no learning)");
             Console.WriteLine("  reset              Backup learning data and reset session counter, then exit\n");
