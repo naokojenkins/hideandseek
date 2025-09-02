@@ -51,7 +51,7 @@
   "NoProgressDistanceEps": 0.05,
   "NoProgressSeconds": 5.0,
   "MinInitialSeparation": 5.0,
-  "TimeScale": 10.0,
+  "TimeScale": 1.0,
   "Actions": {
     "TurnLeft": 0,
     "TurnRight": 1,
