@@ -2,8 +2,8 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Serilog;
-using ToolUse.Core.Config;
-using ToolUse.Core.RL;
+using HideAndSeek.Core.Config;
+using HideAndSeek.Core.RL;
 using ToolUse.Sim.Application;
 using ToolUse.Sim.Rendering;
 
@@ -29,10 +29,10 @@ namespace ToolUse.Sim
             // Configure Serilog sinks (console + rolling file)
             // Avoid accessing GameConfig before bootstrap to prevent recursion
             string defaultLogsDir = System.IO.Path.Combine(AppContext.BaseDirectory, "logs");
-            ToolUse.Core.IO.PathService.EnsureDirectoryExists(defaultLogsDir);
+            HideAndSeek.Core.IO.PathService.EnsureDirectoryExists(defaultLogsDir);
             var logsPath = System.IO.Path.Combine(defaultLogsDir, "app-.log");
             var logsDir = System.IO.Path.GetDirectoryName(logsPath)!;
-            if (!ToolUse.Core.IO.PathService.CanWriteToDirectory(logsDir))
+            if (!HideAndSeek.Core.IO.PathService.CanWriteToDirectory(logsDir))
             {
                 Console.Error.WriteLine($"[WARN] No write permission to logs directory: {logsDir}. Falling back to console-only logging.");
             }
@@ -66,9 +66,9 @@ namespace ToolUse.Sim
                     ? logsRel
                     : System.IO.Path.GetFullPath(System.IO.Path.Combine(AppContext.BaseDirectory, dataRoot, logsRel));
 
-                ToolUse.Core.IO.PathService.EnsureDirectoryExists(effectiveLogsDir);
+                HideAndSeek.Core.IO.PathService.EnsureDirectoryExists(effectiveLogsDir);
 
-                if (ToolUse.Core.IO.PathService.CanWriteToDirectory(effectiveLogsDir))
+                if (HideAndSeek.Core.IO.PathService.CanWriteToDirectory(effectiveLogsDir))
                 {
                     var configuredLogsPath = System.IO.Path.Combine(effectiveLogsDir, "app-.log");
                     Log.Logger = new LoggerConfiguration()
@@ -100,7 +100,7 @@ namespace ToolUse.Sim
             // Provide a config dump command and exit if requested
             if (ArgsHasFlag(args, "dump-config") || ArgsHasFlag(args, "dump"))
             {
-                ToolUse.Core.Config.ConfigDumper.Dump(GameConfig.Instance, Reproducibility.EffectiveSeed);
+                HideAndSeek.Core.Config.ConfigDumper.Dump(GameConfig.Instance, Reproducibility.EffectiveSeed);
                 Log.CloseAndFlush();
                 return;
             }
@@ -168,7 +168,7 @@ namespace ToolUse.Sim
             {
                 try
                 {
-                    ToolUse.Core.IO.LearningDataReset.BackupLearningDataAndResetCounter();
+                    HideAndSeek.Core.IO.LearningDataReset.BackupLearningDataAndResetCounter();
                     Log.Information("Learning data backed up and total session counter reset. Exiting as requested.");
                 }
                 catch (Exception ex)
@@ -182,7 +182,7 @@ namespace ToolUse.Sim
 
             // Compose application
             // Choose renderer based on visualization flag; use a headless no-op renderer for CI/headless runs
-            ToolUse.Core.Rendering.IWindowRenderer renderer = useVisualization
+            HideAndSeek.Core.Rendering.IWindowRenderer renderer = useVisualization
                 ? new RaylibWindowRenderer()
                 : new HeadlessWindowRenderer();
             var app = new SimulationApp(useVisualization, renderer, fps: (useVisualization ? 40 : 60), services: provider);

@@ -5,10 +5,10 @@ using System.Numerics;
 using System.Threading;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using ToolUse.Core.Config;
-using ToolUse.Core.RL;
-using ToolUse.Core.RaylibThreeD;
-using ToolUse.Core.Rendering;
+using HideAndSeek.Core.Config;
+using HideAndSeek.Core.RL;
+using HideAndSeek.Core.RaylibThreeD;
+using HideAndSeek.Core.Rendering;
 using TorchSharp;
 
 namespace ToolUse.Sim.Application
@@ -57,7 +57,7 @@ namespace ToolUse.Sim.Application
             _services = services;
             _log = (services?.GetService(typeof(ILogger<SimulationApp>)) as ILogger<SimulationApp>) ?? NullLogger<SimulationApp>.Instance;
 
-            ModelDir = ToolUse.Core.IO.PathService.GetModelsDirectory();
+            ModelDir = HideAndSeek.Core.IO.PathService.GetModelsDirectory();
             SeekerModelPath = Path.Combine(ModelDir, "seeker.pt");
             HiderModelPath  = Path.Combine(ModelDir, "hider.pt");
             SeekerStatePath = Path.Combine(ModelDir, "seeker_state.json");
@@ -88,9 +88,9 @@ namespace ToolUse.Sim.Application
 
             if (_services != null)
             {
-                var deviceProvider = (ToolUse.Core.RL.IDeviceProvider?)_services.GetService(typeof(ToolUse.Core.RL.IDeviceProvider));
-                var optimizerFactory = (ToolUse.Core.RL.IOptimizerFactory?)_services.GetService(typeof(ToolUse.Core.RL.IOptimizerFactory));
-                var rbFactory = (ToolUse.Core.RL.IReplayBufferFactory?)_services.GetService(typeof(ToolUse.Core.RL.IReplayBufferFactory));
+                var deviceProvider = (HideAndSeek.Core.RL.IDeviceProvider?)_services.GetService(typeof(HideAndSeek.Core.RL.IDeviceProvider));
+                var optimizerFactory = (HideAndSeek.Core.RL.IOptimizerFactory?)_services.GetService(typeof(HideAndSeek.Core.RL.IOptimizerFactory));
+                var rbFactory = (HideAndSeek.Core.RL.IReplayBufferFactory?)_services.GetService(typeof(HideAndSeek.Core.RL.IReplayBufferFactory));
                 var effective = _config.BuildEffectiveDqnConfig();
                 _seekerDqn = new DQNAgent(stateSize, actionSize, effective, null, deviceProvider, optimizerFactory, rbFactory);
                 _hiderDqn  = new DQNAgent(stateSize, actionSize, effective, null, deviceProvider, optimizerFactory, rbFactory);
@@ -108,7 +108,7 @@ namespace ToolUse.Sim.Application
             bool tryResume = _config?.Training?.ResumeFromLatest ?? true;
             if (tryResume)
             {
-                if (!ToolUse.Core.IO.CheckpointManager.LoadLatest(_seekerDqn, _hiderDqn))
+                if (!HideAndSeek.Core.IO.CheckpointManager.LoadLatest(_seekerDqn, _hiderDqn))
                 {
                     _seekerDqn.LoadAll(SeekerModelPath, SeekerStatePath);
                     _hiderDqn.LoadAll(HiderModelPath, HiderStatePath);
@@ -318,7 +318,7 @@ namespace ToolUse.Sim.Application
                 try
                 {
                     int keepLast = Math.Max(1, _config?.Training?.CheckpointKeepLast ?? 5);
-                    ToolUse.Core.IO.CheckpointManager.SaveAgents(_seekerDqn, _hiderDqn, meta: new { mode = _evalMode ? "eval" : "train" }, keepLast: keepLast);
+                    HideAndSeek.Core.IO.CheckpointManager.SaveAgents(_seekerDqn, _hiderDqn, meta: new { mode = _evalMode ? "eval" : "train" }, keepLast: keepLast);
                     Simulation3D.ForceSaveTotalSessions();
                 }
                 catch (Exception ex)
