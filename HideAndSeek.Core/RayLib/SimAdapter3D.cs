@@ -37,7 +37,7 @@ namespace HideAndSeek.Core.RaylibThreeD
                 sector,
                 visible,
                 knownWalls,
-                false // seeker не проверяет, видят ли его
+                _seeker.IsSeenBy(_hider, _world)
             );
         }
 

@@ -102,7 +102,7 @@ namespace ToolUse.Sim.Application
                 _hiderDqn  = new DQNAgent(stateSize, actionSize, effective);
             }
             _hiderDqn.SetForceExploitWhenSeen(_config.Hider.ForceExploitWhenSeen);
-            _seekerDqn.SetForceExploitWhenSeen(false);
+            _seekerDqn.SetForceExploitWhenSeen(_config.Seeker.ForceExploitWhenSeen);
 
             // Try loading latest checkpoint (configurable); fall back to legacy single files
             bool tryResume = _config?.Training?.ResumeFromLatest ?? true;
