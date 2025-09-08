@@ -37,7 +37,9 @@ namespace HideAndSeek.Core.RaylibThreeD
                 sector,
                 visible,
                 knownWalls,
-                _seeker.IsSeenBy(_hider, _world)
+                // Важное изменение: для искателя «IsSeenByOpponent» трактуем как «вижу цель»,
+                // чтобы ForceExploitWhenSeen у искателя означал «цель видна — действуй жадно»
+                visible
             );
         }
 
