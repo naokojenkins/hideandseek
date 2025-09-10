@@ -9,6 +9,24 @@ namespace HideAndSeek.Core.IO
     /// </summary>
     public static class PathService
     {
+        // Helper avoids direct GameConfig.Instance access to prevent recursion during bootstrap.
+        private static class GameConfigAccessor
+        {
+            public static bool TryGetTrainingDataRoot(out string? dataRoot)
+            {
+                try
+                {
+                    var cfg = HideAndSeek.Core.Config.GameConfig.Instance; // may throw during early bootstrap
+                    dataRoot = cfg?.Training?.DataRoot;
+                    return true;
+                }
+                catch
+                {
+                    dataRoot = null;
+                    return false;
+                }
+            }
+        }
         private static string? _baseDir;
 
         /// <summary>
@@ -45,9 +63,10 @@ namespace HideAndSeek.Core.IO
             string root = ".";
             try
             {
-                var cfg = GameConfig.Instance;
-                if (cfg?.Training != null && !string.IsNullOrWhiteSpace(cfg.Training.DataRoot))
-                    root = cfg.Training.DataRoot;
+                // Avoid touching GameConfig during early bootstrap to prevent recursion.
+                // If GameConfig.Instance throws or is not yet initialized, fall back to BaseDirectory + ".".
+                if (GameConfigAccessor.TryGetTrainingDataRoot(out var cfgRoot) && !string.IsNullOrWhiteSpace(cfgRoot))
+                    root = cfgRoot!;
             }
             catch { }
 
@@ -105,32 +124,101 @@ namespace HideAndSeek.Core.IO
 
         public static string GetConfigsDirectory()
         {
-            string dir = Combine(GetDataRoot(), "configs");
+            // Avoid triggering GameConfig during early bootstrap; build under BaseDirectory by default.
+            string baseRoot;
+            try
+            {
+                if (GameConfigAccessor.TryGetTrainingDataRoot(out var cfgRoot) && !string.IsNullOrWhiteSpace(cfgRoot))
+                    baseRoot = System.IO.Path.IsPathFullyQualified(cfgRoot!) ? Normalize(cfgRoot!) : Combine(BaseDirectory, cfgRoot!);
+                else
+                    baseRoot = BaseDirectory;
+            }
+            catch { baseRoot = BaseDirectory; }
+
+            string dir = Combine(baseRoot, "configs");
             EnsureDirectoryExists(dir);
             return dir;
         }
 
         public static string GetConfigPath(string fileName = "game_config.json")
         {
+            // 0) Absolute path as-is
             if (System.IO.Path.IsPathFullyQualified(fileName))
             {
                 string abs = Normalize(fileName);
                 if (File.Exists(abs)) return abs;
             }
 
-            // 1) Check under DataRoot/configs
+            // 1) Strongly prefer repository source: search upwards from CurrentDirectory for HideAndSeek.Sim/configs
             try
             {
-                string underConfigs = Combine(GetConfigsDirectory(), fileName);
-                if (File.Exists(underConfigs)) return underConfigs;
+                string? dir = Normalize(Directory.GetCurrentDirectory());
+                for (int i = 0; i < 8 && !string.IsNullOrEmpty(dir); i++)
+                {
+                    // A. .../HideAndSeek.Sim/configs/file
+                    string candidateSimConfigs = Combine(dir, "HideAndSeek.Sim", "configs", fileName);
+                    if (File.Exists(candidateSimConfigs)) return candidateSimConfigs;
+
+                    // B. If current dir itself is HideAndSeek.Sim or configs under it
+                    string dirName = new DirectoryInfo(dir).Name;
+                    if (string.Equals(dirName, "HideAndSeek.Sim", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string hereFile = Combine(dir, fileName);
+                        if (File.Exists(hereFile)) return hereFile;
+                        string hereConfigs = Combine(dir, "configs", fileName);
+                        if (File.Exists(hereConfigs)) return hereConfigs;
+                    }
+
+                    dir = Directory.GetParent(dir)?.FullName;
+                }
             }
             catch { }
 
-            // 2) Try base directory
+            // 2) Also try upwards from BaseDirectory for repository source
+            try
+            {
+                string? dir = BaseDirectory;
+                for (int i = 0; i < 8 && !string.IsNullOrEmpty(dir); i++)
+                {
+                    string candidateSimConfigs = Combine(dir, "HideAndSeek.Sim", "configs", fileName);
+                    if (File.Exists(candidateSimConfigs)) return candidateSimConfigs;
+
+                    string candidateSim = Combine(dir, "HideAndSeek.Sim", fileName);
+                    if (File.Exists(candidateSim)) return candidateSim;
+
+                    string dirName = new DirectoryInfo(dir).Name;
+                    if (string.Equals(dirName, "HideAndSeek.Sim", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string here = Combine(dir, fileName);
+                        if (File.Exists(here)) return here;
+                        string hereConfigs = Combine(dir, "configs", fileName);
+                        if (File.Exists(hereConfigs)) return hereConfigs;
+                    }
+
+                    dir = Directory.GetParent(dir)?.FullName;
+                }
+            }
+            catch { }
+
+            // 3) Try current working directory and ./configs (bin copies)
+            try
+            {
+                string cwd = Normalize(Directory.GetCurrentDirectory());
+                string inCwdConfigs = Combine(cwd, "configs", fileName);
+                if (File.Exists(inCwdConfigs)) return inCwdConfigs;
+                string inCwd = Combine(cwd, fileName);
+                if (File.Exists(inCwd)) return inCwd;
+            }
+            catch { }
+
+            // 4) Try base directory and base/configs (bin copies)
             string candidate = Combine(BaseDirectory, fileName);
             if (File.Exists(candidate)) return candidate;
+            string candidateInBaseConfigs = Combine(BaseDirectory, "configs");
+            candidateInBaseConfigs = Combine(candidateInBaseConfigs, fileName);
+            if (File.Exists(candidateInBaseConfigs)) return candidateInBaseConfigs;
 
-            // 3) Fallback to working directory as given
+            // 5) Fallback: return normalized provided path (may not exist)
             string fallback = Normalize(fileName);
             return fallback;
         }

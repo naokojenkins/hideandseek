@@ -169,7 +169,8 @@ namespace ToolUse.Sim
                 try
                 {
                     HideAndSeek.Core.IO.LearningDataReset.BackupLearningDataAndResetCounter();
-                    Log.Information("Learning data backed up and total session counter reset. Exiting as requested.");
+                    try { HideAndSeek.Core.IO.MetricsRecorder.Instance.ClearAllData(); } catch { }
+                    Log.Information("Learning data backed up, dashboard data cleared, and total session counter reset. Exiting as requested.");
                 }
                 catch (Exception ex)
                 {
@@ -186,6 +187,27 @@ namespace ToolUse.Sim
                 ? new RaylibWindowRenderer()
                 : new HeadlessWindowRenderer();
             var app = new SimulationApp(useVisualization, renderer, fps: (useVisualization ? 40 : 60), services: provider);
+
+            // Optional lightweight in-process dashboard (serves real-time HTML from /metrics.json)
+            ToolUse.Sim.Application.DashboardServer? dashboard = null;
+            try
+            {
+                if (ArgsHasFlag(args, "dashboard"))
+                {
+                    int port = ParseIntArg(args, "dashboardPort", 8080);
+                    try
+                    {
+                        dashboard = new ToolUse.Sim.Application.DashboardServer(port);
+                        dashboard.Start();
+                        Log.Information("Dashboard listening at http://localhost:{Port}/ (open in browser)", port);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warning(ex, "Failed to start dashboard on port {Port}. You can pick another with --dashboardPort=NNNN", port);
+                    }
+                }
+            }
+            catch { }
 
             // Set eval mode based on subcommand
             if (mode == "eval" || mode == "render")
@@ -210,6 +232,7 @@ namespace ToolUse.Sim
             {
                 try { cts.Cancel(); } catch { }
                 try { app.Shutdown(); } catch { }
+                try { dashboard?.Dispose(); } catch { }
                 Log.CloseAndFlush();
             };
 
@@ -242,6 +265,21 @@ namespace ToolUse.Sim
                 if (Enum.TryParse<Serilog.Events.LogEventLevel>(v, true, out var lvl)) return lvl;
             }
             return Serilog.Events.LogEventLevel.Information;
+        }
+
+        static int ParseIntArg(string[] args, string name, int defaultValue)
+        {
+            if (args == null) return defaultValue;
+            string prefix = "--" + name + "=";
+            foreach (var a in args)
+            {
+                if (a.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    var v = a.Split('=', 2)[1];
+                    if (int.TryParse(v, out var num)) return num;
+                }
+            }
+            return defaultValue;
         }
 
         static string ParseMode(string[] args)
@@ -304,7 +342,9 @@ namespace ToolUse.Sim
             Console.WriteLine("  --device=(auto|cpu|cuda)  Preferred device (default: auto)");
             Console.WriteLine("  --logLevel=(Verbose|Debug|Information|Warning|Error|Fatal)  Logging level (default: Information)");
             Console.WriteLine("  --headless         Force headless (useful with 'eval')");
-            Console.WriteLine("  --dump-config      Print effective configuration and exit\n");
+            Console.WriteLine("  --dump-config      Print effective configuration and exit");
+            Console.WriteLine("  --dashboard        Start local real-time HTML dashboard (http://localhost:8080/ by default)");
+            Console.WriteLine("  --dashboardPort=N  Port for the dashboard server (default: 8080)\n");
             Console.WriteLine("Environment variables (prefix HNS_): e.g., HNS_Seed, HNS_Training__BatchSize, etc.");
         }
     }

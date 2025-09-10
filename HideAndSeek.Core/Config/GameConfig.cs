@@ -107,35 +107,8 @@ namespace HideAndSeek.Core.Config
         /// </summary>
         private static GameConfig Load(string? path = null)
         {
-            // Resolve path without touching GameConfig-dependent services to avoid recursion
-            string resolvedPath = SafeResolveConfigPath(path ?? ConfigPath);
-
-            static string SafeResolveConfigPath(string fileName)
-            {
-                try
-                {
-                    if (System.IO.Path.IsPathFullyQualified(fileName))
-                    {
-                        var abs = System.IO.Path.GetFullPath(fileName);
-                        if (File.Exists(abs)) return abs;
-                    }
-
-                    // Try under base directory /configs first, then base directory
-                    string baseDir = AppContext.BaseDirectory;
-                    string underConfigs = System.IO.Path.GetFullPath(System.IO.Path.Combine(baseDir, "configs", fileName));
-                    if (File.Exists(underConfigs)) return underConfigs;
-
-                    string underBase = System.IO.Path.GetFullPath(System.IO.Path.Combine(baseDir, fileName));
-                    if (File.Exists(underBase)) return underBase;
-
-                    // Fallback: current working directory
-                    return System.IO.Path.GetFullPath(fileName);
-                }
-                catch
-                {
-                    return fileName;
-                }
-            }
+            // Resolve path via PathService to also support reading configs from source tree without rebuild
+            string resolvedPath = HideAndSeek.Core.IO.PathService.GetConfigPath(path ?? ConfigPath);
 
             try
             {

@@ -22,20 +22,12 @@ namespace ToolUse.Sim.Application
                 .SetBasePath(Directory.GetCurrentDirectory())
                 .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false);
 
-            // Load game config with a robust search order:
-            // 1) If a custom --configPath was provided, use it as-is.
-            // 2) Otherwise, try current dir 'game_config.json' first (legacy), then 'configs/game_config.json' to prefer repo layout.
-            string cfgPath = GameConfig.ConfigPath ?? "game_config.json";
-            if (!string.Equals(cfgPath, "game_config.json", StringComparison.OrdinalIgnoreCase))
-            {
-                builder.AddJsonFile(cfgPath, optional: true, reloadOnChange: false);
-            }
-            else
-            {
-                // Add base first, then configs to let configs override base if both exist
-                builder.AddJsonFile("game_config.json", optional: true, reloadOnChange: false)
-                       .AddJsonFile(Path.Combine("configs", "game_config.json"), optional: true, reloadOnChange: false);
-            }
+            // Resolve game config path using PathService to allow running without rebuild
+            string requested = GameConfig.ConfigPath ?? "game_config.json";
+            string resolved = HideAndSeek.Core.IO.PathService.GetConfigPath(requested);
+            builder.AddJsonFile(resolved, optional: true, reloadOnChange: false);
+
+            // Also try to overlay from a nearby agents_config.json if present (handled below via AgentsConfig.Load)
 
             builder.AddEnvironmentVariables(prefix: "HNS_");
 

@@ -11,6 +11,7 @@ namespace HideAndSeek.Core.Config
         /// <summary> Global seed for reproducibility. Overrides GameConfig.Seed if specified. </summary>
         public int? Seed { get; set; }
 
+
         /// <summary> Steps per environment step to perform optimization. </summary>
         public int StepsPerUpdate { get; set; } = 2;
 

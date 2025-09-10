@@ -104,6 +104,20 @@ namespace ToolUse.Sim.Application
             _hiderDqn.SetForceExploitWhenSeen(_config.Hider.ForceExploitWhenSeen);
             _seekerDqn.SetForceExploitWhenSeen(_config.Seeker.ForceExploitWhenSeen);
 
+            // Emit an immediate initial training snapshot so dashboard has data instantly
+            try
+            {
+                var mr = HideAndSeek.Core.IO.MetricsRecorder.Instance;
+                // Use current epsilons from agents and buffer counts (0 at start), emaLoss=0
+                float eps = _seekerDqn != null ? (float)typeof(HideAndSeek.Core.RL.DQNAgent).GetField("epsilon", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(_seekerDqn)! : 0f;
+                // If reflection fails, fallback to config
+                if (eps <= 0f) eps = _config.DQN.EpsilonStart;
+                float beta = _config.ReplayBuffer.BetaStart;
+                int buf = 0;
+                mr.RecordTraining(0, eps, beta, buf, 0f, 0f, 0f);
+            }
+            catch { }
+
             // Try loading latest checkpoint (configurable); fall back to legacy single files
             bool tryResume = _config?.Training?.ResumeFromLatest ?? true;
             if (tryResume)

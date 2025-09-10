@@ -425,7 +425,7 @@ namespace HideAndSeek.Core.RL
                 float l = loss.ToSingle();
                 if (emaLoss == 0f) emaLoss = l;
                 emaLoss = 0.98f * emaLoss + 0.02f * l;
-                if (steps % 500 == 0)
+                if (steps % 50 == 0 || steps <= 50)
                 {
                     // Compute simple Q stats on this batch
                     float qMean = 0f, qMax = 0f;
