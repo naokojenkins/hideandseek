@@ -363,10 +363,8 @@ namespace HideAndSeek.Core.Config
         public float EscapeBonus { get; set; } = 2.0f;
 
         // === Параметры агента ===
-        /// <summary> Бонус за физическое исследование клеток. </summary>
+        /// <summary> Награда за исследование новой клетки (не важно: увидена или пройдена). </summary>
         public float PhysicalExploreReward { get; set; } = 0.05f;
-        /// <summary> Бонус за визуальное исследование клеток. </summary>
-        public float VisualExploreReward { get; set; } = 0.01f;
         /// <summary> Радиус зрения агента. </summary>
         public float VisionRadius { get; set; } = 6.0f;
         /// <summary> Угол зрения агента (градусы). </summary>

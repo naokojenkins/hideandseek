@@ -812,14 +812,25 @@ namespace HideAndSeek.Core.RaylibThreeD
 
         private float ComputeSeekerRewardFor(Agent3D s, int newPhysical, int newVisual, bool seesAny)
         {
-            float r = seesAny ? Config.Seeker.RewardWhenHiderVisible : Config.Seeker.RewardWhenHiderHidden;
+            // Unified exploration: visual or physical discovery both count as exploration with the same unit reward.
+            // Remove separate visual/physical rewards and any additional shaping tied to exploration variety.
+            float r = 0f;
 
-            float expPhysBonus   = newPhysical * Config.Seeker.PhysicalExploreReward;
-            float expVisualBonus = newVisual   * Config.Seeker.VisualExploreReward;
-            r += expPhysBonus + expVisualBonus;
-            ExplorationScore += expPhysBonus + expVisualBonus;
+            int newlyExploredTotal = newPhysical + newVisual;
+            if (newlyExploredTotal > 0)
+            {
+                // Single exploration unit reward comes from Seeker.PhysicalExploreReward (kept as the single scalar),
+                // VisualExploreReward is ignored/removed from config. Each new cell grants the same reward.
+                float perCell = Config.Seeker.PhysicalExploreReward;
+                float bonus = newlyExploredTotal * perCell;
+                r += bonus;
+                ExplorationScore += bonus;
+            }
 
-            // Вклад за изменение дистанции / potential-based shaping к ближайшему Hider
+            // Keep only minimal visibility shaping if required by high-level design? The issue asks to remove different rewards logic
+            // between visible/hidden; thus do not add RewardWhenHiderVisible/Hidden.
+
+            // Keep distance-based shaping as is to not affect chasing behavior.
             var hidersList = (Hiders != null && Hiders.Count > 0) ? Hiders : new List<Agent3D> { Hider };
             var nearestH = GetNearestOpponent(s, hidersList);
             float curDist = Vector3.Distance(s.Position, nearestH.Position);
@@ -827,13 +838,12 @@ namespace HideAndSeek.Core.RaylibThreeD
 
             if (Config.Seeker.UsePotentialShaping)
             {
-                // Φ(s) = -d, r' = r + γΦ(s') - Φ(s) = r + (d - γ d')
                 float shaping = lastDist - MathF.Max(0f, Config.Model.Gamma) * curDist;
                 r += shaping;
             }
             else
             {
-                float distDeltaToward = lastDist - curDist; // >0 если приблизился
+                float distDeltaToward = lastDist - curDist; // >0 if moved closer
                 r += distDeltaToward * MathF.Max(0f, Config.Seeker.ProximityRewardMultiplier);
             }
 
