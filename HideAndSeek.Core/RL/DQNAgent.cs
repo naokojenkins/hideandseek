@@ -476,18 +476,24 @@ namespace HideAndSeek.Core.RL
 
         public void SaveAll(string weightsPath, string statePath)
         {
+            // Save model weights
             model.save(weightsPath);
 
+            // Do NOT serialize the replay buffer to avoid huge JSON files and potential OOM.
+            // The buffer is an ephemeral training aid and does not need to persist across sessions.
             var agentState = new DQNAgentState
             {
                 Epsilon = epsilon,
                 Steps = steps,
                 StateSize = stateSize,
                 ActionSize = actionSize,
-                Buffer = buffer.ToList(),
+                // Buffer intentionally omitted
                 Seed = GameConfig.Instance.Seed
             };
-            File.WriteAllText(statePath, JsonConvert.SerializeObject(agentState, Formatting.Indented));
+
+            // Serialize compactly to reduce IO and memory footprint
+            var json = JsonConvert.SerializeObject(agentState, Formatting.Indented);
+            File.WriteAllText(statePath, json, System.Text.Encoding.UTF8);
             _log.LogDebug("Model and state saved to weights={WeightsPath}, state={StatePath}", weightsPath, statePath);
         }
 
@@ -527,18 +533,21 @@ namespace HideAndSeek.Core.RL
                             steps = state.Steps;
 
                             buffer.Clear();
-                            // Загружаем только полностью совместимые и валидные записи
+                            // Загружаем только полностью совместимые и валидные записи (если буфер сохранен)
                             int added = 0;
-                            foreach (var exp in state.Buffer)
+                            if (state.Buffer != null)
                             {
-                                if (exp != null &&
-                                    exp.State != null && exp.State.Length == stateSize &&
-                                    exp.NextState != null && exp.NextState.Length == stateSize &&
-                                    exp.Action >= 0 && exp.Action < actionSize &&
-                                    !float.IsNaN(exp.Reward) && !float.IsInfinity(exp.Reward))
+                                foreach (var exp in state.Buffer)
                                 {
-                                    buffer.Add(exp);
-                                    added++;
+                                    if (exp != null &&
+                                        exp.State != null && exp.State.Length == stateSize &&
+                                        exp.NextState != null && exp.NextState.Length == stateSize &&
+                                        exp.Action >= 0 && exp.Action < actionSize &&
+                                        !float.IsNaN(exp.Reward) && !float.IsInfinity(exp.Reward))
+                                    {
+                                        buffer.Add(exp);
+                                        added++;
+                                    }
                                 }
                             }
                             _log.LogDebug("State loaded from {StatePath} (buffer entries: {Added})", statePath, added);

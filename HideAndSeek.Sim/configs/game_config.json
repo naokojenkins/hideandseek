@@ -21,22 +21,22 @@
     "UseAdamW": true,
     "WeightDecay": 0.0001,
     "Gamma": 0.99,
-    "RewardClipAbs": 1.0,
+    "RewardClipAbs": 5.0,
     "RewardScale": 1.0,
     "UpdateTargetEvery": 200,
     "UseSoftTarget": true,
-    "TargetUpdateTau": 0.005,
-    "EpsilonStart": 1.0,
-    "EpsilonMin": 0.02,
-    "EpsilonDecay": 0.99
+    "TargetUpdateTau": 0.01,
+    "EpsilonStart": 0.7,
+    "EpsilonMin": 0.07,
+    "EpsilonDecay": 0.9995
   },
   "ReplayBuffer": {
-    "Size": 20000,
-    "WarmupSize": 1280,
+    "Size": 200000,
+    "WarmupSize": 10000,
     "UseStratifiedSampling": true,
     "BetaStart": 0.4,
     "BetaEnd": 1.0,
-    "BetaFrames": 100000
+    "BetaFrames": 1000000
   },
   "World": {
     "GridSize": 20,
@@ -45,12 +45,12 @@
     "RoomSize": 8
   },
   "SessionDurationSeconds": 60.0,
-  "FramesForCatch": 60,
-  "ActionRepeat": 1,
+  "FramesForCatch": 30,
+  "ActionRepeat": 3,
   "VisibilityCheckInterval": 0.05,
   "NoProgressDistanceEps": 0.05,
   "NoProgressSeconds": 5.0,
-  "MinInitialSeparation": 5.0,
+  "MinInitialSeparation": 4.0,
   "TimeScale": 1.0,
   "Actions": {
     "TurnLeft": 0,
