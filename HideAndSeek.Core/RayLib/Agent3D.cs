@@ -30,6 +30,10 @@ namespace HideAndSeek.Core.RaylibThreeD
         public bool IsSeeker { get; set; }
         public Color Color { get; set; }
 
+        // New: Unique Id and individual memory
+        public string Id { get; set; } = Guid.NewGuid().ToString("N");
+        public AgentMemory Memory { get; } = new AgentMemory();
+
         // Флаг: видит ли этот агент свою цель (используется для подсветки конуса у Seeker)
         public bool IsSeeingTarget { get; set; } = false;
 
@@ -49,8 +53,8 @@ namespace HideAndSeek.Core.RaylibThreeD
         public void InitWorldSize(int size) => _worldSize = size;
         public void SetWorld(World3D world) => _world = world;
 
-        private static int ToGridX(float x, int size) => Math.Clamp((int)Math.Floor(x), 0, size - 1);
-        private static int ToGridZ(float z, int size) => Math.Clamp((int)Math.Floor(z), 0, size - 1);
+        public static int ToGridX(float x, int size) => Math.Clamp((int)Math.Floor(x), 0, size - 1);
+        public static int ToGridZ(float z, int size) => Math.Clamp((int)Math.Floor(z), 0, size - 1);
         private (int x, int z) ToGridCoords(Vector3 position) => (ToGridX(position.X, _worldSize), ToGridZ(position.Z, _worldSize));
 
         public int GridX => ToGridX(Position.X, _worldSize);
@@ -295,6 +299,45 @@ namespace HideAndSeek.Core.RaylibThreeD
 
         public float? GetBestDirection(World3D world, float lookaheadDistance = 1.0f)
         {
+            // Memory-based steering vectors
+            var memCfg = GameConfig.Instance.Memory;
+            Vector3 targetVec = Vector3.Zero;
+            if (Memory.TryGetLastOpponent(out var opp) && opp.Confidence >= memCfg.MinConfidenceForNav)
+            {
+                Vector3 toOpp = opp.LastPosition - Position;
+                if (!IsSeeker) toOpp = -toOpp; // hider moves away
+                if (toOpp.LengthSquared() > 1e-6f) targetVec = Vector3.Normalize(toOpp);
+            }
+
+            Vector3 repulse = Vector3.Zero;
+            foreach (var ally in Memory.GetAllies())
+            {
+                Vector3 away = Position - ally.LastPosition;
+                float dist = away.Length();
+                if (dist < 1e-4f) continue;
+                // Decay with distance and age via confidence
+                float w = ally.Confidence * (1.0f / MathF.Max(0.1f, dist));
+                repulse += (away / dist) * w;
+            }
+            if (repulse.LengthSquared() > 1e-6f) repulse = Vector3.Normalize(repulse);
+
+            // Exploration fallback: forward vector
+            float forwardRad = Direction * MathF.PI / 180f;
+            Vector3 exploration = new Vector3(MathF.Cos(forwardRad), 0, MathF.Sin(forwardRad));
+
+            float w1 = IsSeeker ? memCfg.SeekerW1_Target : memCfg.HiderW1_Target;
+            float w2 = IsSeeker ? memCfg.SeekerW2_AllyRepulsion : memCfg.HiderW2_AllyRepulsion;
+            float w3 = IsSeeker ? memCfg.SeekerW3_Exploration : memCfg.HiderW3_Exploration;
+
+            // If we have a fresh target trace, de-emphasize exploration (especially for hider)
+            if (targetVec != Vector3.Zero)
+            {
+                w3 *= IsSeeker ? 0.4f : 0.0f; // seekers still explore a bit, hiders focus on evasion
+            }
+
+            Vector3 steer = w1 * targetVec + w2 * repulse + w3 * exploration;
+            Vector3 steerN = steer.LengthSquared() > 1e-6f ? Vector3.Normalize(steer) : Vector3.Zero;
+
             // Кандидаты — симметричные смещения от текущего направления
             float[] offsets = new float[] { 0, 15, -15, 30, -30, 45, -45, 60, -60, 90, -90, 120, -120, 150, -150, 180 };
             float bestScore = float.NegativeInfinity;
@@ -306,7 +349,7 @@ namespace HideAndSeek.Core.RaylibThreeD
                 float radians = testAngle * MathF.PI / 180f;
                 Vector3 dir = new Vector3(MathF.Cos(radians), 0, MathF.Sin(radians));
 
-                // Оценка: сколько свободного пространства вперёд + штраф за поворот и известные стены
+                // Оценка: сколько свободного пространства вперёд + штраф за поворот и известные стены + согласованность с steer
                 float score = 0f;
                 float step = 0.2f;
 
@@ -338,6 +381,13 @@ namespace HideAndSeek.Core.RaylibThreeD
                 score += freeDist;                     // чем дальше свободно — тем лучше
                 score -= MathF.Abs(offset) * 0.02f;    // маленький штраф за поворот
                 if (!blocked) score += 0.2f;           // бонус, если путь открыт на всю длину
+
+                if (steerN != Vector3.Zero)
+                {
+                    float align = Vector3.Dot(dir, steerN); // [-1,1]
+                    float alignMul = (targetVec != Vector3.Zero) ? 5.0f : 1.0f;
+                    score += align * alignMul; // add alignment preference
+                }
 
                 if (score > bestScore)
                 {

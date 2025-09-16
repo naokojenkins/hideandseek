@@ -43,6 +43,12 @@ namespace HideAndSeek.Core.RL
         /// </summary>
         public bool[] KnownWallsFlat { get; }
 
+        // Optional opponent memory features (not used by core tests/serialization yet)
+        public bool HasOpponentMemory { get; } = false;
+        public int RelOpponentX { get; } = 0;
+        public int RelOpponentY { get; } = 0;
+        public float OpponentConfidence { get; } = 0f;
+
         /// <summary>
         /// Primary constructor.
         /// </summary>
@@ -64,6 +70,21 @@ namespace HideAndSeek.Core.RL
             CanSee = see;
             IsSeenBySeeker = isSeenBySeeker;
             KnownWallsFlat = knownWalls != null ? knownWalls.ToArray() : Array.Empty<bool>();
+            // defaults for optional memory fields already set by initializers
+        }
+
+        /// <summary>
+        /// Extended constructor including optional opponent memory features.
+        /// Matches calls from 3D simulation adapter that pass 12 arguments.
+        /// </summary>
+        public State(int ax, int ay, int ox, int oy, int direction, bool see, bool[] knownWalls, bool isSeenBySeeker,
+                     bool hasOpponentMemory, int relOpponentX, int relOpponentY, float opponentConfidence)
+            : this(ax, ay, ox, oy, direction, see, knownWalls, isSeenBySeeker)
+        {
+            HasOpponentMemory = hasOpponentMemory;
+            RelOpponentX = relOpponentX;
+            RelOpponentY = relOpponentY;
+            OpponentConfidence = opponentConfidence;
         }
 
         /// <summary>Backward-compatible constructor that accepts known walls without isSeenBySeeker.</summary>

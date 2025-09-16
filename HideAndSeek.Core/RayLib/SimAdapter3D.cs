@@ -29,6 +29,22 @@ namespace HideAndSeek.Core.RaylibThreeD
 
             bool visible = _seeker.CanSee(_hider, _world);
 
+            // Признаки памяти искателя о противнике
+            bool hasOppMem = false;
+            int relX = 0, relZ = 0;
+            float conf = 0f;
+            var memCfg = GameConfig.Instance.Memory;
+            if (_seeker.Memory.TryGetLastOpponent(out var opp) && opp.Confidence >= memCfg.MinConfidenceForNav)
+            {
+                var last = opp.LastPosition;
+                int lastGX = Agent3D.ToGridX(last.X, _world.Size);
+                int lastGZ = Agent3D.ToGridZ(last.Z, _world.Size);
+                relX = lastGX - _seeker.GridX;
+                relZ = lastGZ - _seeker.GridZ;
+                hasOppMem = true;
+                conf = opp.Confidence;
+            }
+
             return new State(
                 _seeker.GridX,
                 _seeker.GridZ,
@@ -39,7 +55,12 @@ namespace HideAndSeek.Core.RaylibThreeD
                 knownWalls,
                 // Важное изменение: для искателя «IsSeenByOpponent» трактуем как «вижу цель»,
                 // чтобы ForceExploitWhenSeen у искателя означал «цель видна — действуй жадно»
-                visible
+                visible,
+                // Расширение: признаки памяти
+                hasOppMem,
+                relX,
+                relZ,
+                conf
             );
         }
 
@@ -53,6 +74,22 @@ namespace HideAndSeek.Core.RaylibThreeD
             bool isSeenBySeeker = _hider.IsSeenBy(_seeker, _world);
             bool seesSeeker = _hider.CanSee(_seeker, _world);
 
+            // Признаки памяти прячущегося о противнике (искателе)
+            bool hasOppMem = false;
+            int relX = 0, relZ = 0;
+            float conf = 0f;
+            var memCfg = GameConfig.Instance.Memory;
+            if (_hider.Memory.TryGetLastOpponent(out var opp) && opp.Confidence >= memCfg.MinConfidenceForNav)
+            {
+                var last = opp.LastPosition;
+                int lastGX = Agent3D.ToGridX(last.X, _world.Size);
+                int lastGZ = Agent3D.ToGridZ(last.Z, _world.Size);
+                relX = lastGX - _hider.GridX;
+                relZ = lastGZ - _hider.GridZ;
+                hasOppMem = true;
+                conf = opp.Confidence;
+            }
+
             return new State(
                 _hider.GridX,
                 _hider.GridZ,
@@ -61,7 +98,12 @@ namespace HideAndSeek.Core.RaylibThreeD
                 sector,
                 seesSeeker,
                 knownWalls,
-                isSeenBySeeker
+                isSeenBySeeker,
+                // Расширение: признаки памяти
+                hasOppMem,
+                relX,
+                relZ,
+                conf
             );
         }
 

@@ -69,6 +69,11 @@ namespace HideAndSeek.Core.Config
         public ReplayBufferConfig ReplayBuffer { get; set; } = new ReplayBufferConfig();
 
         /// <summary>
+        /// Параметры памяти агентов (индвидуальные наблюдения и веса навигации).
+        /// </summary>
+        public MemoryConfig Memory { get; set; } = new MemoryConfig();
+
+        /// <summary>
         /// Пространство действий (семантика и количество действий).
         /// </summary>
         public ActionSpaceConfig Actions { get; set; } = new ActionSpaceConfig();
@@ -417,6 +422,27 @@ namespace HideAndSeek.Core.Config
     /// <summary>
     /// Параметры DQN-агента (архитектура сети, обучающие параметры и буфер).
     /// </summary>
+    public class MemoryConfig
+    {
+        // Lifetime/decay
+        public float MaxAgeSeconds { get; set; } = 6.0f;
+        public float DecayPerSecond { get; set; } = 0.25f;
+        public float MinConfidenceForNav { get; set; } = 0.35f;
+
+        // Repulsion/attraction radii
+        public float AllyRepulsionRadius { get; set; } = 2.5f;
+        public float SeekerOpponentAttractionRadius { get; set; } = 8.0f;
+        public float HiderOpponentAvoidanceRadius { get; set; } = 8.0f;
+
+        // Mixing weights
+        public float SeekerW1_Target { get; set; } = 1.0f;
+        public float SeekerW2_AllyRepulsion { get; set; } = 0.3f;
+        public float SeekerW3_Exploration { get; set; } = 0.2f;
+        public float HiderW1_Target { get; set; } = 1.0f;
+        public float HiderW2_AllyRepulsion { get; set; } = 0.4f;
+        public float HiderW3_Exploration { get; set; } = 0.3f;
+    }
+
     public class DQNConfig
     {
         /// <summary> Кол-во нейронов в 1 скрытом слое. </summary>

@@ -45,7 +45,7 @@
     "RoomSize": 8
   },
   "SessionDurationSeconds": 60.0,
-  "FramesForCatch": 30,
+  "FramesForCatch": 90,
   "ActionRepeat": 3,
   "VisibilityCheckInterval": 0.05,
   "NoProgressDistanceEps": 0.05,

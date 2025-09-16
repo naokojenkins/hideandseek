@@ -318,6 +318,42 @@ namespace HideAndSeek.Core.RaylibThreeD
             {
                 IsHiderVisible = AnyHiderVisible();
                 _lastVisibilityCheck = 0f;
+
+                // Update individual memories: decay and report sightings
+                float now = Timer;
+                void ProcessTeam(List<Agent3D> team, List<Agent3D> opponents)
+                {
+                    foreach (var a in team)
+                    {
+                        a.Memory.Decay(now);
+                    }
+                    foreach (var a in team)
+                    {
+                        // Allies
+                        foreach (var b in team)
+                        {
+                            if (ReferenceEquals(a, b)) continue;
+                            if (a.CanSee(b, World))
+                            {
+                                var kind = a.IsSeeker == b.IsSeeker ? MemoryKind.Ally : MemoryKind.Opponent;
+                                a.Memory.ReportSeen(b.Id, kind, b.Position, b.Direction, now);
+                            }
+                        }
+                        // Opponents
+                        foreach (var o in opponents)
+                        {
+                            if (a.CanSee(o, World))
+                            {
+                                a.Memory.ReportSeen(o.Id, MemoryKind.Opponent, o.Position, o.Direction, now);
+                            }
+                        }
+                    }
+                }
+
+                var seekersList = (Seekers != null && Seekers.Count > 0) ? Seekers : new List<Agent3D> { Seeker };
+                var hidersList  = (Hiders  != null && Hiders.Count  > 0) ? Hiders  : new List<Agent3D> { Hider  };
+                ProcessTeam(seekersList, hidersList);
+                ProcessTeam(hidersList, seekersList);
             }
 
             if (IsHiderVisible)
@@ -1336,6 +1372,10 @@ namespace HideAndSeek.Core.RaylibThreeD
 
             if (Seekers.Count > 0) Seeker = Seekers[0];
             if (Hiders.Count > 0) Hider = Hiders[0];
+
+            // Assign unique ids deterministically per team
+            for (int i = 0; i < Seekers.Count; i++) Seekers[i].Id = $"S{i+1}";
+            for (int i = 0; i < Hiders.Count; i++) Hiders[i].Id = $"H{i+1}";
 
             foreach (var s in Seekers) { s.InitWorldSize(World.Size); s.SetWorld(World); }
             foreach (var h in Hiders) { h.InitWorldSize(World.Size); h.SetWorld(World); }
