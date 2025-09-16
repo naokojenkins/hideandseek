@@ -12,11 +12,20 @@ namespace HideAndSeek.Core.RaylibThreeD
         private readonly World3D _world;
         private readonly Agent3D _seeker;
         private readonly Agent3D _hider;
+        private readonly System.Collections.Generic.IReadOnlyList<Agent3D>? _seekers;
 
         public SimAdapter3D(World3D world, Agent3D seeker, Agent3D hider)
         {
             _world = world;
             _seeker = seeker;
+            _hider = hider;
+        }
+
+        public SimAdapter3D(World3D world, System.Collections.Generic.IReadOnlyList<Agent3D> seekers, Agent3D hider)
+        {
+            _world = world;
+            _seekers = seekers;
+            _seeker = seekers.Count > 0 ? seekers[0] : throw new ArgumentException("seekers must contain at least one element");
             _hider = hider;
         }
 
@@ -71,8 +80,19 @@ namespace HideAndSeek.Core.RaylibThreeD
                 ? _hider.TeamBoard.GetKnownWallsFlat(_world.Size)
                 : _hider.GetKnownWallsFlat(_world.Size);
 
-            bool isSeenBySeeker = _hider.IsSeenBy(_seeker, _world);
-            bool seesSeeker = _hider.CanSee(_seeker, _world);
+            bool isSeenBySeeker;
+            bool seesSeeker;
+
+            if (_seekers != null && _seekers.Count > 0)
+            {
+                isSeenBySeeker = System.Linq.Enumerable.Any(_seekers, s => _hider.IsSeenBy(s, _world));
+                seesSeeker = System.Linq.Enumerable.Any(_seekers, s => _hider.CanSee(s, _world));
+            }
+            else
+            {
+                isSeenBySeeker = _hider.IsSeenBy(_seeker, _world);
+                seesSeeker = _hider.CanSee(_seeker, _world);
+            }
 
             // Признаки памяти прячущегося о противнике (искателе)
             bool hasOppMem = false;

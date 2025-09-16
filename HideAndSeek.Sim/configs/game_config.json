@@ -44,7 +44,7 @@
     "WallHeight": 2.0,
     "RoomSize": 8
   },
-  "SessionDurationSeconds": 60.0,
+  "SessionDurationSeconds": 300.0,
   "FramesForCatch": 90,
   "ActionRepeat": 3,
   "VisibilityCheckInterval": 0.05,
