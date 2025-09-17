@@ -67,7 +67,7 @@ namespace HideAndSeek.Core.RaylibThreeD
             Position = position;
             IsSeeker = isSeeker;
             Rotation = new Vector3(0, NormalizeAngle(initialRotation), 0);
-            _renderYawDeg = NormalizeAngle(initialRotation + (isSeeker ? AgentModelCache.SeekerBaseYawOffsetDeg : 0f));
+            _renderYawDeg = NormalizeAngle(initialRotation + (isSeeker ? AgentModelCache.SeekerBaseYawOffsetDeg : AgentModelCache.HiderBaseYawOffsetDeg));
             VisionRadius = cfg.VisionRadius;
             VisionAngle = cfg.VisionAngle;
             Speed = cfg.Speed;
@@ -623,7 +623,69 @@ namespace HideAndSeek.Core.RaylibThreeD
                 return;
             }
 
-            // Hider always simple primitive
+            // Try to draw GLTF hider model (Fox) with correct yaw; fallback to capsule
+            try
+            {
+                AgentModelCache.Init();
+                if (AgentModelCache.HiderModel.HasValue)
+                {
+                    var model = AgentModelCache.HiderModel.Value;
+                    float targetYaw = NormalizeAngle(Direction + AgentModelCache.HiderBaseYawOffsetDeg);
+                    float dtYaw = 0.016f; try { dtYaw = MathF.Max(0.0001f, Raylib.GetFrameTime()); } catch { }
+                    _prevLogicYawDeg = Direction;
+                    float signedDiff = targetYaw - _renderYawDeg;
+                    if (signedDiff > 180f) signedDiff -= 360f;
+                    if (signedDiff < -180f) signedDiff += 360f;
+                    float maxYawSpeedDegPerSec = 360f;
+                    float maxDelta = maxYawSpeedDegPerSec * dtYaw;
+                    float applied = MathF.Abs(signedDiff) <= maxDelta ? signedDiff : MathF.Sign(signedDiff) * maxDelta;
+                    _renderYawDeg = NormalizeAngle(_renderYawDeg + applied);
+                    float yaw = _renderYawDeg;
+                    var pos = Position + new Vector3(0, AgentModelCache.HiderYOffset, 0);
+                    var scale = AgentModelCache.HiderScale;
+
+                    // Animations if available
+                    bool hasAnims = AgentModelCache.HiderAnimations != null && AgentModelCache.HiderAnimations.Length > 0;
+                    if (hasAnims)
+                    {
+                        float dt = 0.016f;
+                        try { dt = MathF.Max(0.0001f, Raylib.GetFrameTime()); } catch { }
+                        float movedDist = Vector3.Distance(Position, _prevDrawPos);
+                        bool moving = movedDist > dt * 0.05f;
+                        int targetIndex = moving ? AgentModelCache.HiderWalkAnimIndex : AgentModelCache.HiderIdleAnimIndex;
+                        if (targetIndex != _animIndex)
+                        {
+                            _animIndex = targetIndex;
+                            _animFrame = 0;
+                            _animAcc = 0f;
+                        }
+                        var anims = AgentModelCache.HiderAnimations!;
+                        var anim = anims[Math.Clamp(_animIndex, 0, anims.Length - 1)];
+                        int frames = Math.Max(1, (int)anim.FrameCount);
+                        float fps = moving ? 24f : 16f;
+                        _animAcc += dt * fps;
+                        while (_animAcc >= 1f)
+                        {
+                            _animAcc -= 1f;
+                            _animFrame = (_animFrame + 1) % frames;
+                        }
+                        try { Raylib.UpdateModelAnimation(model, anim, _animFrame); } catch { }
+                    }
+
+                    Raylib.DrawModelEx(model, pos, Vector3.UnitY, -yaw, scale, Color.White);
+                    _prevDrawPos = Position;
+
+                    if (ShowVisionCones && _world != null)
+                    {
+                        DrawVisionCone(_world, new Color(0, 255, 0, 80));
+                        DrawGazeLine(_world);
+                    }
+                    return;
+                }
+            }
+            catch { /* ignore and fallback */ }
+
+            // Fallback primitive
             Raylib.DrawCapsule(
                 Position,
                 Position + new Vector3(0, 1.5f, 0),
@@ -639,14 +701,17 @@ namespace HideAndSeek.Core.RaylibThreeD
 
         private float GetVisualYawDeg()
         {
-            // Use smoothed render yaw for seeker (matches model), logical direction for others
-            return IsSeeker ? _renderYawDeg : Direction;
+            // Use smoothed render yaw for agents with models; otherwise, logical direction
+            if (IsSeeker) return _renderYawDeg;
+            return AgentModelCache.HiderModel.HasValue ? _renderYawDeg : Direction;
         }
 
         private float GetGazeYawDeg()
         {
             if (IsSeeker)
                 return NormalizeAngle(_renderYawDeg + AgentModelCache.SeekerGazeYawOffsetDeg);
+            if (AgentModelCache.HiderModel.HasValue)
+                return NormalizeAngle(_renderYawDeg + AgentModelCache.HiderGazeYawOffsetDeg);
             return Direction;
         }
 
@@ -659,9 +724,11 @@ namespace HideAndSeek.Core.RaylibThreeD
             float endAngle = yaw + VisionAngle / 2f;
             // Gaze origin: offset to approximate eyes: Y up and a bit forward
             Vector3 forward = new Vector3(MathF.Cos(yaw * MathF.PI / 180f), 0, MathF.Sin(yaw * MathF.PI / 180f));
-            Vector3 basePos = Position + new Vector3(0, IsSeeker ? AgentModelCache.SeekerEyeHeight : 0.05f, 0);
+            Vector3 basePos = Position + new Vector3(0, IsSeeker ? AgentModelCache.SeekerEyeHeight : (AgentModelCache.HiderModel.HasValue ? AgentModelCache.HiderEyeHeight : 0.05f), 0);
             if (IsSeeker)
                 basePos += forward * AgentModelCache.SeekerGazeForwardOffset;
+            else if (AgentModelCache.HiderModel.HasValue)
+                basePos += forward * AgentModelCache.HiderGazeForwardOffset;
             Vector3 agentPos = basePos;
 
             List<Vector3> points = new() { agentPos };

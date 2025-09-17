@@ -17,6 +17,42 @@
 
   <ItemGroup>
     <Content Include="GLB\Character\.DS_Store" />
+    <Content Update="GLB\glTF\Alpaca.gltf">
+      <Link>GLB\glTF\Alpaca.gltf</Link>
+    </Content>
+    <Content Update="GLB\glTF\Bull.gltf">
+      <Link>GLB\glTF\Bull.gltf</Link>
+    </Content>
+    <Content Update="GLB\glTF\Cow.gltf">
+      <Link>GLB\glTF\Cow.gltf</Link>
+    </Content>
+    <Content Update="GLB\glTF\Deer.gltf">
+      <Link>GLB\glTF\Deer.gltf</Link>
+    </Content>
+    <Content Update="GLB\glTF\Donkey.gltf">
+      <Link>GLB\glTF\Donkey.gltf</Link>
+    </Content>
+    <Content Update="GLB\glTF\Fox.gltf">
+      <Link>GLB\glTF\Fox.gltf</Link>
+    </Content>
+    <Content Update="GLB\glTF\Horse.gltf">
+      <Link>GLB\glTF\Horse.gltf</Link>
+    </Content>
+    <Content Update="GLB\glTF\Horse_White.gltf">
+      <Link>GLB\glTF\Horse_White.gltf</Link>
+    </Content>
+    <Content Update="GLB\glTF\Husky.gltf">
+      <Link>GLB\glTF\Husky.gltf</Link>
+    </Content>
+    <Content Update="GLB\glTF\ShibaInu.gltf">
+      <Link>GLB\glTF\ShibaInu.gltf</Link>
+    </Content>
+    <Content Update="GLB\glTF\Stag.gltf">
+      <Link>GLB\glTF\Stag.gltf</Link>
+    </Content>
+    <Content Update="GLB\glTF\Wolf.gltf">
+      <Link>GLB\glTF\Wolf.gltf</Link>
+    </Content>
   </ItemGroup>
 
 </Project>
