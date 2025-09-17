@@ -492,7 +492,38 @@ namespace HideAndSeek.Core.RaylibThreeD
             {
                 if (!_repeatLeftHiders.TryGetValue(h, out int left) || left <= 0)
                 {
-                    long a = _hiderAgent.ChooseAction(hiderStatesBefore[h].ToArray(World.Size));
+                    // Принудительный exploitation для хайдера, если он видим и режим включён
+                    bool isSeenNow = seekers.Any(s => s.CanSee(h, World));
+                    bool forceExploit = Config.Hider.ForceExploitWhenSeen && isSeenNow;
+
+                    long a;
+                    if (forceExploit)
+                    {
+                        float epsBackup = 0f;
+                        bool haveBackup = false;
+                        try
+                        {
+                            var epsField = typeof(DQNAgent).GetField("epsilon", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                            if (epsField != null)
+                            {
+                                epsBackup = (float)epsField.GetValue(_hiderAgent);
+                                haveBackup = true;
+                            }
+                        }
+                        catch { /* ignore backup errors */ }
+
+                        try { _hiderAgent.SetEpsilon(0f); } catch { }
+                        a = _hiderAgent.ChooseAction(hiderStatesBefore[h].ToArray(World.Size));
+                        if (haveBackup)
+                        {
+                            try { _hiderAgent.SetEpsilon(epsBackup); } catch { }
+                        }
+                    }
+                    else
+                    {
+                        a = _hiderAgent.ChooseAction(hiderStatesBefore[h].ToArray(World.Size));
+                    }
+
                     _currentActionHiders[h] = a;
                     _repeatLeftHiders[h] = _actionRepeat - 1;
                 }
@@ -720,11 +751,20 @@ namespace HideAndSeek.Core.RaylibThreeD
                 foreach (var t in seekers.Where(s => h.CanSee(s, World)))
                     _hidersBoard.ReportSeenTarget(t, t.Position, Timer);
 
+                long actionThisStep = _currentActionHiders.TryGetValue(h, out var actNowH) ? actNowH : actCfg.Forward;
+
+                // Compute improvement before reward updates internal last-distance in ComputeHiderRewardFor
+                var nearestForH = GetNearestOpponent(h, seekers);
+                float curDistH = Vector3.Distance(h.Position, nearestForH.Position);
+                float lastDistH = _lastDistToNearestSeeker.TryGetValue(h, out var prevDistH) ? prevDistH : curDistH;
+
                 float reward = ComputeHiderRewardFor(h, seekers, visibleNow);
 
-                long actionThisStep = _currentActionHiders.TryGetValue(h, out var actNowH) ? actNowH : actCfg.Forward;
-                if (actionThisStep == actCfg.TurnLeft || actionThisStep == actCfg.TurnRight ||
-                    actionThisStep == actCfg.ForwardLeft || actionThisStep == actCfg.ForwardRight)
+                bool isRotationActionH =
+                    (actionThisStep == actCfg.TurnLeft || actionThisStep == actCfg.TurnRight ||
+                     actionThisStep == actCfg.ForwardLeft || actionThisStep == actCfg.ForwardRight);
+                bool improved = curDistH > lastDistH; // increased distance = improved escape position
+                if (isRotationActionH && !improved && visibleNow)
                     reward -= MathF.Max(0f, Config.Hider.RotationPenalty);
 
                 var stateBefore = hiderStatesBefore[h];

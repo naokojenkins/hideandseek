@@ -21,6 +21,13 @@ namespace HideAndSeek.Core.RL
             return rng.NextDouble() < Epsilon;
         }
 
+        // Перегрузка: позволяет на шаге форсировать exploitation (без исследования)
+        public bool ShouldExplore(Random rng, bool forceExploit)
+        {
+            if (forceExploit) return false;
+            return rng.NextDouble() < Epsilon;
+        }
+
         public void Step()
         {
             if (Epsilon > epsilonMin)

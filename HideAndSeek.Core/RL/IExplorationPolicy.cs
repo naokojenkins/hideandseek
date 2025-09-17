@@ -6,6 +6,7 @@ namespace HideAndSeek.Core.RL
     {
         float Epsilon { get; set; }
         bool ShouldExplore(Random rng);
+        bool ShouldExplore(Random rng, bool forceExploit);
         void Step();
     }
 }
