@@ -53,6 +53,9 @@
     <Content Update="GLB\glTF\Wolf.gltf">
       <Link>GLB\glTF\Wolf.gltf</Link>
     </Content>
+    <Content Update="GLB\Toy Mouse.glb">
+      <Link>GLB\Toy Mouse.glb</Link>
+    </Content>
   </ItemGroup>
 
 </Project>
