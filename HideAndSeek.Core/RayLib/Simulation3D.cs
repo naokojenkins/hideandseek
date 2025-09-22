@@ -475,7 +475,69 @@ namespace HideAndSeek.Core.RaylibThreeD
             {
                 if (!_repeatLeftSeekers.TryGetValue(s, out int left) || left <= 0)
                 {
-                    long a = _seekerAgent.ChooseAction(seekerStatesBefore[s].ToArray(World.Size));
+                    // Если Seeker замечен противником (любой Hider видит его) — принудительно используем exploit
+                    bool isSeenByOpponentNow = hiders.Any(h => h.CanSee(s, World));
+
+                    long a;
+                    if (isSeenByOpponentNow)
+                    {
+                        // Попытаться временно обнулить epsilon
+                        float epsBackup = 0f; bool haveBackup = false;
+                        try
+                        {
+                            var epsField = typeof(DQNAgent).GetField("epsilon", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                            if (epsField != null)
+                            {
+                                epsBackup = (float)epsField.GetValue(_seekerAgent);
+                                haveBackup = true;
+                            }
+                        }
+                        catch { }
+                        try { _seekerAgent.SetEpsilon(0f); } catch { }
+
+                        // Базовое жадное действие от DQN
+                        a = _seekerAgent.ChooseAction(seekerStatesBefore[s].ToArray(World.Size));
+
+                        // Эвристика «беги от ближайшего Hider»: переопределим действие на поворот+движение, увеличивающие дистанцию
+                        try
+                        {
+                            var nearest = GetNearestOpponent(s, hiders);
+                            var away = Vector3.Normalize(s.Position - nearest.Position);
+                            if (float.IsNaN(away.X) || float.IsNaN(away.Z)) away = new Vector3(0,0,1);
+
+                            float desiredYaw = MathF.Atan2(away.X, away.Z) * (180f / MathF.PI);
+                            // Нормализуем углы в [-180,180]
+                            float curYaw = ((s.Direction % 360f) + 540f) % 360f - 180f;
+                            float diff = desiredYaw - curYaw;
+                            diff = ((diff + 540f) % 360f) - 180f;
+
+                            var act = Config.Actions;
+                            if (MathF.Abs(diff) < Config.Seeker.RotationStepDegrees * 0.6f)
+                            {
+                                a = act.Forward;
+                            }
+                            else if (diff > 0)
+                            {
+                                // Нужно повернуть вправо и двигаться
+                                a = act.ForwardRight >= 0 ? act.ForwardRight : act.TurnRight;
+                            }
+                            else
+                            {
+                                a = act.ForwardLeft >= 0 ? act.ForwardLeft : act.TurnLeft;
+                            }
+                        }
+                        catch { /* fallback to DQN action */ }
+
+                        if (haveBackup)
+                        {
+                            try { _seekerAgent.SetEpsilon(epsBackup); } catch { }
+                        }
+                    }
+                    else
+                    {
+                        a = _seekerAgent.ChooseAction(seekerStatesBefore[s].ToArray(World.Size));
+                    }
+
                     _currentActionSeekers[s] = a;
                     _repeatLeftSeekers[s] = _actionRepeat - 1;
                 }
@@ -513,7 +575,37 @@ namespace HideAndSeek.Core.RaylibThreeD
                         catch { /* ignore backup errors */ }
 
                         try { _hiderAgent.SetEpsilon(0f); } catch { }
+                        // Базовое жадное действие
                         a = _hiderAgent.ChooseAction(hiderStatesBefore[h].ToArray(World.Size));
+
+                        // Эвристика «беги от ближайшего Seeker» при видимости
+                        try
+                        {
+                            var nearest = GetNearestOpponent(h, seekers);
+                            var away = Vector3.Normalize(h.Position - nearest.Position);
+                            if (float.IsNaN(away.X) || float.IsNaN(away.Z)) away = new Vector3(0,0,1);
+
+                            float desiredYaw = MathF.Atan2(away.X, away.Z) * (180f / MathF.PI);
+                            float curYaw = ((h.Direction % 360f) + 540f) % 360f - 180f;
+                            float diff = desiredYaw - curYaw;
+                            diff = ((diff + 540f) % 360f) - 180f;
+
+                            var act = Config.Actions;
+                            if (MathF.Abs(diff) < Config.Hider.RotationStepDegrees * 0.6f)
+                            {
+                                a = act.Forward;
+                            }
+                            else if (diff > 0)
+                            {
+                                a = act.ForwardRight >= 0 ? act.ForwardRight : act.TurnRight;
+                            }
+                            else
+                            {
+                                a = act.ForwardLeft >= 0 ? act.ForwardLeft : act.TurnLeft;
+                            }
+                        }
+                        catch { /* fallback to DQN action */ }
+
                         if (haveBackup)
                         {
                             try { _hiderAgent.SetEpsilon(epsBackup); } catch { }
@@ -685,6 +777,7 @@ namespace HideAndSeek.Core.RaylibThreeD
                 int newVisual   = Math.Max(0, afterVisual   - prev.Item2);
 
                 bool seesAny = hiders.Any(h => s.CanSee(h, World));
+                bool isSeenByOpponentNow = hiders.Any(h => h.CanSee(s, World));
                 s.IsSeeingTarget = seesAny;
 
                 if (seesAny)
@@ -693,7 +786,7 @@ namespace HideAndSeek.Core.RaylibThreeD
                         _seekersBoard.ReportSeenTarget(t, t.Position, Timer);
                 }
 
-                float reward = ComputeSeekerRewardFor(s, newPhysical, newVisual, seesAny);
+                float reward = ComputeSeekerRewardFor(s, newPhysical, newVisual, seesAny, isSeenByOpponentNow);
 
                 // Разовый бонус за обнаружение, разделённый между теми, кто видит цель
                 if (detectionNow && seesAny && seekersSeeingNow > 0)
@@ -709,7 +802,11 @@ namespace HideAndSeek.Core.RaylibThreeD
                 bool isRotationAction = (actionThisStep == actCfg.TurnLeft || actionThisStep == actCfg.TurnRight ||
                                          actionThisStep == actCfg.ForwardLeft || actionThisStep == actCfg.ForwardRight);
                 if (isRotationAction && newPhysical == 0 && newVisual == 0)
-                    reward -= MathF.Max(0f, Config.Seeker.RotationPenalty);
+                {
+                    float rotPen = MathF.Max(0f, Config.Seeker.RotationPenalty);
+                    if (isSeenByOpponentNow) rotPen *= 0.3f; // ослабляем штраф при побеге
+                    reward -= rotPen;
+                }
 
                 var nearestForS = GetNearestOpponent(s, hiders);
                 float curDistS = Vector3.Distance(s.Position, nearestForS.Position);
@@ -765,7 +862,12 @@ namespace HideAndSeek.Core.RaylibThreeD
                      actionThisStep == actCfg.ForwardLeft || actionThisStep == actCfg.ForwardRight);
                 bool improved = curDistH > lastDistH; // increased distance = improved escape position
                 if (isRotationActionH && !improved && visibleNow)
-                    reward -= MathF.Max(0f, Config.Hider.RotationPenalty);
+                {
+                    float rotPenH = MathF.Max(0f, Config.Hider.RotationPenalty);
+                    // Ослабляем штраф за поворот, когда Hider находится под прицелом и разворачивается для побега
+                    rotPenH *= 0.3f;
+                    reward -= rotPenH;
+                }
 
                 var stateBefore = hiderStatesBefore[h];
                 var stateAfter  = hiderStatesAfter[h];
@@ -886,7 +988,7 @@ namespace HideAndSeek.Core.RaylibThreeD
             foreach (var h in hiders) h.KnownWalls.UnionWith(_hidersBoard.KnownWalls);
         }
 
-        private float ComputeSeekerRewardFor(Agent3D s, int newPhysical, int newVisual, bool seesAny)
+        private float ComputeSeekerRewardFor(Agent3D s, int newPhysical, int newVisual, bool seesAny, bool isSeenByOpponent)
         {
             // Unified exploration: visual or physical discovery both count as exploration with the same unit reward.
             // Remove separate visual/physical rewards and any additional shaping tied to exploration variety.
@@ -912,7 +1014,15 @@ namespace HideAndSeek.Core.RaylibThreeD
             float curDist = Vector3.Distance(s.Position, nearestH.Position);
             float lastDist = _lastDistToNearestHider.TryGetValue(s, out var prevDist) ? prevDist : curDist;
 
-            if (Config.Seeker.UsePotentialShaping)
+            if (isSeenByOpponent)
+            {
+                // Штраф за то, что меня видят, и поощрение за увеличение дистанции от ближайшего Hider
+                r -= 0.05f; // visibility penalty per step when seen
+                float distDeltaAway = curDist - lastDist; // >0 если удалился
+                float fleeMul = 0.8f; // within 0.6–1.0 as per requirement
+                r += distDeltaAway * fleeMul;
+            }
+            else if (Config.Seeker.UsePotentialShaping)
             {
                 float shaping = lastDist - MathF.Max(0f, Config.Model.Gamma) * curDist;
                 r += shaping;
@@ -931,8 +1041,8 @@ namespace HideAndSeek.Core.RaylibThreeD
         private float ComputeHiderRewardFor(Agent3D h, List<Agent3D> seekers, bool visibleNow)
         {
             float reward = 0f;
-            if (visibleNow) reward -= Config.Hider.RewardWhenVisible;
-            else            reward += Config.Hider.RewardWhenHidden;
+            // Add configured shaping directly: negative RewardWhenVisible should penalize visibility; positive RewardWhenHidden should reward hiding.
+            reward += visibleNow ? Config.Hider.RewardWhenVisible : Config.Hider.RewardWhenHidden;
 
             // расстояние до ближайшего seeker
             var nearest = GetNearestOpponent(h, seekers);
@@ -947,8 +1057,8 @@ namespace HideAndSeek.Core.RaylibThreeD
             else if (currentDistance <= lastDist + _noProgressDistanceEps) reward -= MathF.Max(0f, Config.Hider.NoProgressPenalty);
             _lastDistToNearestSeeker[h] = currentDistance;
 
-            // Бонус за «скрыт за стеной» только если цель в секторе и радиусе, но невидима из-за препятствия
-            if (!visibleNow && IsOccludedByWall(h, nearest))
+            // Бонус за «скрыт за стеной»: проверяем окклюзию с точки зрения наблюдателя (seeker), а не хайдера
+            if (!visibleNow && IsOccludedByWall(nearest, h))
                 reward += Config.Hider.RewardWhenHiddenBehindWall;
 
             if (_wasHiderVisiblePrevMap.TryGetValue(h, out var wasVisible) && wasVisible && !visibleNow)

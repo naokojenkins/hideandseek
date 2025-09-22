@@ -3,7 +3,7 @@
   "Seed": 12345,
   "Training": {
     "BatchSize": 128,
-    "StepsPerUpdate": 2,
+    "StepsPerUpdate": 4,
     "Device": "Auto",
     "DataRoot": ".",
     "ModelsPath": "models",
@@ -25,14 +25,14 @@
     "RewardScale": 1.0,
     "UpdateTargetEvery": 200,
     "UseSoftTarget": true,
-    "TargetUpdateTau": 0.01,
-    "EpsilonStart": 0.7,
+    "TargetUpdateTau": 0.02,
+    "EpsilonStart": 0.5,
     "EpsilonMin": 0.07,
-    "EpsilonDecay": 0.9995
+    "EpsilonDecay": 0.9990
   },
   "ReplayBuffer": {
     "Size": 200000,
-    "WarmupSize": 10000,
+    "WarmupSize": 5000,
     "UseStratifiedSampling": true,
     "BetaStart": 0.4,
     "BetaEnd": 1.0,
@@ -44,7 +44,7 @@
     "WallHeight": 2.0,
     "RoomSize": 8
   },
-  "SessionDurationSeconds": 300.0,
+  "SessionDurationSeconds": 150.0,
   "FramesForCatch": 120,
   "ActionRepeat": 1,
   "VisibilityCheckInterval": 0.05,

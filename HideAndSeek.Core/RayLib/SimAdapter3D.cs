@@ -54,6 +54,19 @@ namespace HideAndSeek.Core.RaylibThreeD
                 conf = opp.Confidence;
             }
 
+            // Отдельный признак: меня видят (любой Hider видит этого Seeker'а)
+            bool isSeenByOpponent;
+            if (_seekers != null && _seekers.Count > 0)
+            {
+                // В мульти-режиме у этого адаптера один hider; проверяем видимость hider -> каждый seeker
+                // Для состояния конкретного seeker достаточно проверить, видит ли его текущий _hider
+                isSeenByOpponent = _hider.CanSee(_seeker, _world);
+            }
+            else
+            {
+                isSeenByOpponent = _hider.CanSee(_seeker, _world);
+            }
+
             return new State(
                 _seeker.GridX,
                 _seeker.GridZ,
@@ -62,9 +75,8 @@ namespace HideAndSeek.Core.RaylibThreeD
                 sector,
                 visible,
                 knownWalls,
-                // Важное изменение: для искателя «IsSeenByOpponent» трактуем как «вижу цель»,
-                // чтобы ForceExploitWhenSeen у искателя означал «цель видна — действуй жадно»
-                visible,
+                // Не смешиваем «вижу» и «меня видят»
+                isSeenByOpponent,
                 // Расширение: признаки памяти
                 hasOppMem,
                 relX,

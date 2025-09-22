@@ -1,0 +1,19 @@
+{
+  "Version": 2,
+  "Seed": 20250825,
+  "World": { "GridSize": 20, "CellSize": 1.0, "WallHeight": 2.0, "RoomSize": 8 },
+  "SessionDurationSeconds": 30.0,
+  "FramesForCatch": 60,
+  "ActionRepeat": 2,
+  "VisibilityCheckInterval": 0.05,
+  "NoProgressDistanceEps": 0.05,
+  "NoProgressSeconds": 5.0,
+  "MinInitialSeparation": 5.0,
+  "TimeScale": 1.0,
+  "Actions": { "TurnLeft": 0, "TurnRight": 1, "Forward": 2, "ForwardLeft": 3, "ForwardRight": 4, "Idle": 5, "Backward": 6, "Count": 7 },
+  "Seeker": { "RewardWhenHiderVisible": 1.0, "RewardWhenHiderHidden": -0.05, "PointsPerSecondWhenHiderVisible": 6.0, "PointsPerSecondWhenHiderHidden": -0.2, "CatchBonus": 30.0, "PhysicalExploreReward": 0.05, "VisualExploreReward": 0.01, "VisionRadius": 6.0, "VisionAngle": 90.0, "AgentRadius": 0.3, "Speed": 2.0, "RotationStepDegrees": 10.0, "Count": 2, "ProximityRewardMultiplier": 0.1, "RotationPenalty": 0.01, "NoProgressPenalty": 0.02 },
+  "Hider": { "RewardWhenVisible": -0.6, "RewardWhenHidden": 0.15, "RewardWhenSeenBySeeker": -0.5, "RewardWhenIncreasingDistance": 0.2, "RewardWhenHiddenBehindWall": 0.15, "PointsPerSecondWhenVisible": -1.0, "PointsPerSecondWhenHidden": 1.0, "EscapeBonus": 2.0, "PhysicalExploreReward": 0.05, "VisualExploreReward": 0.01, "VisionRadius": 6.0, "VisionAngle": 90.0, "AgentRadius": 0.3, "Speed": 2.0, "RotationStepDegrees": 10.0, "Count": 2, "ProximityRewardMultiplier": 0.1, "RotationPenalty": 0.01, "NoProgressPenalty": 0.02, "ForceExploitWhenSeen": true, "ApplyVisibilityShapingInAgent": true },
+  "Training": { "Seed": 20250825, "StepsPerUpdate": 2, "BatchSize": 128, "Device": "Auto", "DataRoot": ".", "ModelsPath": "models", "LogsPath": "logs", "AutosaveSeconds": 300, "CheckpointKeepLast": 5, "ResumeFromLatest": true },
+  "Model": { "Hidden1": 256, "Hidden2": 256, "LearningRate": 0.0005, "UseHuberLoss": true, "MaxGradNorm": 10.0, "UseAdamW": true, "WeightDecay": 0.0001, "Gamma": 0.99, "RewardClipAbs": 1.0, "RewardScale": 1.0, "UpdateTargetEvery": 200, "UseSoftTarget": true, "TargetUpdateTau": 0.005, "EpsilonStart": 1.0, "EpsilonMin": 0.05, "EpsilonDecay": 0.995 },
+  "ReplayBuffer": { "Size": 50000, "WarmupSize": 2560, "UseStratifiedSampling": true, "BetaStart": 0.4, "BetaEnd": 1.0, "BetaFrames": 100000 }
+}

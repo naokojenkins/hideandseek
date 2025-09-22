@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/schemas/game_config.schema.json",
+  "title": "HideAndSeek Game Configuration",
+  "type": "object",
+  "properties": {
+    "Version": { "type": "integer", "minimum": 1 },
+    "Seed": { "type": "integer" },
+    "World": {
+      "type": "object",
+      "properties": {
+        "GridSize": { "type": "integer", "minimum": 1 },
+        "CellSize": { "type": "number", "exclusiveMinimum": 0 },
+        "WallHeight": { "type": "number", "exclusiveMinimum": 0 },
+        "RoomSize": { "type": "integer", "minimum": 1 }
+      },
+      "required": ["GridSize", "CellSize", "WallHeight", "RoomSize"]
+    },
+    "Seeker": { "type": "object" },
+    "Hider": { "type": "object" },
+    "Actions": { "type": "object" },
+    "SessionDurationSeconds": { "type": "number", "exclusiveMinimum": 0 },
+    "FramesForCatch": { "type": "integer", "minimum": 1 },
+    "ActionRepeat": { "type": "integer", "minimum": 1 },
+    "VisibilityCheckInterval": { "type": "number", "exclusiveMinimum": 0 },
+    "NoProgressDistanceEps": { "type": "number", "minimum": 0 },
+    "NoProgressSeconds": { "type": "number", "minimum": 0 },
+    "MinInitialSeparation": { "type": "number", "minimum": 0 },
+    "TimeScale": { "type": "number", "exclusiveMinimum": 0 },
+
+    "DQN": { "type": "object" },
+
+    "Training": {
+      "type": "object",
+      "properties": {
+        "Seed": { "type": ["integer", "null"] },
+        "StepsPerUpdate": { "type": "integer", "minimum": 0 },
+        "BatchSize": { "type": "integer", "minimum": 1 },
+        "Device": { "type": "string", "enum": ["Auto", "Cpu", "Cuda", "auto", "cpu", "cuda"] },
+        "ModelsPath": { "type": "string" },
+        "LogsPath": { "type": "string" }
+      }
+    },
+    "Model": {
+      "type": "object",
+      "properties": {
+        "Hidden1": { "type": "integer", "minimum": 1 },
+        "Hidden2": { "type": "integer", "minimum": 1 },
+        "LearningRate": { "type": "number", "exclusiveMinimum": 0 },
+        "UseHuberLoss": { "type": "boolean" },
+        "MaxGradNorm": { "type": "number", "minimum": 0 },
+        "UseAdamW": { "type": "boolean" },
+        "WeightDecay": { "type": "number", "minimum": 0 },
+        "Gamma": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "RewardClipAbs": { "type": "number", "minimum": 0 },
+        "RewardScale": { "type": "number", "exclusiveMinimum": 0 },
+        "UpdateTargetEvery": { "type": "integer", "minimum": 0 },
+        "UseSoftTarget": { "type": "boolean" },
+        "TargetUpdateTau": { "type": "number", "minimum": 0, "maximum": 1 },
+        "EpsilonStart": { "type": "number" },
+        "EpsilonMin": { "type": "number" },
+        "EpsilonDecay": { "type": "number" }
+      }
+    },
+    "ReplayBuffer": {
+      "type": "object",
+      "properties": {
+        "Size": { "type": "integer", "minimum": 1 },
+        "WarmupSize": { "type": "integer", "minimum": 0 },
+        "UseStratifiedSampling": { "type": "boolean" },
+        "BetaStart": { "type": "number", "minimum": 0, "maximum": 1 },
+        "BetaEnd": { "type": "number", "minimum": 0, "maximum": 1 },
+        "BetaFrames": { "type": "integer", "minimum": 0 }
+      }
+    }
+  },
+  "additionalProperties": true
+}
