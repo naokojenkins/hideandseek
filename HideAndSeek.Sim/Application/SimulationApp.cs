@@ -109,8 +109,8 @@ namespace ToolUse.Sim.Application
             {
                 var mr = HideAndSeek.Core.IO.MetricsRecorder.Instance;
                 // Use current epsilons from agents and buffer counts (0 at start), emaLoss=0
-                float eps = _seekerDqn != null ? (float)typeof(HideAndSeek.Core.RL.DQNAgent).GetField("epsilon", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(_seekerDqn)! : 0f;
-                // If reflection fails, fallback to config
+                float eps = _seekerDqn != null ? _seekerDqn.Epsilon : 0f;
+                // Fallback to config if not initialized
                 if (eps <= 0f) eps = _config.DQN.EpsilonStart;
                 float beta = _config.ReplayBuffer.BetaStart;
                 int buf = 0;
@@ -277,7 +277,7 @@ namespace ToolUse.Sim.Application
                 {
                     pos = world.GetRandomValidAgentPosition(seekerRadius, 0f);
                     attempts++;
-                    if (attempts > 200) break;
+                    if (attempts > Math.Max(1, _config.InitialPlacementMaxAttempts)) break;
                 }
                 while (seekers.Exists(s => TooCloseXZ(s.Position, pos, sameTeamMinSeparationS)));
                 seekers.Add(new Agent3D(pos, true, rand.Next(0, 359)));
@@ -291,7 +291,7 @@ namespace ToolUse.Sim.Application
                 {
                     pos = world.GetRandomValidAgentPosition(hiderRadius, 0f);
                     attempts++;
-                    if (attempts > 200) break;
+                    if (attempts > Math.Max(1, _config.InitialPlacementMaxAttempts)) break;
                 }
                 while (hiders.Exists(h => TooCloseXZ(h.Position, pos, sameTeamMinSeparationH)) ||
                        seekers.Exists(s => TooCloseXZ(s.Position, pos, crossTeamMinSeparation)));
@@ -303,7 +303,7 @@ namespace ToolUse.Sim.Application
 
             if (_simulation == null)
             {
-                _simulation = new Simulation3D(_gridSize, newSeeker, newHider, _seekerDqn, _hiderDqn);
+                _simulation = new Simulation3D(newSeeker, newHider, _seekerDqn, _hiderDqn);
             }
             else
             {

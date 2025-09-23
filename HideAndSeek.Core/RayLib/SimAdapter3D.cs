@@ -13,12 +13,14 @@ namespace HideAndSeek.Core.RaylibThreeD
         private readonly Agent3D _seeker;
         private readonly Agent3D _hider;
         private readonly System.Collections.Generic.IReadOnlyList<Agent3D>? _seekers;
+        private readonly System.Collections.Generic.IReadOnlyList<Agent3D>? _hiders;
 
         public SimAdapter3D(World3D world, Agent3D seeker, Agent3D hider)
         {
             _world = world;
             _seeker = seeker;
             _hider = hider;
+            _hiders = null;
         }
 
         public SimAdapter3D(World3D world, System.Collections.Generic.IReadOnlyList<Agent3D> seekers, Agent3D hider)
@@ -27,6 +29,15 @@ namespace HideAndSeek.Core.RaylibThreeD
             _seekers = seekers;
             _seeker = seekers.Count > 0 ? seekers[0] : throw new ArgumentException("seekers must contain at least one element");
             _hider = hider;
+        }
+
+        public SimAdapter3D(World3D world, Agent3D seeker, System.Collections.Generic.IReadOnlyList<Agent3D> hiders)
+        {
+            _world = world;
+            _seeker = seeker;
+            if (hiders == null || hiders.Count == 0) throw new ArgumentException("hiders must contain at least one element");
+            _hiders = hiders;
+            _hider = hiders[0];
         }
 
         public State GetSeekerState()
@@ -56,11 +67,10 @@ namespace HideAndSeek.Core.RaylibThreeD
 
             // Отдельный признак: меня видят (любой Hider видит этого Seeker'а)
             bool isSeenByOpponent;
-            if (_seekers != null && _seekers.Count > 0)
+            if (_hiders != null && _hiders.Count > 0)
             {
-                // В мульти-режиме у этого адаптера один hider; проверяем видимость hider -> каждый seeker
-                // Для состояния конкретного seeker достаточно проверить, видит ли его текущий _hider
-                isSeenByOpponent = _hider.CanSee(_seeker, _world);
+                // Мульти-режим по Hider: признак истинный, если любой Hider видит данного Seeker
+                isSeenByOpponent = System.Linq.Enumerable.Any(_hiders, h => h.CanSee(_seeker, _world));
             }
             else
             {

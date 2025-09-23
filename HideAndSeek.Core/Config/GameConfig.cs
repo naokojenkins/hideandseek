@@ -12,7 +12,7 @@ namespace HideAndSeek.Core.Config
     {
         private static GameConfig? _instance;
         /// <summary> Schema version for game_config.json to allow migrations. </summary>
-        public int Version { get; set; } = 2;
+        public int Version { get; set; } = 3;
 
         /// <summary>
         /// Единый глобальный экземпляр конфига (лениво загружается из файла один раз).
@@ -89,6 +89,35 @@ namespace HideAndSeek.Core.Config
         public int FramesForCatch { get; set; } = 60;
 
         /// <summary>
+        /// Эффективный порог кадров для поимки (>=1). Вычисляется на лету как функция базового
+        /// FramesForCatch с учётом ActionRepeat и TimeScale, чтобы поддерживать корректное поведение
+        /// при рантайм-изменении этих параметров.
+        ///
+        /// Правила пересчёта:
+        /// - Базовый FramesForCatch трактуется как порог при ActionRepeat=1 и TimeScale=1.
+        /// - При увеличении ActionRepeat эпизод ускоряется в терминах «решений на единицу времени»,
+        ///   поэтому для сохранения сопоставимой длительности удержания цели в поле зрения порог
+        ///   умножается на ActionRepeat.
+        /// - При изменении TimeScale масштабируется длительность сим-шагов: при TimeScale>1 на один
+        ///   кадр приходится больше сим-времени, следовательно требуемое число кадров уменьшается
+        ///   пропорционально (деление на TimeScale). Для TimeScale<1 — наоборот.
+        /// </summary>
+        [JsonIgnore]
+        public int EffectiveFramesForCatch
+        {
+            get
+            {
+                int baseFrames = Math.Max(1, FramesForCatch);
+                int repeat = Math.Max(1, ActionRepeat);
+                float timeScale = Math.Max(0.0001f, TimeScale);
+                // ceil to avoid getting zero when scaling down; clamp to int range
+                double scaled = Math.Ceiling(baseFrames * (double)repeat / timeScale);
+                if (scaled > int.MaxValue) return int.MaxValue;
+                return Math.Max(1, (int)scaled);
+            }
+        }
+
+        /// <summary>
         /// Seed для всех случайных событий (Random) — используйте для повторяемости экспериментов!
         /// </summary>
         public int Seed { get; set; } = 12345;
@@ -104,6 +133,8 @@ namespace HideAndSeek.Core.Config
         public float NoProgressSeconds { get; set; } = 5f;
         /// <summary> Минимальная стартовая дистанция между Seeker и Hider при ресете. </summary>
         public float MinInitialSeparation { get; set; } = 5f;
+        /// <summary> Максимальное число попыток подбора стартовых позиций (чтобы соблюсти разделение). </summary>
+        public int InitialPlacementMaxAttempts { get; set; } = 200;
         /// <summary> Коэффициент сжатия времени (1 — без сжатия). </summary>
         public float TimeScale { get; set; } = 1.0f;
 
@@ -188,6 +219,16 @@ namespace HideAndSeek.Core.Config
                     cfg.Version = 2;
                     Console.WriteLine("[CONFIG] Migration complete (schema v2).");
                 }
+
+                // v3: introduce explicit control for applying visibility rewards to RL vs HUD.
+                if (cfg.Version < 3)
+                {
+                    // Preserve legacy behavior: Hider used visibility rewards in RL, Seeker did not.
+                    cfg.Hider.ApplyVisibilityRewardsToRL = true;
+                    // Keep default scales (1.0) as defined in AgentConfig.
+                    cfg.Version = 3;
+                    Console.WriteLine("[CONFIG] Migration complete (schema v3): ApplyVisibilityRewardsToRL defaults applied (Hider=true, Seeker=false).");
+                }
             }
 
             bool NormalizeSeeker(AgentConfig a)
@@ -248,6 +289,7 @@ namespace HideAndSeek.Core.Config
             if (NoProgressDistanceEps < 0) errors.Add("NoProgressDistanceEps must be >= 0.");
             if (NoProgressSeconds < 0) errors.Add("NoProgressSeconds must be >= 0.");
             if (MinInitialSeparation < 0) errors.Add("MinInitialSeparation must be >= 0.");
+            if (InitialPlacementMaxAttempts <= 0) errors.Add("InitialPlacementMaxAttempts must be > 0.");
             if (TimeScale <= 0) errors.Add("TimeScale must be > 0.");
 
             // Sub-config validations
@@ -345,6 +387,25 @@ namespace HideAndSeek.Core.Config
         /// <summary> Награда Hider, если его не видно. </summary>
         public float RewardWhenHidden { get; set; } = 0.15f;
 
+        /// <summary>
+        /// ВКЛ/ВЫКЛ: должны ли награды, связанные с видимостью (Visible/Hidden/SeenBySeeker), участвовать в RL-награде.
+        /// Это снимает неоднозначность между HUD-«очками» и RL-наградой.
+        /// По умолчанию: для Seeker — false (видимость влияет только на очки HUD), для Hider — true (сохраняем текущее поведение).
+        /// </summary>
+        public bool ApplyVisibilityRewardsToRL { get; set; } = false;
+        /// <summary>
+        /// Масштаб для видимых/скрытых RL-наград (если ApplyVisibilityRewardsToRL=true). Позволяет ослабить/усилить вклад.
+        /// </summary>
+        public float VisibilityRewardScaleRL { get; set; } = 1.0f;
+        /// <summary>
+        /// Масштаб для HUD-очков, связанных с видимостью. Не влияет на RL-награду.
+        /// </summary>
+        public float VisibilityPointsScaleHUD { get; set; } = 1.0f;
+        /// <summary>
+        /// Включает начисление HUD-очков за видимость/скрытность. Не влияет на RL.
+        /// </summary>
+        public bool EnableHudVisibilityPoints { get; set; } = true;
+
         // === Дополнительные награды для Hider ===
         /// <summary> Награда Hider, если его видит Seeker. </summary>
         public float RewardWhenSeenBySeeker { get; set; } = -0.5f;
@@ -368,7 +429,13 @@ namespace HideAndSeek.Core.Config
         public float EscapeBonus { get; set; } = 2.0f;
 
         // === Параметры агента ===
-        /// <summary> Награда за исследование новой клетки (не важно: увидена или пройдена). </summary>
+        /// <summary>
+        /// ЕДИНЫЙ пер‑клеточный бонус за исследование новой клетки.
+        /// Историческое имя свойства — «PhysicalExploreReward», но бонус применяется ко ВСЕМ видам «открытия» клетки:
+        /// 1) когда клетка впервые попала в поле зрения (визуальное открытие),
+        /// 2) когда клетка впервые пройдена/достигнута физически.
+        /// Т.е. это один общий ExploreRewardPerCell; переименование не выполнено ради обратной совместимости конфигов.
+        /// </summary>
         public float PhysicalExploreReward { get; set; } = 0.05f;
         /// <summary> Радиус зрения агента. </summary>
         public float VisionRadius { get; set; } = 6.0f;
@@ -380,6 +447,21 @@ namespace HideAndSeek.Core.Config
         public float Speed { get; set; } = 2.0f;
         /// <summary> Шаг поворота при дискретных действиях (градусы). </summary>
         public float RotationStepDegrees { get; set; } = 10.0f;
+        /// <summary>
+        /// Коэффициент выравнивания поворота для эвристики «беги от противника» (устарело).
+        /// Если AlignThresholdDegrees <= 0, используется поведение по умолчанию: |diff| < RotationStepDegrees * TurnAlignFactor.
+        /// Сохранено для обратной совместимости конфигов.
+        /// </summary>
+        public float TurnAlignFactor { get; set; } = 0.6f;
+
+        /// <summary>
+        /// Явный порог выравнивания по углу (в градусах) для выбора Forward vs ForwardLeft/Right в эвристике.
+        /// Если > 0, имеет приоритет над TurnAlignFactor.
+        /// Рекомендуется задавать фиксированное значение для воспроизводимости при разных RotationStepDegrees.
+        /// Пример: при шаге 10° и старом коэффициенте 0.6 — 6.0°.
+        /// Значение 0 или отрицательное означает использовать TurnAlignFactor.
+        /// </summary>
+        public float AlignThresholdDegrees { get; set; } = 0.0f;
 
         /// <summary> Количество агентов данной роли. </summary>
         public int Count { get; set; } = 2;
@@ -389,6 +471,12 @@ namespace HideAndSeek.Core.Config
         public float ProximityRewardMultiplier { get; set; } = 0.1f;
         /// <summary> Базовый штраф за поворот (применяется только если поворот не увеличил видимую/исследованную область).</summary>
         public float RotationPenalty { get; set; } = 0.01f;
+        /// <summary>
+        /// Коэффициент ослабления штрафа за поворот при побеге (когда агент виден противнику / убегает).
+        /// Применяется как: EffectivePenalty = RotationPenalty * RotationPenaltyWhenFleeFactor.
+        /// Рекомендуемый диапазон [0, 1]. Значение 0.3 соответствует прежнему захардкоженному поведению.
+        /// </summary>
+        public float RotationPenaltyWhenFleeFactor { get; set; } = 0.3f;
         /// <summary> БАЗОВЫЙ штраф за отсутствие прогресса (для обратной совместимости). </summary>
         public float NoProgressPenalty { get; set; } = 0.02f;
         /// <summary> Шаг штрафа за отсутствие прогресса (накапливается до лимита).</summary>
@@ -410,13 +498,27 @@ namespace HideAndSeek.Core.Config
 
         // === Новые параметры для поиска и shaping ===
         /// <summary> Разовый бонус Seeker за первое обнаружение Hider в эпизоде (false→true в текущем шаге). Делится между увидевшими. </summary>
-        public float DetectBonus { get; set; } = 0.8f;
+        public float DetectBonus { get; set; } = 0.0f;
         /// <summary> Если true, использовать potential-based shaping для Seeker: r += d - gamma*d' (Φ=-d). </summary>
         public bool UsePotentialShaping { get; set; } = true;
         /// <summary> Минимальное значение epsilon во время фазы поиска (IsHiderSeen=false) для Seeker. </summary>
         public float EpsilonWhenSearching { get; set; } = 0.6f;
         /// <summary> Доля смешивания Q с эвристическим приоритетом действий в фазе поиска (Q'=(1-α)Q+αP).</summary>
         public float HeuristicAlphaSearch { get; set; } = 0.2f;
+
+        // === Видимость/преследование: параметры, заменяющие хардкоды ===
+        /// <summary>
+        /// Штраф Seeker за то, что его видит противник (в расчёте на шаг). Ранее был хардкод -0.05.
+        /// Значение обычно отрицательное.
+        /// </summary>
+        [JsonProperty(Required = Required.Always)]
+        public float SeenByOpponentPenaltyPerStep { get; set; }
+        /// <summary>
+        /// Множитель вознаграждения за увеличение дистанции при побеге, когда Seeker сам находится под наблюдением.
+        /// Ранее был хардкод 0.8.
+        /// </summary>
+        [JsonProperty(Required = Required.Always)]
+        public float FleeDistanceRewardMultiplierWhenSeen { get; set; }
     }
 
     /// <summary>

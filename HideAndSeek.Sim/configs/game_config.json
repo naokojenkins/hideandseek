@@ -1,5 +1,5 @@
 {
-  "Version": 2,
+  "Version": 3,
   "Seed": 12345,
   "Training": {
     "BatchSize": 128,
@@ -51,6 +51,7 @@
   "NoProgressDistanceEps": 0.05,
   "NoProgressSeconds": 5.0,
   "MinInitialSeparation": 4.0,
+  "InitialPlacementMaxAttempts": 200,
   "TimeScale": 1.0,
   "Actions": {
     "TurnLeft": 0,
@@ -61,5 +62,18 @@
     "Idle": 5,
     "Backward": 6,
     "Count": 7
+  },
+  "Seeker": {
+    "ApplyVisibilityRewardsToRL": false,
+    "VisibilityRewardScaleRL": 1.0,
+    "VisibilityPointsScaleHUD": 1.0,
+    "EnableHudVisibilityPoints": true,
+    "UsePotentialShaping": true
+  },
+  "Hider": {
+    "ApplyVisibilityRewardsToRL": true,
+    "VisibilityRewardScaleRL": 1.0,
+    "VisibilityPointsScaleHUD": 1.0,
+    "EnableHudVisibilityPoints": true
   }
 }

@@ -184,7 +184,6 @@ namespace HideAndSeek.Core.RaylibThreeD
         }
 
         public Simulation3D(
-            int worldSize,
             Agent3D seeker,
             Agent3D hider,
             DQNAgent seekerAgent,
@@ -201,8 +200,11 @@ namespace HideAndSeek.Core.RaylibThreeD
             _noProgressDistanceEps = Math.Max(0f, Config.NoProgressDistanceEps);
             _noProgressSeconds = Math.Max(0f, Config.NoProgressSeconds);
 
+            // Создаём мир строго по размеру из конфига, чтобы избежать расхождений
+            int worldSize = Config.World.GridSize;
             World = new World3D(worldSize);
-            World.GenerateStaticGrid();
+            // World3D конструктор уже вызывает GenerateStaticGrid() с параметрами из конфига;
+            // повторный вызов безопасен, но не обязателен. Оставим без повторного вызова.
 
             Seeker = seeker;
             Seeker.InitWorldSize(World.Size);
@@ -296,8 +298,8 @@ namespace HideAndSeek.Core.RaylibThreeD
 
             Timer += dt;
 
-            // Порог «кадров видимости» без дополнительного масштабирования
-            int framesThreshold = Math.Max(1, Config.FramesForCatch);
+            // Эффективный порог «кадров видимости» берём напрямую из конфига, без кэширования
+            int framesThreshold = Config.EffectiveFramesForCatch;
 
             // Предсказание завершения эпизода в этом кадре
             bool willCatchThisStep = IsHiderVisible && (_caughtFrames + 1 >= framesThreshold);
@@ -379,7 +381,7 @@ namespace HideAndSeek.Core.RaylibThreeD
         }
 
         // Action repeat and progress tracking
-        private int _actionRepeat = 2;
+        private int _actionRepeat;
 
         // Metrics
         private int _framesInSession = 0;
@@ -392,8 +394,8 @@ namespace HideAndSeek.Core.RaylibThreeD
         private float _noProgressTimer = 0f;
         private float _lastDistanceForProgress = 0f;
         private int _lastSeekerVisualExploredForProgress = 0;
-        private float _noProgressDistanceEps = 0.05f;
-        private float _noProgressSeconds = 5f;
+        private float _noProgressDistanceEps = 0f;
+        private float _noProgressSeconds = 0f;
 
         // ---- Переменные для мультиагентного шага ----
         // Предыдущее состояние и действие для каждого агента
@@ -438,7 +440,7 @@ namespace HideAndSeek.Core.RaylibThreeD
             foreach (var s in seekers)
             {
                 var target = GetNearestOpponent(s, hiders);
-                var ad = new SimAdapter3D(World, s, target);
+                var ad = new SimAdapter3D(World, s, hiders);
                 var st = ad.GetSeekerState();
                 CheckNaN(st.ToArray(World.Size), "seekerState_before");
                 seekerStatesBefore[s] = st;
@@ -481,18 +483,8 @@ namespace HideAndSeek.Core.RaylibThreeD
                     long a;
                     if (isSeenByOpponentNow)
                     {
-                        // Попытаться временно обнулить epsilon
-                        float epsBackup = 0f; bool haveBackup = false;
-                        try
-                        {
-                            var epsField = typeof(DQNAgent).GetField("epsilon", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                            if (epsField != null)
-                            {
-                                epsBackup = (float)epsField.GetValue(_seekerAgent);
-                                haveBackup = true;
-                            }
-                        }
-                        catch { }
+                        // Временно обнуляем epsilon через публичный API, сохранив текущее значение
+                        float epsBackup = _seekerAgent.Epsilon;
                         try { _seekerAgent.SetEpsilon(0f); } catch { }
 
                         // Базовое жадное действие от DQN
@@ -512,7 +504,10 @@ namespace HideAndSeek.Core.RaylibThreeD
                             diff = ((diff + 540f) % 360f) - 180f;
 
                             var act = Config.Actions;
-                            if (MathF.Abs(diff) < Config.Seeker.RotationStepDegrees * 0.6f)
+                            float alignDeg = Config.Seeker.AlignThresholdDegrees > 0f
+                                ? Config.Seeker.AlignThresholdDegrees
+                                : Config.Seeker.RotationStepDegrees * Config.Seeker.TurnAlignFactor;
+                            if (MathF.Abs(diff) < alignDeg)
                             {
                                 a = act.Forward;
                             }
@@ -528,10 +523,8 @@ namespace HideAndSeek.Core.RaylibThreeD
                         }
                         catch { /* fallback to DQN action */ }
 
-                        if (haveBackup)
-                        {
-                            try { _seekerAgent.SetEpsilon(epsBackup); } catch { }
-                        }
+                        // Восстановим исходный epsilon
+                        try { _seekerAgent.SetEpsilon(epsBackup); } catch { }
                     }
                     else
                     {
@@ -561,19 +554,7 @@ namespace HideAndSeek.Core.RaylibThreeD
                     long a;
                     if (forceExploit)
                     {
-                        float epsBackup = 0f;
-                        bool haveBackup = false;
-                        try
-                        {
-                            var epsField = typeof(DQNAgent).GetField("epsilon", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                            if (epsField != null)
-                            {
-                                epsBackup = (float)epsField.GetValue(_hiderAgent);
-                                haveBackup = true;
-                            }
-                        }
-                        catch { /* ignore backup errors */ }
-
+                        float epsBackup = _hiderAgent.Epsilon;
                         try { _hiderAgent.SetEpsilon(0f); } catch { }
                         // Базовое жадное действие
                         a = _hiderAgent.ChooseAction(hiderStatesBefore[h].ToArray(World.Size));
@@ -591,7 +572,10 @@ namespace HideAndSeek.Core.RaylibThreeD
                             diff = ((diff + 540f) % 360f) - 180f;
 
                             var act = Config.Actions;
-                            if (MathF.Abs(diff) < Config.Hider.RotationStepDegrees * 0.6f)
+                            float alignDeg = Config.Hider.AlignThresholdDegrees > 0f
+                                ? Config.Hider.AlignThresholdDegrees
+                                : Config.Hider.RotationStepDegrees * Config.Hider.TurnAlignFactor;
+                            if (MathF.Abs(diff) < alignDeg)
                             {
                                 a = act.Forward;
                             }
@@ -606,10 +590,8 @@ namespace HideAndSeek.Core.RaylibThreeD
                         }
                         catch { /* fallback to DQN action */ }
 
-                        if (haveBackup)
-                        {
-                            try { _hiderAgent.SetEpsilon(epsBackup); } catch { }
-                        }
+                        // Восстановим исходный epsilon
+                        try { _hiderAgent.SetEpsilon(epsBackup); } catch { }
                     }
                     else
                     {
@@ -749,7 +731,7 @@ namespace HideAndSeek.Core.RaylibThreeD
             foreach (var s in seekers)
             {
                 var target = GetNearestOpponent(s, hiders);
-                var ad = new SimAdapter3D(World, s, target);
+                var ad = new SimAdapter3D(World, s, hiders);
                 var st = ad.GetSeekerState();
                 seekerStatesAfter[s] = st;
             }
@@ -766,6 +748,7 @@ namespace HideAndSeek.Core.RaylibThreeD
             bool anyVisibleNow = hiderVisibleNow.Values.Any(v => v);
             bool detectionNow = anyVisibleNow && !_wasHiderVisiblePrev;
             int seekersSeeingNow = seekers.Count(s => hiders.Any(h => s.CanSee(h, World)));
+            int hidersSeeingNow = hiders.Count(h => seekers.Any(s => h.CanSee(s, World)));
 
             foreach (var s in seekers)
             {
@@ -804,7 +787,8 @@ namespace HideAndSeek.Core.RaylibThreeD
                 if (isRotationAction && newPhysical == 0 && newVisual == 0)
                 {
                     float rotPen = MathF.Max(0f, Config.Seeker.RotationPenalty);
-                    if (isSeenByOpponentNow) rotPen *= 0.3f; // ослабляем штраф при побеге
+                    if (isSeenByOpponentNow)
+                        rotPen *= MathF.Max(0f, Config.Seeker.RotationPenaltyWhenFleeFactor); // ослабляем штраф при побеге
                     reward -= rotPen;
                 }
 
@@ -857,6 +841,14 @@ namespace HideAndSeek.Core.RaylibThreeD
 
                 float reward = ComputeHiderRewardFor(h, seekers, visibleNow);
 
+                // Разовый бонус за обнаружение Seeker'а Hider'ом (false->true)
+                bool wasVisibleBefore = _wasHiderVisiblePrevMap.TryGetValue(h, out var wasVis) && wasVis;
+                bool detectionNowH = visibleNow && !wasVisibleBefore;
+                if (detectionNowH && hidersSeeingNow > 0)
+                {
+                    reward += Config.Hider.DetectBonus / hidersSeeingNow;
+                }
+
                 bool isRotationActionH =
                     (actionThisStep == actCfg.TurnLeft || actionThisStep == actCfg.TurnRight ||
                      actionThisStep == actCfg.ForwardLeft || actionThisStep == actCfg.ForwardRight);
@@ -865,7 +857,7 @@ namespace HideAndSeek.Core.RaylibThreeD
                 {
                     float rotPenH = MathF.Max(0f, Config.Hider.RotationPenalty);
                     // Ослабляем штраф за поворот, когда Hider находится под прицелом и разворачивается для побега
-                    rotPenH *= 0.3f;
+                    rotPenH *= MathF.Max(0f, Config.Hider.RotationPenaltyWhenFleeFactor);
                     reward -= rotPenH;
                 }
 
@@ -940,8 +932,9 @@ namespace HideAndSeek.Core.RaylibThreeD
         // Цель находится в секторе и радиусе наблюдателя, но не видна (окклюзия препятствием)
         private bool IsOccludedByWall(Agent3D observer, Agent3D target)
         {
-            float maxDist = observer.IsSeeker ? Config.Seeker.VisionRadius : Config.Hider.VisionRadius;
-            float halfFov = (observer.IsSeeker ? Config.Seeker.VisionAngle : Config.Hider.VisionAngle) * 0.5f;
+            // Use observer's current properties to avoid config vs. runtime cache mismatches
+            float maxDist = observer.VisionRadius;
+            float halfFov = observer.VisionAngle * 0.5f;
 
             Vector3 toTarget = target.Position - observer.Position;
             float dist = toTarget.Length();
@@ -997,16 +990,21 @@ namespace HideAndSeek.Core.RaylibThreeD
             int newlyExploredTotal = newPhysical + newVisual;
             if (newlyExploredTotal > 0)
             {
-                // Single exploration unit reward comes from Seeker.PhysicalExploreReward (kept as the single scalar),
-                // VisualExploreReward is ignored/removed from config. Each new cell grants the same reward.
+                // Единый пер‑клеточный бонус за исследование: применяется как к «визуальному» открытию клетки,
+                // так и к физическому достижению/проходу. Историческое имя поля в конфиге — PhysicalExploreReward.
+                // Это фактически ExploreRewardPerCell: каждая новая клетка даёт одинаковую награду.
                 float perCell = Config.Seeker.PhysicalExploreReward;
                 float bonus = newlyExploredTotal * perCell;
                 r += bonus;
                 ExplorationScore += bonus;
             }
 
-            // Keep only minimal visibility shaping if required by high-level design? The issue asks to remove different rewards logic
-            // between visible/hidden; thus do not add RewardWhenHiderVisible/Hidden.
+            // Видимостьные награды для RL — по явному флагу из конфига, чтобы не путать с HUD-очками
+            if (Config.Seeker.ApplyVisibilityRewardsToRL)
+            {
+                float vis = seesAny ? Config.Seeker.RewardWhenHiderVisible : Config.Seeker.RewardWhenHiderHidden;
+                r += vis * Config.Seeker.VisibilityRewardScaleRL;
+            }
 
             // Keep distance-based shaping as is to not affect chasing behavior.
             var hidersList = (Hiders != null && Hiders.Count > 0) ? Hiders : new List<Agent3D> { Hider };
@@ -1017,9 +1015,9 @@ namespace HideAndSeek.Core.RaylibThreeD
             if (isSeenByOpponent)
             {
                 // Штраф за то, что меня видят, и поощрение за увеличение дистанции от ближайшего Hider
-                r -= 0.05f; // visibility penalty per step when seen
+                r += Config.Seeker.SeenByOpponentPenaltyPerStep; // обычно отрицательный
                 float distDeltaAway = curDist - lastDist; // >0 если удалился
-                float fleeMul = 0.8f; // within 0.6–1.0 as per requirement
+                float fleeMul = Config.Seeker.FleeDistanceRewardMultiplierWhenSeen;
                 r += distDeltaAway * fleeMul;
             }
             else if (Config.Seeker.UsePotentialShaping)
@@ -1041,8 +1039,20 @@ namespace HideAndSeek.Core.RaylibThreeD
         private float ComputeHiderRewardFor(Agent3D h, List<Agent3D> seekers, bool visibleNow)
         {
             float reward = 0f;
-            // Add configured shaping directly: negative RewardWhenVisible should penalize visibility; positive RewardWhenHidden should reward hiding.
-            reward += visibleNow ? Config.Hider.RewardWhenVisible : Config.Hider.RewardWhenHidden;
+            // Базовая видимость: по явному флагу (иначе вклад 0, чтобы избежать конфликта с HUD-очками)
+            if (Config.Hider.ApplyVisibilityRewardsToRL)
+            {
+                if (visibleNow)
+                {
+                    float seen = Config.Hider.RewardWhenSeenBySeeker;
+                    float baseVis = (seen != 0f) ? seen : Config.Hider.RewardWhenVisible;
+                    reward += baseVis * Config.Hider.VisibilityRewardScaleRL;
+                }
+                else
+                {
+                    reward += Config.Hider.RewardWhenHidden * Config.Hider.VisibilityRewardScaleRL;
+                }
+            }
 
             // расстояние до ближайшего seeker
             var nearest = GetNearestOpponent(h, seekers);
@@ -1095,13 +1105,17 @@ namespace HideAndSeek.Core.RaylibThreeD
         {
             if (IsHiderVisible)
             {
-                SeekerScore += Config.Seeker.PointsPerSecondWhenHiderVisible * deltaTime;
-                HiderScore  += Config.Hider.PointsPerSecondWhenVisible * deltaTime;
+                if (Config.Seeker.EnableHudVisibilityPoints)
+                    SeekerScore += (Config.Seeker.PointsPerSecondWhenHiderVisible * Config.Seeker.VisibilityPointsScaleHUD) * deltaTime;
+                if (Config.Hider.EnableHudVisibilityPoints)
+                    HiderScore  += (Config.Hider.PointsPerSecondWhenVisible      * Config.Hider.VisibilityPointsScaleHUD) * deltaTime;
             }
             else
             {
-                HiderScore  += Config.Hider.PointsPerSecondWhenHidden * deltaTime;
-                SeekerScore += Config.Seeker.PointsPerSecondWhenHiderHidden * deltaTime;
+                if (Config.Hider.EnableHudVisibilityPoints)
+                    HiderScore  += (Config.Hider.PointsPerSecondWhenHidden      * Config.Hider.VisibilityPointsScaleHUD) * deltaTime;
+                if (Config.Seeker.EnableHudVisibilityPoints)
+                    SeekerScore += (Config.Seeker.PointsPerSecondWhenHiderHidden * Config.Seeker.VisibilityPointsScaleHUD) * deltaTime;
             }
             if (float.IsNaN(SeekerScore) || float.IsInfinity(SeekerScore))
                 throw new Exception($"[NaN/Inf] SeekerScore: {SeekerScore}");
@@ -1112,6 +1126,17 @@ namespace HideAndSeek.Core.RaylibThreeD
         public void Restart()
         {
             _justRestarted = true;
+
+            // Re-sync action repeat with current config (in case it was changed at runtime)
+            _actionRepeat = Math.Max(1, Config.ActionRepeat);
+            // Re-sync no-progress thresholds from config (runtime changes should apply)
+            _noProgressDistanceEps = MathF.Max(0f, Config.NoProgressDistanceEps);
+            _noProgressSeconds = MathF.Max(0f, Config.NoProgressSeconds);
+            // Re-sync visibility check interval from config (runtime changes should apply)
+            _visibilityCheckInterval = MathF.Max(0.001f, Config.VisibilityCheckInterval);
+            _lastVisibilityCheck = 0f;
+            // Re-sync session duration from config to apply runtime changes
+            sessionDurationSeconds = Config.SessionDurationSeconds;
 
             // Log previous session metrics before resetting
             if (_framesInSession > 0)
@@ -1149,8 +1174,14 @@ namespace HideAndSeek.Core.RaylibThreeD
             Vector3 seekerPos = World.GetRandomValidAgentPosition(Config.Seeker.AgentRadius, 0f);
             Vector3 hiderPos = World.GetRandomValidAgentPosition(Config.Hider.AgentRadius, 0f);
             int attempts = 0;
-            while (attempts < 50 && Vector3.Distance(seekerPos, hiderPos) < Config.MinInitialSeparation)
+            float crossTeamMinSeparation = MathF.Max(Config.MinInitialSeparation, 1.0f);
+            int maxAttempts = Math.Max(1, Config.InitialPlacementMaxAttempts);
+            while (attempts < maxAttempts)
             {
+                float dx = seekerPos.X - hiderPos.X;
+                float dz = seekerPos.Z - hiderPos.Z;
+                if ((dx * dx + dz * dz) >= (crossTeamMinSeparation * crossTeamMinSeparation))
+                    break;
                 hiderPos = World.GetRandomValidAgentPosition(Config.Hider.AgentRadius, 0f);
                 attempts++;
             }
@@ -1244,6 +1275,17 @@ namespace HideAndSeek.Core.RaylibThreeD
 
         public void Reset(Agent3D newSeeker, Agent3D newHider)
         {
+            // Re-sync action repeat on agent reset as well
+            _actionRepeat = Math.Max(1, Config.ActionRepeat);
+            // Re-sync no-progress thresholds from config (runtime changes should apply)
+            _noProgressDistanceEps = MathF.Max(0f, Config.NoProgressDistanceEps);
+            _noProgressSeconds = MathF.Max(0f, Config.NoProgressSeconds);
+            // Re-sync visibility check interval from config (runtime changes should apply)
+            _visibilityCheckInterval = MathF.Max(0.001f, Config.VisibilityCheckInterval);
+            _lastVisibilityCheck = 0f;
+            // Re-sync session duration from config to apply runtime changes
+            sessionDurationSeconds = Config.SessionDurationSeconds;
+
             Seeker = newSeeker;
             Hider = newHider;
 
@@ -1412,7 +1454,7 @@ namespace HideAndSeek.Core.RaylibThreeD
 
             // Доп. метрики для баров
             float timePercent = Math.Clamp(sessionDurationSeconds > 0f ? (Timer / sessionDurationSeconds) : 0f, 0f, 1f);
-            int effectiveFramesForCatch = Math.Max(1, Config.FramesForCatch);
+            int effectiveFramesForCatch = Config.EffectiveFramesForCatch;
             string catchLine = $"Catch: {_caughtFrames}/{effectiveFramesForCatch}";
             int l2W = Raylib.MeasureText(l2, headerFont);
             int catchW = Raylib.MeasureText(catchLine, lineFont);
@@ -1621,7 +1663,7 @@ namespace HideAndSeek.Core.RaylibThreeD
                 // Конфиг-критичные параметры
                 try
                 {
-                    int framesThreshold = Math.Max(1, Config?.FramesForCatch ?? 1);
+                    int framesThreshold = Config?.EffectiveFramesForCatch ?? 1;
                     sb.AppendLine("Config:");
                     sb.AppendLine($"  TimeScale={Config?.TimeScale}");
                     sb.AppendLine($"  FramesForCatch={Config?.FramesForCatch} -> effective={framesThreshold}");

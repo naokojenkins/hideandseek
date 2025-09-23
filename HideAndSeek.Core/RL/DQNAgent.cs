@@ -214,6 +214,11 @@ namespace HideAndSeek.Core.RL
             }
         }
 
+        /// <summary>
+        /// Returns the current epsilon value of the exploration policy.
+        /// </summary>
+        public float Epsilon => epsilon;
+
         public long ChooseAction(float[] state)
         {
             if (state is null) throw new ArgumentNullException(nameof(state));
