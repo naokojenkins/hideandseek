@@ -68,6 +68,24 @@ namespace ToolUse.Sim.Application
         {
             _config = GameConfig.Instance;
 
+            // Ensure per-role agent settings (including Count) are overlaid from agents_config.json if present
+            try
+            {
+                var agentsCfg = HideAndSeek.Core.Config.AgentsConfig.Load();
+                if (agentsCfg != null)
+                {
+                    _config.Seeker = agentsCfg.Seeker ?? _config.Seeker;
+                    _config.Hider  = agentsCfg.Hider  ?? _config.Hider;
+                }
+            }
+            catch { }
+
+            try
+            {
+                Serilog.Log.Information("Agents effective counts — Seekers: {SeekerCount}, Hiders: {HiderCount}", _config.Seeker?.Count, _config.Hider?.Count);
+            }
+            catch { }
+
             if (_config.Seed != 0)
             {
                 try { TorchSharp.torch.random.manual_seed(_config.Seed); } catch { }

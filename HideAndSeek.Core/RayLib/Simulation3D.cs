@@ -504,6 +504,8 @@ namespace HideAndSeek.Core.RaylibThreeD
                             diff = ((diff + 540f) % 360f) - 180f;
 
                             var act = Config.Actions;
+                            // Priority: ALWAYS use AlignThresholdDegrees when > 0. This overrides any coefficient-based heuristics.
+                            // Fallback (<=0): use historical formula RotationStepDegrees * TurnAlignFactor for backward compatibility.
                             float alignDeg = Config.Seeker.AlignThresholdDegrees > 0f
                                 ? Config.Seeker.AlignThresholdDegrees
                                 : Config.Seeker.RotationStepDegrees * Config.Seeker.TurnAlignFactor;
@@ -562,8 +564,10 @@ namespace HideAndSeek.Core.RaylibThreeD
                         // Эвристика «беги от ближайшего Seeker» при видимости
                         try
                         {
-                            var nearest = GetNearestOpponent(h, seekers);
-                            var away = Vector3.Normalize(h.Position - nearest.Position);
+                            // Choose the nearest VISIBLE seeker as the primary threat; fallback to nearest overall
+                            var visibleSeekers = seekers.Where(s => s.CanSee(h, World)).ToList();
+                            var threat = visibleSeekers.Count > 0 ? GetNearestOpponent(h, visibleSeekers) : GetNearestOpponent(h, seekers);
+                            var away = Vector3.Normalize(h.Position - threat.Position);
                             if (float.IsNaN(away.X) || float.IsNaN(away.Z)) away = new Vector3(0,0,1);
 
                             float desiredYaw = MathF.Atan2(away.X, away.Z) * (180f / MathF.PI);
@@ -572,6 +576,8 @@ namespace HideAndSeek.Core.RaylibThreeD
                             diff = ((diff + 540f) % 360f) - 180f;
 
                             var act = Config.Actions;
+                            // Priority: ALWAYS use AlignThresholdDegrees when > 0. This overrides any coefficient-based heuristics.
+                            // Fallback (<=0): use historical formula RotationStepDegrees * TurnAlignFactor for backward compatibility.
                             float alignDeg = Config.Hider.AlignThresholdDegrees > 0f
                                 ? Config.Hider.AlignThresholdDegrees
                                 : Config.Hider.RotationStepDegrees * Config.Hider.TurnAlignFactor;

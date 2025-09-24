@@ -155,6 +155,17 @@ namespace HideAndSeek.Core.Config
                     string json = sr.ReadToEnd();
                     var cfg = JsonConvert.DeserializeObject<GameConfig>(json) ?? new GameConfig();
                     MigrateIfNeeded(cfg);
+                    // Overlay per-role agent settings from agents_config.json if present to ensure uniform usage across the app
+                    try
+                    {
+                        var agents = AgentsConfig.Load();
+                        if (agents != null)
+                        {
+                            cfg.Seeker = agents.Seeker ?? cfg.Seeker;
+                            cfg.Hider = agents.Hider ?? cfg.Hider;
+                        }
+                    }
+                    catch { }
                     NormalizeConfig(cfg);
                     return cfg;
                 }
@@ -162,6 +173,17 @@ namespace HideAndSeek.Core.Config
                 {
                     Console.WriteLine($"[DEBUG] Config file not found: {resolvedPath}, using defaults");
                     var cfg = new GameConfig();
+                    // Try overlay agents from agents_config.json even when main config is missing
+                    try
+                    {
+                        var agents = AgentsConfig.Load();
+                        if (agents != null)
+                        {
+                            cfg.Seeker = agents.Seeker ?? cfg.Seeker;
+                            cfg.Hider = agents.Hider ?? cfg.Hider;
+                        }
+                    }
+                    catch { }
                     NormalizeConfig(cfg);
                     return cfg;
                 }

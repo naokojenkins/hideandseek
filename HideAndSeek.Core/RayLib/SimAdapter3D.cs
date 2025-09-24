@@ -138,7 +138,7 @@ namespace HideAndSeek.Core.RaylibThreeD
                 _seeker.GridX,
                 _seeker.GridZ,
                 sector,
-                seesSeeker,
+                isSeenBySeeker,
                 knownWalls,
                 isSeenBySeeker,
                 // Расширение: признаки памяти
