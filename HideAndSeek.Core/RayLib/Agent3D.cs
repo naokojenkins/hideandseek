@@ -183,8 +183,12 @@ namespace HideAndSeek.Core.RaylibThreeD
                 {
                     float turn = Clamp(angleDiff, -maxTurn, maxTurn);
                     Rotate(turn);
-                    // В этом кадре делаем приоритет повороту (не шагаем), чтобы не "тыкаться" в стену
-                    return false;
+                    // Для Seeker сохраняем прежнее поведение: приоритет повороту без шага в этом кадре,
+                    // чтобы не "тыкаться" в стену. Для Hider — продолжаем движение, чтобы не замирать при обнаружении.
+                    if (IsSeeker)
+                        return false;
+                    // Hider: не возвращаемся, позволяем смещение вперёд с уже скорректированным направлением
+                    // (векторы движения будут пересчитаны ниже при необходимости)
                 }
             }
             else
@@ -245,8 +249,18 @@ namespace HideAndSeek.Core.RaylibThreeD
                     if (angleDiff > 180f) angleDiff -= 360f;
                     if (angleDiff < -180f) angleDiff += 360f;
 
+                    // Разворот от преследователя, но без остановки: позволяем шагнуть в этом же кадре
                     Rotate(Math.Sign(angleDiff) * 10f);
-                    return false;
+
+                    // Пересчитываем вектор движения с учётом нового направления
+                    radians = Direction * MathF.PI / 180f;
+                    forward = new Vector3(
+                        MathF.Cos(radians) * Speed * deltaTime,
+                        0,
+                        MathF.Sin(radians) * Speed * deltaTime
+                    );
+                    newPosition = Position + forward;
+                    // Не возвращаемся — продолжаем обычную проверку столкновений ниже
                 }
 
                 // Избегаем чрезмерного сближения
