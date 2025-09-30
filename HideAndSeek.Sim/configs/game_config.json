@@ -95,7 +95,7 @@
       "CellSize": "Meters per grid cell.",
       "WallHeight": "Height of walls in meters (for 3D rendering/visibility)."
     },
-    "GridSize": 20,
+    "GridSize": 14,
     "CellSize": 1.0,
     "WallHeight": 2.0
   },

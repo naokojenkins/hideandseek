@@ -140,13 +140,52 @@ namespace HideAndSeek.Core.RaylibThreeD
                 var p = a.Position;
                 bool badPos = float.IsNaN(p.X) || float.IsNaN(p.Y) || float.IsNaN(p.Z) ||
                               float.IsInfinity(p.X) || float.IsInfinity(p.Y) || float.IsInfinity(p.Z);
-                if (badPos || !IsPositionValidForWorld(p, a.AgentRadius))
+                bool validNow = !badPos && IsPositionValidForWorld(p, a.AgentRadius);
+                if (!validNow)
                 {
-                    a.Position = World.GetRandomValidAgentPosition(a.AgentRadius, 0f);
+                    // 1) Try restore last known good position to avoid visible teleport across the map
+                    if (_lastValidPos.TryGetValue(a, out var last) && IsFiniteVec(last) && IsPositionValidForWorld(last, a.AgentRadius))
+                    {
+                        a.Position = last;
+                    }
+                    else
+                    {
+                        // 2) Try to find a nearby valid spot around current position (small spiral search)
+                        Vector3 basePos = p;
+                        bool placed = false;
+                        float[] radii = new float[] { 0.2f, 0.4f, 0.8f, 1.2f, 1.6f, 2.0f };
+                        foreach (var r in radii)
+                        {
+                            int steps = Math.Max(8, (int)(r * 16));
+                            for (int i = 0; i < steps; i++)
+                            {
+                                float ang = (2f * MathF.PI) * (i / (float)steps);
+                                var cand = new Vector3(basePos.X + MathF.Cos(ang) * r, basePos.Y, basePos.Z + MathF.Sin(ang) * r);
+                                if (IsPositionValidForWorld(cand, a.AgentRadius))
+                                {
+                                    a.Position = cand;
+                                    placed = true;
+                                    break;
+                                }
+                            }
+                            if (placed) break;
+                        }
+                        if (!placed)
+                        {
+                            // 3) As a last resort, fallback to random valid position (rare)
+                            a.Position = World.GetRandomValidAgentPosition(a.AgentRadius, 0f);
+                        }
+                    }
                 }
                 if (float.IsNaN(a.Direction) || float.IsInfinity(a.Direction))
                 {
                     a.Direction = 0f;
+                }
+
+                // Update last valid after potential correction
+                if (IsFiniteVec(a.Position) && IsPositionValidForWorld(a.Position, a.AgentRadius))
+                {
+                    _lastValidPos[a] = a.Position;
                 }
             }
 
@@ -172,6 +211,19 @@ namespace HideAndSeek.Core.RaylibThreeD
                     return false;
             }
             return true;
+        }
+
+        // Remember last known valid positions for all current agents
+        private void RememberAllAgentsValidPositions()
+        {
+            var seekers = (Seekers != null && Seekers.Count > 0) ? Seekers : new List<Agent3D> { Seeker };
+            var hiders  = (Hiders  != null && Hiders.Count  > 0) ? Hiders  : new List<Agent3D> { Hider  };
+            foreach (var a in seekers)
+                if (IsFiniteVec(a.Position) && IsPositionValidForWorld(a.Position, a.AgentRadius))
+                    _lastValidPos[a] = a.Position;
+            foreach (var a in hiders)
+                if (IsFiniteVec(a.Position) && IsPositionValidForWorld(a.Position, a.AgentRadius))
+                    _lastValidPos[a] = a.Position;
         }
 
         // Гарантирует, что агент стоит на валидной позиции текущего мира; при необходимости переносит
@@ -217,6 +269,9 @@ namespace HideAndSeek.Core.RaylibThreeD
             // Убедимся, что стартовые позиции валидны в текущем мире симуляции
             EnsureAgentOnValidCell(Seeker);
             EnsureAgentOnValidCell(Hider);
+            // Запомним стартовые валидные позиции
+            _lastValidPos.Clear();
+            RememberAllAgentsValidPositions();
 
             _seekerAgent = seekerAgent;
             _hiderAgent  = hiderAgent;
@@ -372,6 +427,9 @@ namespace HideAndSeek.Core.RaylibThreeD
 
             UpdateScores(dt);
 
+            // Track last known valid positions after all updates this frame
+            RememberAllAgentsValidPositions();
+
             if (_isHiderCaught || Timer >= sessionDurationSeconds)
             {
                 try { OnSessionCompleted?.Invoke(); } catch { }
@@ -421,6 +479,9 @@ namespace HideAndSeek.Core.RaylibThreeD
         private readonly Dictionary<Agent3D, (int phys, int vis)> _prevExploreCountsSeekers = new();
         // Накапливаемый штраф за отсутствие прогресса для каждого Seeker (растёт по шагам до лимита)
         private readonly Dictionary<Agent3D, float> _noProgressPenaltyAccumSeekers = new();
+
+        // Last known valid positions to avoid random teleports during draw-time sanitization
+        private readonly Dictionary<Agent3D, Vector3> _lastValidPos = new();
 
         public bool EnableLearning { get; set; } = true;
 
@@ -1238,6 +1299,10 @@ namespace HideAndSeek.Core.RaylibThreeD
                 Hiders[0].Direction = Hider.Direction;
             }
 
+            // Seed last valid positions after respawn
+            _lastValidPos.Clear();
+            RememberAllAgentsValidPositions();
+
             // Полный сброс исследования и знаний для нового эпизода
             Seeker.ResetExploration();
             Seeker.KnownWalls.Clear();
@@ -1314,6 +1379,10 @@ namespace HideAndSeek.Core.RaylibThreeD
             // Убедимся, что новые агенты стоят на валидных клетках мира симуляции
             EnsureAgentOnValidCell(Seeker);
             EnsureAgentOnValidCell(Hider);
+
+            // Обновим кэш последних валидных позиций
+            _lastValidPos.Clear();
+            RememberAllAgentsValidPositions();
 
             // Полный сброс исследования и знаний
             Seeker.ResetExploration();

@@ -109,9 +109,9 @@ namespace HideAndSeek.Core.Config
             {
                 int baseFrames = Math.Max(1, FramesForCatch);
                 int repeat = Math.Max(1, ActionRepeat);
-                float timeScale = Math.Max(0.0001f, TimeScale);
-                // ceil to avoid getting zero when scaling down; clamp to int range
-                double scaled = Math.Ceiling(baseFrames * (double)repeat / timeScale);
+                // Do NOT adjust by TimeScale here: SimulationApp already applies time scaling to deltaTime.
+                // Catch logic counts frames, not seconds, so only ActionRepeat should affect the threshold.
+                double scaled = Math.Ceiling(baseFrames * (double)repeat);
                 if (scaled > int.MaxValue) return int.MaxValue;
                 return Math.Max(1, (int)scaled);
             }
