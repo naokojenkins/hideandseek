@@ -1,7 +1,32 @@
 {
+  "__comments": {
+    "Version": "Configuration schema version. Used for in-app migrations when fields change.",
+    "Seed": "Global seed for deterministic runs. Can be overridden by Training.Seed or CLI.",
+    "SessionDurationSeconds": "Maximum duration of a single game session in seconds.",
+    "FramesForCatch": "Number of consecutive frames the Seeker must be sufficiently close to catch the Hider.",
+    "ActionRepeat": "How many simulator frames to repeat a chosen action (frame-skip).",
+    "VisibilityCheckInterval": "Seconds between line-of-sight visibility checks.",
+    "NoProgressDistanceEps": "Minimal distance improvement considered as progress (meters).",
+    "NoProgressSeconds": "If no progress for this many seconds, apply NoProgress penalties.",
+    "MinInitialSeparation": "Minimum grid distance between initial Seeker and Hider placements.",
+    "InitialPlacementMaxAttempts": "Max attempts to place agents respecting separation constraints.",
+    "TimeScale": "Simulation time scale multiplier (1.0 = real time; >1.0 speeds up)."
+  },
   "Version": 3,
   "Seed": 12345,
   "Training": {
+    "__comments": {
+      "BatchSize": "Number of transitions to sample per optimization step.",
+      "StepsPerUpdate": "Environment steps per network update (frame skipping for learning).",
+      "Device": "Auto/CPU/GPU. Auto prefers GPU when available; falls back to CPU.",
+      "DataRoot": "Root folder for models and logs; absolute or relative.",
+      "ModelsPath": "Subfolder under DataRoot for model checkpoints.",
+      "LogsPath": "Subfolder under DataRoot for logs/metrics.",
+      "AutosaveSeconds": "Autosave interval for checkpoints in seconds.",
+      "CheckpointKeepLast": "How many recent checkpoints to retain.",
+      "ResumeFromLatest": "If true, resume training from the latest checkpoint in ModelsPath.",
+      "Seed": "Optional override for global seed; if set, overrides GameConfig.Seed."
+    },
     "BatchSize": 128,
     "StepsPerUpdate": 4,
     "Device": "Auto",
@@ -13,6 +38,24 @@
     "ResumeFromLatest": true
   },
   "Model": {
+    "__comments": {
+      "Hidden1": "Size of the first hidden layer in the Q-network.",
+      "Hidden2": "Size of the second hidden layer in the Q-network.",
+      "LearningRate": "Optimizer learning rate.",
+      "UseHuberLoss": "If true, use Huber loss; otherwise use MSE.",
+      "MaxGradNorm": "Clip gradients to this L2 norm (0 or negative disables).",
+      "UseAdamW": "If true, use AdamW optimizer; otherwise Adam.",
+      "WeightDecay": "L2 weight decay (AdamW decoupled weight decay).",
+      "Gamma": "Discount factor for future rewards.",
+      "RewardClipAbs": "Clamp |reward| to this value before scaling.",
+      "RewardScale": "Scale multiplier applied to rewards after clipping.",
+      "UpdateTargetEvery": "Hard target network update period in steps (used when UseSoftTarget=false).",
+      "UseSoftTarget": "If true, use soft target updates with tau; else hard updates every N steps.",
+      "TargetUpdateTau": "Soft target interpolation factor tau in [0,1].",
+      "EpsilonStart": "Initial epsilon for epsilon-greedy exploration.",
+      "EpsilonMin": "Minimum epsilon value.",
+      "EpsilonDecay": "Multiplicative decay per step (or per update depending on integration)."
+    },
     "Hidden1": 256,
     "Hidden2": 256,
     "LearningRate": 0.0005,
@@ -31,6 +74,14 @@
     "EpsilonDecay": 0.9990
   },
   "ReplayBuffer": {
+    "__comments": {
+      "Size": "Maximum number of transitions stored in the buffer.",
+      "WarmupSize": "Number of initial steps collected before training begins.",
+      "UseStratifiedSampling": "If true, use stratified (prioritized) sampling.",
+      "BetaStart": "Initial importance-sampling exponent for PER.",
+      "BetaEnd": "Final importance-sampling exponent for PER.",
+      "BetaFrames": "Number of frames over which Beta transitions from start to end."
+    },
     "Size": 200000,
     "WarmupSize": 5000,
     "UseStratifiedSampling": true,
@@ -39,13 +90,17 @@
     "BetaFrames": 1000000
   },
   "World": {
+    "__comments": {
+      "GridSize": "World grid dimension (GridSize x GridSize).",
+      "CellSize": "Meters per grid cell.",
+      "WallHeight": "Height of walls in meters (for 3D rendering/visibility)."
+    },
     "GridSize": 20,
     "CellSize": 1.0,
-    "WallHeight": 2.0,
-    "RoomSize": 8
+    "WallHeight": 2.0
   },
-  "SessionDurationSeconds": 150.0,
-  "FramesForCatch": 120,
+  "SessionDurationSeconds": 30.0,
+  "FramesForCatch": 200,
   "ActionRepeat": 1,
   "VisibilityCheckInterval": 0.05,
   "NoProgressDistanceEps": 0.05,
@@ -54,6 +109,16 @@
   "InitialPlacementMaxAttempts": 200,
   "TimeScale": 1.0,
   "Actions": {
+    "__comments": {
+      "TurnLeft": "Rotate left by a fixed angle.",
+      "TurnRight": "Rotate right by a fixed angle.",
+      "Forward": "Move forward.",
+      "ForwardLeft": "Move forward while turning left.",
+      "ForwardRight": "Move forward while turning right.",
+      "Idle": "Do nothing for one frame.",
+      "Backward": "Move backward.",
+      "Count": "Total number of distinct actions; must equal the number of defined actions."
+    },
     "TurnLeft": 0,
     "TurnRight": 1,
     "Forward": 2,
@@ -64,6 +129,13 @@
     "Count": 7
   },
   "Seeker": {
+    "__comments": {
+      "ApplyVisibilityRewardsToRL": "If true, apply visibility rewards to RL training signal for the Seeker.",
+      "VisibilityRewardScaleRL": "Scale factor for visibility rewards applied to RL.",
+      "VisibilityPointsScaleHUD": "Scale for HUD visibility points (UI only).",
+      "EnableHudVisibilityPoints": "Show visibility points on HUD for this role.",
+      "UsePotentialShaping": "Use potential-based shaping when configured for the Seeker."
+    },
     "ApplyVisibilityRewardsToRL": false,
     "VisibilityRewardScaleRL": 1.0,
     "VisibilityPointsScaleHUD": 1.0,
@@ -71,6 +143,12 @@
     "UsePotentialShaping": true
   },
   "Hider": {
+    "__comments": {
+      "ApplyVisibilityRewardsToRL": "If true, apply visibility rewards to RL training signal for the Hider.",
+      "VisibilityRewardScaleRL": "Scale factor for visibility rewards applied to RL.",
+      "VisibilityPointsScaleHUD": "Scale for HUD visibility points (UI only).",
+      "EnableHudVisibilityPoints": "Show visibility points on HUD for this role."
+    },
     "ApplyVisibilityRewardsToRL": true,
     "VisibilityRewardScaleRL": 1.0,
     "VisibilityPointsScaleHUD": 1.0,

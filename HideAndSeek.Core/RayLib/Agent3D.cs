@@ -351,6 +351,12 @@ namespace HideAndSeek.Core.RaylibThreeD
             {
                 w3 *= IsSeeker ? 0.4f : 0.0f; // seekers still explore a bit, hiders focus on evasion
             }
+            else if (repulse != Vector3.Zero)
+            {
+                // Если есть отталкивание союзников, но нет цели — ослабляем вклад исследования,
+                // чтобы предпочесть поворот от скопления союзников.
+                w3 *= 0.2f;
+            }
 
             Vector3 steer = w1 * targetVec + w2 * repulse + w3 * exploration;
             Vector3 steerN = steer.LengthSquared() > 1e-6f ? Vector3.Normalize(steer) : Vector3.Zero;
@@ -362,6 +368,8 @@ namespace HideAndSeek.Core.RaylibThreeD
 
             foreach (var offset in offsets)
             {
+                if (repulse != Vector3.Zero && targetVec == Vector3.Zero && Math.Abs(offset) < 1e-6f)
+                    continue; // при отталкивании союзников избегаем строго 0° как первого кандидата
                 float testAngle = NormalizeAngle(Direction + offset);
                 float radians = testAngle * MathF.PI / 180f;
                 Vector3 dir = new Vector3(MathF.Cos(radians), 0, MathF.Sin(radians));
@@ -405,6 +413,11 @@ namespace HideAndSeek.Core.RaylibThreeD
                     float alignMul = (targetVec != Vector3.Zero) ? 5.0f : 1.0f;
                     score += align * alignMul; // add alignment preference
                 }
+
+                // Лёгкий tie-breaker: если есть сила отталкивания союзников,
+                // слегка штрафуем движение строго вперёд (0°), чтобы предпочесть поворот при равенстве.
+                if (repulse != Vector3.Zero && Math.Abs(offset) < 1e-6f)
+                    score -= 0.0001f;
 
                 if (score > bestScore)
                 {

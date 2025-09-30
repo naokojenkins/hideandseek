@@ -11,10 +11,9 @@
       "properties": {
         "GridSize": { "type": "integer", "minimum": 1 },
         "CellSize": { "type": "number", "exclusiveMinimum": 0 },
-        "WallHeight": { "type": "number", "exclusiveMinimum": 0 },
-        "RoomSize": { "type": "integer", "minimum": 1 }
+        "WallHeight": { "type": "number", "exclusiveMinimum": 0 }
       },
-      "required": ["GridSize", "CellSize", "WallHeight", "RoomSize"]
+      "required": ["GridSize", "CellSize", "WallHeight"]
     },
     "Seeker": { "type": "object" },
     "Hider": { "type": "object" },

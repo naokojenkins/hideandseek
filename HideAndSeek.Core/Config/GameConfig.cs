@@ -302,7 +302,6 @@ namespace HideAndSeek.Core.Config
             if (World.GridSize <= 0) errors.Add("World.GridSize must be > 0.");
             if (World.CellSize <= 0) errors.Add("World.CellSize must be > 0.");
             if (World.WallHeight <= 0) errors.Add("World.WallHeight must be > 0.");
-            if (World.RoomSize <= 0) errors.Add("World.RoomSize must be > 0.");
 
             if (SessionDurationSeconds <= 0) errors.Add("SessionDurationSeconds must be > 0.");
             if (FramesForCatch <= 0) errors.Add("FramesForCatch must be > 0.");
@@ -390,8 +389,6 @@ namespace HideAndSeek.Core.Config
         public float CellSize { get; set; } = 1.0f;
         /// <summary> Высота стены. </summary>
         public float WallHeight { get; set; } = 2.0f;
-        /// <summary> Размер "комнаты" — минимальное расстояние между внутренними стенами. </summary>
-        public int RoomSize { get; set; } = 8;
     }
 
     /// <summary>

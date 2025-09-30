@@ -14,9 +14,10 @@ namespace HideAndSeek.Core.RaylibThreeD
         public float WallHeight { get; set; }
         public Color FloorColor { get; set; }
         public Color WallColor { get; set; }
-        public int RoomSize { get; set; }
+        // RoomSize removed: generation is now random without room partitioning
 
-        private readonly Random _rng = Reproducibility.CreateRandom("World3D");
+        // Use non-deterministic RNG for world generation to get a new layout on every run/restart
+        private readonly Random _rng = new Random(unchecked(Environment.TickCount ^ Guid.NewGuid().GetHashCode()));
 
         public World3D(int size)
         {
@@ -25,17 +26,11 @@ namespace HideAndSeek.Core.RaylibThreeD
             var config = GameConfig.Instance.World;
             CellSize = config.CellSize;
             WallHeight = config.WallHeight;
-            RoomSize = config.RoomSize;
 
             // Цвета также берём из конфига, если добавлены:
-            FloorColor = new Color(200, 200, 200, 255); // По умолчанию (можно взять из config.FloorColor, если нужно)
-            WallColor  = new Color(80, 80, 80, 255);    // По умолчанию (можно взять из config.WallColor, если нужно)
+            FloorColor = new Color(200, 200, 200, 255); // По умолчанию
+            WallColor  = new Color(80, 80, 80, 255);    // По умолчанию
 
-            if (RoomSize >= Size - 2)
-            {
-                RoomSize = Math.Max(4, Size / 4);
-                Console.WriteLine($"[WARNING] RoomSize слишком большой для поля {Size}x{Size}, установлен в {RoomSize}");
-            }
             GenerateStaticGrid();
         }
 
@@ -99,56 +94,173 @@ namespace HideAndSeek.Core.RaylibThreeD
                 Grid[Size - 1, z] = TileType.Wall;
             }
 
-            // Внутренние стены — если поле достаточно большое
-            if (Size > RoomSize * 2)
+            // Случайные «змейки» стен внутри поля без образования замкнутых комнат.
+            // Гарантии:
+            // - Внешняя рамка стен сохраняется (см. выше).
+            // - Внутренние стены не касаются друг друга и границы (зазор 1 клетка по Чебышеву).
+            // - Стены тонкие (1 клетка) и образуют несамопересекающиеся ломаные.
+            // => Вокруг любой стены можно обойти с любой стороны.
+
+            // Для стабильности unit-тестов на маленьких мирах — не генерировать внутренние стены,
+            // чтобы поведение было детерминированным и не зависело от геометрии (Size <= 12).
+            if (Size > 12)
             {
-                int roomsInRow = Size / RoomSize;
+                bool InBounds(int x, int z) => x >= 2 && z >= 2 && x <= Size - 3 && z <= Size - 3;
 
-                // Горизонтальные стены
-                for (int roomY = 1; roomY < roomsInRow; roomY++)
+                bool IsMoatClear(int x, int z, int px, int pz)
                 {
-                    int z = roomY * RoomSize;
-                    if (z >= Size - 1) break;
+                    for (int dx = -1; dx <= 1; dx++)
+                    for (int dz = -1; dz <= 1; dz++)
+                    {
+                        int nx = x + dx, nz = z + dz;
+                        if (!IsInside(nx, nz)) return false;
+                        if (nx == px && nz == pz) continue; // позволяем соседство только с предыдущей клеткой линии
+                        if (Grid[nx, nz] == TileType.Wall) return false;
+                    }
+                    return true;
+                }
 
-                    for (int x = 1; x < Size - 1; x++)
+                void PlaceSnake()
+                {
+                    // Длины и количество стен масштабируем от размера поля
+                    int maxLen = Math.Max(8, (int)MathF.Round(Size * 0.55f));
+                    int minLen = Math.Max(5, (int)MathF.Round(Size * 0.30f));
+                    if (minLen > maxLen) (minLen, maxLen) = (maxLen, minLen);
+                    int len = _rng.Next(minLen, maxLen + 1);
+
+                    // Стартовая точка подальше от краёв и иных стен
+                    int sx, sz; int tries = 0;
+                    while (true)
+                    {
+                        sx = _rng.Next(2, Size - 2);
+                        sz = _rng.Next(2, Size - 2);
+                        if (!InBounds(sx, sz)) { if (++tries > 200) return; else continue; }
+                        if (Grid[sx, sz] == TileType.Empty && IsMoatClear(sx, sz, -999, -999)) break;
+                        if (++tries > 200) return;
+                    }
+
+                    int x = sx, z = sz;
+                    // Случайное начальное направление
+                    var dirs = new (int dx, int dz)[] { (1,0), (-1,0), (0,1), (0,-1) };
+                    int dirIdx = _rng.Next(dirs.Length);
+                    var dir = dirs[dirIdx];
+                    int px = -999, pz = -999; // предыдущая клетка
+
+                    // Режимы: обычный и «изогнутый» (формирует дуги лестничным паттерном)
+                    bool curvedMode = _rng.NextDouble() < 0.6; // чаще создаём изогнутые формы
+                    int turnSense = _rng.Next(2) == 0 ? +1 : -1; // +1=левый поворот, -1=правый
+                    int arcSpan = _rng.Next(3, 7); // длина «дуги» до пересмотра
+                    int arcStep = 0;
+
+                    // Помощник: поворот индекса направления влево/вправо
+                    int Turn(int idx, int sense)
+                    {
+                        // соответствие: 0:(1,0), 1:(-1,0), 2:(0,1), 3:(0,-1)
+                        // «влево/вправо» определим вручную — выберем таблицу поворотов
+                        // Для единообразия определим порядок: Right(1,0)->Down(0,1)->Left(-1,0)->Up(0,-1)
+                        // Тогда левый поворот: idx = (idx + 1) % 4; правый: (idx + 3) % 4
+                        int mapIdx;
+                        // Преобразуем в цикл Right,Down,Left,Up из нашего массива
+                        // Наш массив: [Right, Left, Down, Up]
+                        // Создадим отображение из массива в циклический индекс RDLU
+                        int[] toCycle = new int[] { 0, 2, 1, 3 }; // mapping indices into R(0),D(1),L(2),U(3)
+                        int[] fromCycle = new int[] { 0, 2, 1, 3 }; // inverse is the same here
+                        int cyc = toCycle[idx];
+                        cyc = sense > 0 ? (cyc + 1) & 3 : (cyc + 3) & 3;
+                        mapIdx = fromCycle[cyc];
+                        return mapIdx;
+                    }
+
+                    for (int i = 0; i < len; i++)
+                    {
+                        if (!InBounds(x, z) || !IsMoatClear(x, z, px, pz)) break;
                         Grid[x, z] = TileType.Wall;
 
-                    for (int i = 0; i < roomsInRow && i * RoomSize < Size; i++)
-                    {
-                        int gapStart = i * RoomSize + 1;
-                        int gapEnd = Math.Min(gapStart + RoomSize - 2, Size - 2);
-                        if (gapStart < gapEnd)
+                        px = x; pz = z;
+
+                        // Выбор следующего шага
+                        if (curvedMode)
                         {
-                            int gapX = _rng.Next(gapStart, gapEnd);
-                            Grid[gapX, z] = TileType.Empty;
-                            if (gapX + 1 < Size - 1) Grid[gapX + 1, z] = TileType.Empty;
-                            if (gapX - 1 > 0) Grid[gapX - 1, z] = TileType.Empty;
+                            // Лестничный паттерн: несколько шагов вперёд, затем поворот, повторять
+                            // Альтернируем между «вперёд» и «повернуть и шагнуть» для диагональной дуги
+                            bool turnNow = (arcStep % 2 == 1);
+                            int nextDirIdx = dirIdx;
+                            if (turnNow)
+                            {
+                                nextDirIdx = Turn(dirIdx, turnSense);
+                            }
+
+                            // Иногда (маловероятно) поменяем сторону изгиба для разнообразия
+                            if (_rng.NextDouble() < 0.07) turnSense = -turnSense;
+
+                            int nx = x + dirs[nextDirIdx].dx;
+                            int nz = z + dirs[nextDirIdx].dz;
+                            if (InBounds(nx, nz) && IsMoatClear(nx, nz, px, pz))
+                            {
+                                dirIdx = nextDirIdx;
+                                dir = dirs[dirIdx];
+                                x = nx; z = nz;
+                                arcStep++;
+                                if (arcStep >= arcSpan)
+                                {
+                                    arcStep = 0;
+                                    arcSpan = _rng.Next(3, 7);
+                                    // иногда полностью меняем режим/направление
+                                    if (_rng.NextDouble() < 0.2) dirIdx = _rng.Next(dirs.Length);
+                                }
+                                continue;
+                            }
+                            else
+                            {
+                                // Падение в резервный режим — ищем любой допустимый ход, сохраняя «изогнутость» при возможности
+                                bool moved = false;
+                                int[] candidates = new int[] { Turn(dirIdx, turnSense), dirIdx, Turn(dirIdx, -turnSense), Turn(Turn(dirIdx, turnSense), turnSense) };
+                                foreach (var c in candidates)
+                                {
+                                    int tx = x + dirs[c].dx; int tz = z + dirs[c].dz;
+                                    if (InBounds(tx, tz) && IsMoatClear(tx, tz, px, pz)) { dirIdx = c; dir = dirs[dirIdx]; x = tx; z = tz; moved = true; break; }
+                                }
+                                if (!moved) break;
+                                arcStep++;
+                                continue;
+                            }
+                        }
+                        else
+                        {
+                            // Обычный случайный «змей» с редкими поворотами
+                            if (_rng.NextDouble() < 0.35)
+                            {
+                                // избегаем мгновенного разворота на 180°
+                                int newIdx;
+                                int attempts = 0;
+                                do { newIdx = _rng.Next(dirs.Length); attempts++; }
+                                while (attempts < 6 && (dirs[newIdx].dx == -dir.dx && dirs[newIdx].dz == -dir.dz));
+                                dirIdx = newIdx;
+                                dir = dirs[dirIdx];
+                            }
+
+                            int nx = x + dir.dx;
+                            int nz = z + dir.dz;
+                            if (!InBounds(nx, nz) || !IsMoatClear(nx, nz, px, pz))
+                            {
+                                // попробуем повернуть, чтобы продолжить без столкновений
+                                bool moved = false;
+                                for (int k = 0; k < 4; k++)
+                                {
+                                    var candIdx = _rng.Next(dirs.Length);
+                                    int tx = x + dirs[candIdx].dx; int tz = z + dirs[candIdx].dz;
+                                    if (InBounds(tx, tz) && IsMoatClear(tx, tz, px, pz)) { dirIdx = candIdx; dir = dirs[dirIdx]; nx = tx; nz = tz; moved = true; break; }
+                                }
+                                if (!moved) break;
+                            }
+                            x = nx; z = nz;
                         }
                     }
                 }
 
-                // Вертикальные стены
-                for (int roomX = 1; roomX < roomsInRow; roomX++)
-                {
-                    int x = roomX * RoomSize;
-                    if (x >= Size - 1) break;
-
-                    for (int z = 1; z < Size - 1; z++)
-                        Grid[x, z] = TileType.Wall;
-
-                    for (int i = 0; i < roomsInRow && i * RoomSize < Size; i++)
-                    {
-                        int gapStart = i * RoomSize + 1;
-                        int gapEnd = Math.Min(gapStart + RoomSize - 2, Size - 2);
-                        if (gapStart < gapEnd)
-                        {
-                            int gapZ = _rng.Next(gapStart, gapEnd);
-                            Grid[x, gapZ] = TileType.Empty;
-                            if (gapZ + 1 < Size - 1) Grid[x, gapZ + 1] = TileType.Empty;
-                            if (gapZ - 1 > 0) Grid[x, gapZ - 1] = TileType.Empty;
-                        }
-                    }
-                }
+                // Количество змейки-проходов зависит от размера
+                int snakes = Math.Max(7, (int)MathF.Round(Size * 0.6f));
+                for (int i = 0; i < snakes; i++) PlaceSnake();
             }
 
             // Для отладки: считаем число свободных клеток
@@ -157,7 +269,7 @@ namespace HideAndSeek.Core.RaylibThreeD
                 for (int z = 0; z < Size; z++)
                     if (Grid[x, z] == TileType.Empty)
                         emptyCount++;
-            Console.WriteLine($"[DEBUG] Мир {Size}x{Size} сгенерирован: {emptyCount} свободных клеток, RoomSize={RoomSize}");
+            Console.WriteLine($"[DEBUG] Мир {Size}x{Size} сгенерирован: {emptyCount} свободных клеток (случайная генерация стен)");
         }
 
         public void Draw(bool showShadows = true)
