@@ -105,162 +105,157 @@ namespace HideAndSeek.Core.RaylibThreeD
             // чтобы поведение было детерминированным и не зависело от геометрии (Size <= 12).
             if (Size > 12)
             {
-                bool InBounds(int x, int z) => x >= 2 && z >= 2 && x <= Size - 3 && z <= Size - 3;
+                // Цель: сгенерировать лабиринт в стиле «коридоры 1 клетки шириной»,
+                // где стены могут соприкасаться, образуя узоры лабиринта, включая Г-образные повороты,
+                // и из каждого тупика коридора есть как минимум один выход (свойство лабиринта как связного графа).
+                // Подход: классический randomized DFS (backtracker) по «клеткам» на нечётных координатах.
 
-                bool IsMoatClear(int x, int z, int px, int pz)
+                // 1) Сделаем всё внутреннее пространство стенами (граница уже стеной выше)
+                for (int x = 1; x < Size - 1; x++)
+                for (int z = 1; z < Size - 1; z++)
+                    Grid[x, z] = TileType.Wall;
+
+                // 2) Помечаем «клетки-узлы» лабиринта как координаты с нечётными индексами
+                bool InCellBounds(int cx, int cz) => cx > 0 && cz > 0 && cx < Size - 1 && cz < Size - 1;
+
+                var stack = new Stack<(int x, int z)>();
+
+                // старт: случайная нечётная клетка
+                int sx = 1 + 2 * _rng.Next(Math.Max(1, (Size - 2) / 2));
+                int sz = 1 + 2 * _rng.Next(Math.Max(1, (Size - 2) / 2));
+                if (sx >= Size - 1) sx = Size - 2;
+                if (sz >= Size - 1) sz = Size - 2;
+                if ((sx & 1) == 0) sx = Math.Max(1, sx - 1);
+                if ((sz & 1) == 0) sz = Math.Max(1, sz - 1);
+
+                stack.Push((sx, sz));
+                Grid[sx, sz] = TileType.Empty;
+
+                // карта посещения только для нечётных клеток
+                int cellsX = (Size - 1) / 2;
+                int cellsZ = (Size - 1) / 2;
+                var visited = new HashSet<(int x, int z)>();
+                visited.Add((sx, sz));
+
+                // векторы к соседним клеткам (шаг = 2, чтобы перепрыгивать через стену между клетками)
+                var dirs2 = new (int dx, int dz)[] { (2,0), (-2,0), (0,2), (0,-2) };
+
+                while (stack.Count > 0)
                 {
-                    for (int dx = -1; dx <= 1; dx++)
-                    for (int dz = -1; dz <= 1; dz++)
+                    var (x, z) = stack.Peek();
+
+                    // собрать непосещённых соседей на расстоянии 2
+                    var neighbors = new List<(int nx, int nz, int wx, int wz)>();
+                    foreach (var (dx, dz) in dirs2)
                     {
-                        int nx = x + dx, nz = z + dz;
-                        if (!IsInside(nx, nz)) return false;
-                        if (nx == px && nz == pz) continue; // позволяем соседство только с предыдущей клеткой линии
-                        if (Grid[nx, nz] == TileType.Wall) return false;
+                        int nx = x + dx;
+                        int nz = z + dz;
+                        int wx = x + dx / 2; // стена между текущей клеткой и соседней
+                        int wz = z + dz / 2;
+                        if (!InCellBounds(nx, nz)) continue;
+                        if ((nx & 1) == 0 || (nz & 1) == 0) continue; // соседняя «клетка» должна быть нечётной по обоим координатам
+                        if (!visited.Contains((nx, nz)))
+                        {
+                            neighbors.Add((nx, nz, wx, wz));
+                        }
                     }
-                    return true;
+
+                    if (neighbors.Count == 0)
+                    {
+                        stack.Pop();
+                        continue;
+                    }
+
+                    // выбрать случайного соседа
+                    var choice = neighbors[_rng.Next(neighbors.Count)];
+                    // пробиваем стену между клетками
+                    Grid[choice.wx, choice.wz] = TileType.Empty;
+                    // и саму клетку делаем пустой
+                    Grid[choice.nx, choice.nz] = TileType.Empty;
+
+                    visited.Add((choice.nx, choice.nz));
+                    stack.Push((choice.nx, choice.nz));
                 }
 
-                void PlaceSnake()
+                // 3) «Разряженность» лабиринта: добавим больше дополнительных проходов,
+                // чтобы увеличить число развилок и сократить количество длинных тупиков.
+                int extraPassages = Math.Max(2, Size / 2);
+                for (int i = 0; i < extraPassages; i++)
                 {
-                    // Длины и количество стен масштабируем от размера поля
-                    int maxLen = Math.Max(8, (int)MathF.Round(Size * 0.55f));
-                    int minLen = Math.Max(5, (int)MathF.Round(Size * 0.30f));
-                    if (minLen > maxLen) (minLen, maxLen) = (maxLen, minLen);
-                    int len = _rng.Next(minLen, maxLen + 1);
+                    // выбираем случайную внутреннюю стену, которая имеет пустоту по обе стороны по одной из осей
+                    int wx = _rng.Next(2, Size - 2);
+                    int wz = _rng.Next(2, Size - 2);
+                    if (Grid[wx, wz] != TileType.Wall) { i--; continue; }
 
-                    // Стартовая точка подальше от краёв и иных стен
-                    int sx, sz; int tries = 0;
-                    while (true)
+                    bool canOpen = false;
+                    if (wx % 2 == 1 && wz % 2 == 0)
                     {
-                        sx = _rng.Next(2, Size - 2);
-                        sz = _rng.Next(2, Size - 2);
-                        if (!InBounds(sx, sz)) { if (++tries > 200) return; else continue; }
-                        if (Grid[sx, sz] == TileType.Empty && IsMoatClear(sx, sz, -999, -999)) break;
-                        if (++tries > 200) return;
+                        // вертикальная стенка между двумя клетками по Z
+                        if (Grid[wx, wz - 1] == TileType.Empty && Grid[wx, wz + 1] == TileType.Empty) canOpen = true;
+                    }
+                    else if (wx % 2 == 0 && wz % 2 == 1)
+                    {
+                        // горизонтальная стенка между двумя клетками по X
+                        if (Grid[wx - 1, wz] == TileType.Empty && Grid[wx + 1, wz] == TileType.Empty) canOpen = true;
                     }
 
-                    int x = sx, z = sz;
-                    // Случайное начальное направление
-                    var dirs = new (int dx, int dz)[] { (1,0), (-1,0), (0,1), (0,-1) };
-                    int dirIdx = _rng.Next(dirs.Length);
-                    var dir = dirs[dirIdx];
-                    int px = -999, pz = -999; // предыдущая клетка
-
-                    // Режимы: обычный и «изогнутый» (формирует дуги лестничным паттерном)
-                    bool curvedMode = _rng.NextDouble() < 0.6; // чаще создаём изогнутые формы
-                    int turnSense = _rng.Next(2) == 0 ? +1 : -1; // +1=левый поворот, -1=правый
-                    int arcSpan = _rng.Next(3, 7); // длина «дуги» до пересмотра
-                    int arcStep = 0;
-
-                    // Помощник: поворот индекса направления влево/вправо
-                    int Turn(int idx, int sense)
+                    if (canOpen)
                     {
-                        // соответствие: 0:(1,0), 1:(-1,0), 2:(0,1), 3:(0,-1)
-                        // «влево/вправо» определим вручную — выберем таблицу поворотов
-                        // Для единообразия определим порядок: Right(1,0)->Down(0,1)->Left(-1,0)->Up(0,-1)
-                        // Тогда левый поворот: idx = (idx + 1) % 4; правый: (idx + 3) % 4
-                        int mapIdx;
-                        // Преобразуем в цикл Right,Down,Left,Up из нашего массива
-                        // Наш массив: [Right, Left, Down, Up]
-                        // Создадим отображение из массива в циклический индекс RDLU
-                        int[] toCycle = new int[] { 0, 2, 1, 3 }; // mapping indices into R(0),D(1),L(2),U(3)
-                        int[] fromCycle = new int[] { 0, 2, 1, 3 }; // inverse is the same here
-                        int cyc = toCycle[idx];
-                        cyc = sense > 0 ? (cyc + 1) & 3 : (cyc + 3) & 3;
-                        mapIdx = fromCycle[cyc];
-                        return mapIdx;
+                        Grid[wx, wz] = TileType.Empty;
                     }
+                }
 
-                    for (int i = 0; i < len; i++)
+                // 4) Увеличим ширину коридоров случайным локальным расширением,
+                // избегая глобальной симметрии (никакой привязки к чётности индексов).
+                var widened = (TileType[,])Grid.Clone();
+                for (int x = 1; x < Size - 1; x++)
+                {
+                    for (int z = 1; z < Size - 1; z++)
                     {
-                        if (!InBounds(x, z) || !IsMoatClear(x, z, px, pz)) break;
-                        Grid[x, z] = TileType.Wall;
+                        if (Grid[x, z] != TileType.Empty) continue;
 
-                        px = x; pz = z;
+                        // сохраняем текущую пустую клетку
+                        widened[x, z] = TileType.Empty;
 
-                        // Выбор следующего шага
-                        if (curvedMode)
+                        // С небольшой вероятностью расширяем в 1–2 случайных направления.
+                        // Это увеличивает расстояние между стенами, но не создаёт «шахматной» регулярности.
+                        if (_rng.NextDouble() < 0.35)
                         {
-                            // Лестничный паттерн: несколько шагов вперёд, затем поворот, повторять
-                            // Альтернируем между «вперёд» и «повернуть и шагнуть» для диагональной дуги
-                            bool turnNow = (arcStep % 2 == 1);
-                            int nextDirIdx = dirIdx;
-                            if (turnNow)
+                            // случайная перестановка направлений
+                            var dirs = new (int dx, int dz)[] { (1,0), (-1,0), (0,1), (0,-1) };
+                            for (int k = 0; k < dirs.Length; k++)
                             {
-                                nextDirIdx = Turn(dirIdx, turnSense);
+                                int j = _rng.Next(k, dirs.Length);
+                                (dirs[k], dirs[j]) = (dirs[j], dirs[k]);
                             }
 
-                            // Иногда (маловероятно) поменяем сторону изгиба для разнообразия
-                            if (_rng.NextDouble() < 0.07) turnSense = -turnSense;
-
-                            int nx = x + dirs[nextDirIdx].dx;
-                            int nz = z + dirs[nextDirIdx].dz;
-                            if (InBounds(nx, nz) && IsMoatClear(nx, nz, px, pz))
+                            int expansions = _rng.NextDouble() < 0.5 ? 1 : 2; // иногда расширяем два соседних тайла
+                            int done = 0;
+                            foreach (var (dx, dz) in dirs)
                             {
-                                dirIdx = nextDirIdx;
-                                dir = dirs[dirIdx];
-                                x = nx; z = nz;
-                                arcStep++;
-                                if (arcStep >= arcSpan)
+                                int nx = x + dx;
+                                int nz = z + dz;
+                                if (nx <= 0 || nz <= 0 || nx >= Size - 1 || nz >= Size - 1) continue;
+                                if (Grid[nx, nz] == TileType.Wall)
                                 {
-                                    arcStep = 0;
-                                    arcSpan = _rng.Next(3, 7);
-                                    // иногда полностью меняем режим/направление
-                                    if (_rng.NextDouble() < 0.2) dirIdx = _rng.Next(dirs.Length);
+                                    widened[nx, nz] = TileType.Empty;
+                                    done++;
+                                    if (done >= expansions) break;
                                 }
-                                continue;
                             }
-                            else
-                            {
-                                // Падение в резервный режим — ищем любой допустимый ход, сохраняя «изогнутость» при возможности
-                                bool moved = false;
-                                int[] candidates = new int[] { Turn(dirIdx, turnSense), dirIdx, Turn(dirIdx, -turnSense), Turn(Turn(dirIdx, turnSense), turnSense) };
-                                foreach (var c in candidates)
-                                {
-                                    int tx = x + dirs[c].dx; int tz = z + dirs[c].dz;
-                                    if (InBounds(tx, tz) && IsMoatClear(tx, tz, px, pz)) { dirIdx = c; dir = dirs[dirIdx]; x = tx; z = tz; moved = true; break; }
-                                }
-                                if (!moved) break;
-                                arcStep++;
-                                continue;
-                            }
-                        }
-                        else
-                        {
-                            // Обычный случайный «змей» с редкими поворотами
-                            if (_rng.NextDouble() < 0.35)
-                            {
-                                // избегаем мгновенного разворота на 180°
-                                int newIdx;
-                                int attempts = 0;
-                                do { newIdx = _rng.Next(dirs.Length); attempts++; }
-                                while (attempts < 6 && (dirs[newIdx].dx == -dir.dx && dirs[newIdx].dz == -dir.dz));
-                                dirIdx = newIdx;
-                                dir = dirs[dirIdx];
-                            }
-
-                            int nx = x + dir.dx;
-                            int nz = z + dir.dz;
-                            if (!InBounds(nx, nz) || !IsMoatClear(nx, nz, px, pz))
-                            {
-                                // попробуем повернуть, чтобы продолжить без столкновений
-                                bool moved = false;
-                                for (int k = 0; k < 4; k++)
-                                {
-                                    var candIdx = _rng.Next(dirs.Length);
-                                    int tx = x + dirs[candIdx].dx; int tz = z + dirs[candIdx].dz;
-                                    if (InBounds(tx, tz) && IsMoatClear(tx, tz, px, pz)) { dirIdx = candIdx; dir = dirs[dirIdx]; nx = tx; nz = tz; moved = true; break; }
-                                }
-                                if (!moved) break;
-                            }
-                            x = nx; z = nz;
                         }
                     }
                 }
 
-                // Количество змейки-проходов зависит от размера
-                int snakes = Math.Max(7, (int)MathF.Round(Size * 0.6f));
-                for (int i = 0; i < snakes; i++) PlaceSnake();
+                // Граница остаётся стеной согласно правилам
+                for (int i = 0; i < Size; i++)
+                {
+                    widened[i, 0] = TileType.Wall;
+                    widened[i, Size - 1] = TileType.Wall;
+                    widened[0, i] = TileType.Wall;
+                    widened[Size - 1, i] = TileType.Wall;
+                }
+                Array.Copy(widened, Grid, Grid.Length);
             }
 
             // Для отладки: считаем число свободных клеток
