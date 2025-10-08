@@ -1,203 +1,15 @@
 using System;
-using System.IO;
 using System.Numerics;
-using Newtonsoft.Json;
-using Raylib_cs;
 using System.Linq;
 using System.Collections.Generic;
-using System.Text;
-using HideAndSeek.Core.Config;
-using HideAndSeek.Core.IO;
 using HideAndSeek.Core.RL;
 
 namespace HideAndSeek.Core.RaylibThreeD
 {
+    // RL-процедуры одного шага (выбор действий, движение, награды, обучение)
     public partial class Simulation3D
     {
-        public World3D World { get; }
-        public Agent3D Seeker { get; set; }
-        public Agent3D Hider { get; set; }
-
-        // Новые коллекции: все агенты по ролям
-        public List<Agent3D> Seekers { get; private set; } = new();
-        public List<Agent3D> Hiders { get; private set; } = new();
-
-        public bool IsHiderCaught => _isHiderCaught;
-
-        private float sessionDurationSeconds;
-        public void SetSessionDuration(float seconds) => sessionDurationSeconds = seconds;
-        public float SessionDurationSeconds => sessionDurationSeconds;
-
-        public GameConfig Config { get; private set; }
-        public event Action? OnSessionCompleted;
-
-        private DQNAgent _seekerAgent;
-        private DQNAgent _hiderAgent;
-
-        // Командные blackboard'ы
-        private readonly TeamBlackboard _seekersBoard = new();
-        private readonly TeamBlackboard _hidersBoard  = new();
-
-        private Camera3D _camera;
-        private Camera3D _fixedCameraState;
-        private bool _followAgent = false;
-        private bool _showVisionCones = true;
-        private bool _showGrid = true;
-
-        public int Session { get; private set; } = 1;
-        public static int TotalSessions { get; private set; } = 0;
-        public float Timer { get; private set; } = 0f;
-        public float SeekerScore { get; private set; } = 0f;
-        public float HiderScore { get; private set; } = 0f;
-        public float ExplorationScore { get; private set; } = 0f;
-
-        private bool _isHiderVisible = false;
-        private float _lastVisibilityCheck = 0f;
-        private float _visibilityCheckInterval = 0.05f;
-
-        private static string SessionCounterFile => Path.Combine(PathService.GetQtablesDirectory(), "total_sessions.json");
-
-        private static readonly JsonSerializerSettings JsonSettings = new()
-        {
-            TypeNameHandling = TypeNameHandling.None,
-            MetadataPropertyHandling = MetadataPropertyHandling.Ignore
-        };
-
-        public bool IsHiderVisible
-        {
-            get => _isHiderVisible;
-            private set => _isHiderVisible = value;
-        }
-
-        private bool _isHiderCaught = false;
-        private int _caughtFrames = 0;
-
-        private int _prevPhysicalExplored = 0;
-        private int _prevVisualExplored = 0;
-        private bool _catchBonusGiven = false;
-        private bool _wasHiderVisiblePrev = false;
-
-        // Флаг, чтобы выходить из Update в кадре, где произошел Restart
-        private bool _justRestarted = false;
-
-        static Simulation3D()
-        {
-            LoadTotalSessions();
-        }
-
-
-        public Simulation3D(
-            Agent3D seeker,
-            Agent3D hider,
-            DQNAgent seekerAgent,
-            DQNAgent hiderAgent,
-            string? configPath = null)
-        {
-            // Теперь используем GameConfig.Instance (все параметры уже загружены)
-            Config = GameConfig.Instance;
-            sessionDurationSeconds = Config.SessionDurationSeconds;
-
-            // Параметры из конфига (вместо хардкода)
-            _visibilityCheckInterval = MathF.Max(0.001f, Config.VisibilityCheckInterval);
-            _actionRepeat = Math.Max(1, Config.ActionRepeat);
-            _noProgressDistanceEps = Math.Max(0f, Config.NoProgressDistanceEps);
-            _noProgressSeconds = Math.Max(0f, Config.NoProgressSeconds);
-
-            // Создаём мир строго по размеру из конфига, чтобы избежать расхождений
-            int worldSize = Config.World.GridSize;
-            World = new World3D(worldSize);
-            // World3D конструктор уже вызывает GenerateStaticGrid() с параметрами из конфига;
-            // повторный вызов безопасен, но не обязателен. Оставим без повторного вызова.
-
-            Seeker = seeker;
-            Seeker.InitWorldSize(World.Size);
-            Seeker.SetWorld(World);
-
-            Hider = hider;
-            Hider.InitWorldSize(World.Size);
-            Hider.SetWorld(World);
-
-            // Убедимся, что стартовые позиции валидны в текущем мире симуляции
-            EnsureAgentOnValidCell(Seeker);
-            EnsureAgentOnValidCell(Hider);
-            // Запомним стартовые валидные позиции
-            _lastValidPos.Clear();
-            RememberAllAgentsValidPositions();
-
-            _seekerAgent = seekerAgent;
-            _hiderAgent  = hiderAgent;
-
-            // Привязываем командные blackboard'ы
-            Seeker.TeamBoard = _seekersBoard;
-            Hider.TeamBoard  = _hidersBoard;
-
-            InitializeCamera();
-
-            // Синхронизация начального состояния показа конусов с Agent3D
-            Agent3D.ShowVisionCones = _showVisionCones;
-
-            _prevPhysicalExplored = Seeker.GetExploredCount();
-            _prevVisualExplored   = Seeker.GetVisuallyExploredCount();
-            _catchBonusGiven = false;
-            _wasHiderVisiblePrev = Seeker.CanSee(Hider, World);
-
-            CheckNaN(Seeker.Position, "Simulation3D.ctor:Seeker.Position");
-            CheckNaN(Hider.Position, "Simulation3D.ctor:Hider.Position");
-        }
-
-
-
-
-
-        // Action repeat and progress tracking
-        private int _actionRepeat;
-
-        // Metrics
-        private int _framesInSession = 0;
-        private int _visibleFrames = 0;
-        private float _sumDistance = 0f;
-        private float _accSeekerReward = 0f;
-        private float _accHiderReward = 0f;
-
-        // Early termination (no progress)
-        private float _noProgressTimer = 0f;
-        private float _lastDistanceForProgress = 0f;
-        private int _lastSeekerVisualExploredForProgress = 0;
-        private float _noProgressDistanceEps = 0f;
-        private float _noProgressSeconds = 0f;
-
-        // ---- Переменные для мультиагентного шага ----
-        // Предыдущее состояние и действие для каждого агента
-        private readonly Dictionary<Agent3D, State> _prevStateSeekers = new();
-        private readonly Dictionary<Agent3D, State> _prevStateHiders  = new();
-        private readonly Dictionary<Agent3D, long>  _prevActionSeekers = new();
-        private readonly Dictionary<Agent3D, long>  _prevActionHiders  = new();
-
-        // Action repeat для каждого агента
-        private readonly Dictionary<Agent3D, int> _repeatLeftSeekers = new();
-        private readonly Dictionary<Agent3D, int> _repeatLeftHiders  = new();
-        private readonly Dictionary<Agent3D, long> _currentActionSeekers = new();
-        private readonly Dictionary<Agent3D, long> _currentActionHiders  = new();
-
-        // Для наград Hider: последняя дистанция до ближайшего Seeker и видимость на прошлом шаге
-        private readonly Dictionary<Agent3D, float> _lastDistToNearestSeeker = new();
-        private readonly Dictionary<Agent3D, bool>  _wasHiderVisiblePrevMap  = new();
-
-        // Для наград Seeker: последняя дистанция до ближайшего Hider (для штрафа за отсутствие прогресса)
-        private readonly Dictionary<Agent3D, float> _lastDistToNearestHider = new();
-
-        // Для наград Seeker: предыдущие счётчики исследования (физическое/визуальное)
-        private readonly Dictionary<Agent3D, (int phys, int vis)> _prevExploreCountsSeekers = new();
-        // Накапливаемый штраф за отсутствие прогресса для каждого Seeker (растёт по шагам до лимита)
-        private readonly Dictionary<Agent3D, float> _noProgressPenaltyAccumSeekers = new();
-
-        // Last known valid positions to avoid random teleports during draw-time sanitization
-        private readonly Dictionary<Agent3D, Vector3> _lastValidPos = new();
-
-        public bool EnableLearning { get; set; } = true;
-
-        // Legacy copy kept temporarily; main implementation lives in RaylibThreeD/Simulation3D.RL.cs
-        private void UpdateRLAgents_Legacy(float deltaTime, bool isTerminalByCatchThisStep, bool isTerminalByTimeoutThisStep)
+        private void UpdateRLAgents(float deltaTime, bool isTerminalByCatchThisStep, bool isTerminalByTimeoutThisStep)
         {
             // Списки активных агентов (если коллекции пусты — используем одиночные)
             var seekers = (Seekers != null && Seekers.Count > 0) ? Seekers : new List<Agent3D> { Seeker };
@@ -263,7 +75,7 @@ namespace HideAndSeek.Core.RaylibThreeD
                         // Базовое жадное действие от DQN
                         a = _seekerAgent.ChooseAction(seekerStatesBefore[s].ToArray(World.Size));
 
-                        // Эвристика «беги от ближайшего Hider»: переопределим действие на поворот+движение, увеличивающие дистанцию
+                        // Эвристика «беги от ближайшего Hider»: поворот+движение, увеличивающие дистанцию
                         try
                         {
                             var nearest = GetNearestOpponent(s, hiders);
@@ -277,8 +89,6 @@ namespace HideAndSeek.Core.RaylibThreeD
                             diff = ((diff + 540f) % 360f) - 180f;
 
                             var act = Config.Actions;
-                            // Priority: ALWAYS use AlignThresholdDegrees when > 0. This overrides any coefficient-based heuristics.
-                            // Fallback (<=0): use historical formula RotationStepDegrees * TurnAlignFactor for backward compatibility.
                             float alignDeg = Config.Seeker.AlignThresholdDegrees > 0f
                                 ? Config.Seeker.AlignThresholdDegrees
                                 : Config.Seeker.RotationStepDegrees * Config.Seeker.TurnAlignFactor;
@@ -288,7 +98,6 @@ namespace HideAndSeek.Core.RaylibThreeD
                             }
                             else if (diff > 0)
                             {
-                                // Нужно повернуть вправо и двигаться
                                 a = act.ForwardRight >= 0 ? act.ForwardRight : act.TurnRight;
                             }
                             else
@@ -337,7 +146,6 @@ namespace HideAndSeek.Core.RaylibThreeD
                         // Эвристика «беги от ближайшего Seeker» при видимости
                         try
                         {
-                            // Choose the nearest VISIBLE seeker as the primary threat; fallback to nearest overall
                             var visibleSeekers = seekers.Where(s => s.CanSee(h, World)).ToList();
                             var threat = visibleSeekers.Count > 0 ? GetNearestOpponent(h, visibleSeekers) : GetNearestOpponent(h, seekers);
                             var away = Vector3.Normalize(h.Position - threat.Position);
@@ -349,8 +157,6 @@ namespace HideAndSeek.Core.RaylibThreeD
                             diff = ((diff + 540f) % 360f) - 180f;
 
                             var act = Config.Actions;
-                            // Priority: ALWAYS use AlignThresholdDegrees when > 0. This overrides any coefficient-based heuristics.
-                            // Fallback (<=0): use historical formula RotationStepDegrees * TurnAlignFactor for backward compatibility.
                             float alignDeg = Config.Hider.AlignThresholdDegrees > 0f
                                 ? Config.Hider.AlignThresholdDegrees
                                 : Config.Hider.RotationStepDegrees * Config.Hider.TurnAlignFactor;
@@ -415,7 +221,6 @@ namespace HideAndSeek.Core.RaylibThreeD
                     foreach (var s2 in seekers) if (!ReferenceEquals(s2, s)) neighbors.Add(s2);
                     neighbors.AddRange(hiders);
 
-                    // Фильтрация проблемных соседей: невалидные позиции или нулевая/NaN дистанция
                     var filtered = new List<Agent3D>(neighbors.Count);
                     bool hadOverlaps = false;
                     foreach (var n in neighbors)
@@ -442,7 +247,6 @@ namespace HideAndSeek.Core.RaylibThreeD
                     catch (ArithmeticException ex)
                     {
                         try { LogNumericIssue("MoveWithCollisionAvoidance.Seeker", $"ArithmeticException: {ex.Message} self={s.Position} neighbors={filtered.Count} hadOverlaps={hadOverlaps} dt={deltaTime}"); } catch { }
-                        // пропускаем движение в этом кадре
                     }
                     catch (Exception ex)
                     {
@@ -459,7 +263,6 @@ namespace HideAndSeek.Core.RaylibThreeD
                     foreach (var h2 in hiders) if (!ReferenceEquals(h2, h)) neighbors.Add(h2);
                     neighbors.AddRange(seekers);
 
-                    // Фильтрация проблемных соседей: невалидные позиции или нулевая/NaN дистанция
                     var filtered = new List<Agent3D>(neighbors.Count);
                     bool hadOverlaps = false;
                     foreach (var n in neighbors)
@@ -523,7 +326,6 @@ namespace HideAndSeek.Core.RaylibThreeD
             }
 
             // 7) Награды и запись переходов за текущий шаг
-            // Вычисляем текущую массовую видимость и факт нового обнаружения (false->true)
             bool anyVisibleNow = hiderVisibleNow.Values.Any(v => v);
             bool detectionNow = anyVisibleNow && !_wasHiderVisiblePrev;
             int seekersSeeingNow = seekers.Count(s => hiders.Any(h => s.CanSee(h, World)));
@@ -531,7 +333,6 @@ namespace HideAndSeek.Core.RaylibThreeD
 
             foreach (var s in seekers)
             {
-                // Дельты исследования Seeker
                 var prev = _prevExploreCountsSeekers.TryGetValue(s, out var p) ? p : (0, 0);
                 int afterPhysical = s.GetExploredCount();
                 int afterVisual   = s.GetVisuallyExploredCount();
@@ -550,7 +351,6 @@ namespace HideAndSeek.Core.RaylibThreeD
 
                 float reward = ComputeSeekerRewardFor(s, newPhysical, newVisual, seesAny, isSeenByOpponentNow);
 
-                // Разовый бонус за обнаружение, разделённый между теми, кто видит цель
                 if (detectionNow && seesAny && seekersSeeingNow > 0)
                 {
                     reward += Config.Seeker.DetectBonus / seekersSeeingNow;
@@ -560,14 +360,13 @@ namespace HideAndSeek.Core.RaylibThreeD
                     reward += perSeekerCatchBonus;
 
                 long actionThisStep = _currentActionSeekers.TryGetValue(s, out var actNowS) ? actNowS : actCfg.Forward;
-                // Штраф за поворот — только если поворот не дал прироста видимости/исследования
                 bool isRotationAction = (actionThisStep == actCfg.TurnLeft || actionThisStep == actCfg.TurnRight ||
                                          actionThisStep == actCfg.ForwardLeft || actionThisStep == actCfg.ForwardRight);
                 if (isRotationAction && newPhysical == 0 && newVisual == 0)
                 {
                     float rotPen = MathF.Max(0f, Config.Seeker.RotationPenalty);
                     if (isSeenByOpponentNow)
-                        rotPen *= MathF.Max(0f, Config.Seeker.RotationPenaltyWhenFleeFactor); // ослабляем штраф при побеге
+                        rotPen *= MathF.Max(0f, Config.Seeker.RotationPenaltyWhenFleeFactor);
                     reward -= rotPen;
                 }
 
@@ -590,7 +389,6 @@ namespace HideAndSeek.Core.RaylibThreeD
 
                 _lastDistToNearestHider[s] = curDistS;
 
-                // Запись перехода: (state_t, action_t, reward_t, state_{t+1})
                 var stateBefore = seekerStatesBefore[s];
                 var stateAfter  = seekerStatesAfter[s];
                 _seekerAgent.Store(stateBefore.ToArray(World.Size), actionThisStep, reward, stateAfter.ToArray(World.Size), isTerminalThisStep);
@@ -599,7 +397,6 @@ namespace HideAndSeek.Core.RaylibThreeD
                 _prevExploreCountsSeekers[s] = (afterPhysical, afterVisual);
             }
 
-            // Обновляем флаг для следующего шага
             _wasHiderVisiblePrev = anyVisibleNow;
 
             if (giveCatchBonus) _catchBonusGiven = true;
@@ -613,14 +410,12 @@ namespace HideAndSeek.Core.RaylibThreeD
 
                 long actionThisStep = _currentActionHiders.TryGetValue(h, out var actNowH) ? actNowH : actCfg.Forward;
 
-                // Compute improvement before reward updates internal last-distance in ComputeHiderRewardFor
                 var nearestForH = GetNearestOpponent(h, seekers);
                 float curDistH = Vector3.Distance(h.Position, nearestForH.Position);
                 float lastDistH = _lastDistToNearestSeeker.TryGetValue(h, out var prevDistH) ? prevDistH : curDistH;
 
                 float reward = ComputeHiderRewardFor(h, seekers, visibleNow);
 
-                // Разовый бонус за обнаружение Seeker'а Hider'ом (false->true)
                 bool wasVisibleBefore = _wasHiderVisiblePrevMap.TryGetValue(h, out var wasVis) && wasVis;
                 bool detectionNowH = visibleNow && !wasVisibleBefore;
                 if (detectionNowH && hidersSeeingNow > 0)
@@ -635,7 +430,6 @@ namespace HideAndSeek.Core.RaylibThreeD
                 if (isRotationActionH && !improved && visibleNow)
                 {
                     float rotPenH = MathF.Max(0f, Config.Hider.RotationPenalty);
-                    // Ослабляем штраф за поворот, когда Hider находится под прицелом и разворачивается для побега
                     rotPenH *= MathF.Max(0f, Config.Hider.RotationPenaltyWhenFleeFactor);
                     reward -= rotPenH;
                 }
@@ -655,7 +449,7 @@ namespace HideAndSeek.Core.RaylibThreeD
                 _hiderAgent.Learn();
             }
 
-            // Синхронизация знаний команды (union известных стен)
+            // Синхронизация знаний команды
             MergeTeamKnowledge();
 
             // Метрики (оставляем в терминах «первой» пары для совместимости HUD)
@@ -694,12 +488,5 @@ namespace HideAndSeek.Core.RaylibThreeD
                 _lastSeekerVisualExploredForProgress = Seeker.GetVisuallyExploredCount();
             }
         }
-
-
-
-
-
-
-
     }
 }
