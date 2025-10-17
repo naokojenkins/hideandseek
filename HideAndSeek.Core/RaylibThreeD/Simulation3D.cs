@@ -53,7 +53,7 @@ namespace HideAndSeek.Core.RaylibThreeD
 
         private bool _isHiderVisible = false;
         private float _lastVisibilityCheck = 0f;
-        private float _visibilityCheckInterval = 0.05f;
+        private float _visibilityCheckInterval;
 
         private static string SessionCounterFile => Path.Combine(PathService.GetQtablesDirectory(), "total_sessions.json");
 
@@ -426,7 +426,7 @@ namespace HideAndSeek.Core.RaylibThreeD
                             continue;
                         }
                         float d = Vector3.Distance(s.Position, n.Position);
-                        if (float.IsNaN(d) || float.IsInfinity(d) || d < 1e-5f)
+                        if (float.IsNaN(d) || float.IsInfinity(d) || d < Config.Physics.MinNeighborDistanceEps)
                         {
                             hadOverlaps = true;
                             try { LogNumericIssue("NeighborsFilter.Seeker", $"Too close/invalid distance: d={d} self={s.Position} other={n.Position}"); } catch { }
@@ -470,7 +470,7 @@ namespace HideAndSeek.Core.RaylibThreeD
                             continue;
                         }
                         float d = Vector3.Distance(h.Position, n.Position);
-                        if (float.IsNaN(d) || float.IsInfinity(d) || d < 1e-5f)
+                        if (float.IsNaN(d) || float.IsInfinity(d) || d < Config.Physics.MinNeighborDistanceEps)
                         {
                             hadOverlaps = true;
                             try { LogNumericIssue("NeighborsFilter.Hider", $"Too close/invalid distance: d={d} self={h.Position} other={n.Position}"); } catch { }

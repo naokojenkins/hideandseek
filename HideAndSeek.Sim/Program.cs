@@ -26,17 +26,7 @@ namespace ToolUse.Sim
                 return;
             }
 
-            // Configure Serilog sinks (console + rolling file)
-            // Avoid accessing GameConfig before bootstrap to prevent recursion
-            string defaultLogsDir = System.IO.Path.Combine(AppContext.BaseDirectory, "logs");
-            HideAndSeek.Core.IO.PathService.EnsureDirectoryExists(defaultLogsDir);
-            var logsPath = System.IO.Path.Combine(defaultLogsDir, "app-.log");
-            var logsDir = System.IO.Path.GetDirectoryName(logsPath)!;
-            if (!HideAndSeek.Core.IO.PathService.CanWriteToDirectory(logsDir))
-            {
-                Console.Error.WriteLine($"[WARN] No write permission to logs directory: {logsDir}. Falling back to console-only logging.");
-            }
-
+            // Configure Serilog early with console-only to avoid writing to wrong file path before config is loaded
             var level = ParseLogLevel(args);
             Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.Is(level)
@@ -44,7 +34,6 @@ namespace ToolUse.Sim
                 .MinimumLevel.Override("ToolUse", Serilog.Events.LogEventLevel.Debug)
                 .Enrich.FromLogContext()
                 .WriteTo.Console(outputTemplate: "{Timestamp:HH:mm:ss} [{Level:u3}] {SourceContext} {Message:lj}{NewLine}{Exception}")
-                .WriteTo.File(logsPath, rollingInterval: RollingInterval.Day, retainedFileCountLimit: 7, shared: true, flushToDiskInterval: TimeSpan.FromSeconds(3))
                 .CreateLogger();
 
             AppDomain.CurrentDomain.UnhandledException += (sender, a) =>
@@ -71,13 +60,17 @@ namespace ToolUse.Sim
                 if (HideAndSeek.Core.IO.PathService.CanWriteToDirectory(effectiveLogsDir))
                 {
                     var configuredLogsPath = System.IO.Path.Combine(effectiveLogsDir, "app-.log");
+                    var logCfg = GameConfig.Instance.Logging;
+                    int? retainedLimit = (logCfg.RetainedFileCountLimit <= 0) ? null : logCfg.RetainedFileCountLimit;
+                    var flushInterval = TimeSpan.FromSeconds(Math.Max(1, logCfg.FlushToDiskIntervalSeconds));
+
                     Log.Logger = new LoggerConfiguration()
                         .MinimumLevel.Is(level)
                         .MinimumLevel.Override("Microsoft", Serilog.Events.LogEventLevel.Warning)
                         .MinimumLevel.Override("ToolUse", Serilog.Events.LogEventLevel.Debug)
                         .Enrich.FromLogContext()
                         .WriteTo.Console(outputTemplate: "{Timestamp:HH:mm:ss} [{Level:u3}] {SourceContext} {Message:lj}{NewLine}{Exception}")
-                        .WriteTo.File(configuredLogsPath, rollingInterval: RollingInterval.Day, retainedFileCountLimit: 7, shared: true, flushToDiskInterval: TimeSpan.FromSeconds(3))
+                        .WriteTo.File(configuredLogsPath, rollingInterval: RollingInterval.Day, retainedFileCountLimit: retainedLimit, shared: true, flushToDiskInterval: flushInterval)
                         .CreateLogger();
 
                     Log.Information("Logging reconfigured to: {Path}", configuredLogsPath);
@@ -186,7 +179,8 @@ namespace ToolUse.Sim
             HideAndSeek.Core.Rendering.IWindowRenderer renderer = useVisualization
                 ? new RaylibWindowRenderer()
                 : new HeadlessWindowRenderer();
-            var app = new SimulationApp(useVisualization, renderer, fps: (useVisualization ? 40 : 60), services: provider);
+            int fps = useVisualization ? GameConfig.Instance.Runtime.FpsVisual : GameConfig.Instance.Runtime.FpsHeadless;
+            var app = new SimulationApp(useVisualization, renderer, fps: fps, services: provider);
 
             // Optional lightweight in-process dashboard (serves real-time HTML from /metrics.json)
             ToolUse.Sim.Application.DashboardServer? dashboard = null;

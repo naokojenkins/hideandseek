@@ -1,9 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <!-- Merge: include all source files from Core and Tests into this single project, excluding bin/obj -->
-    <Compile Include="..\HideAndSeek.Core\**\*.cs" Exclude="..\HideAndSeek.Core\bin\**\*;..\HideAndSeek.Core\obj\**\*" Link="Core\%(RecursiveDir)%(Filename)%(Extension)" />
-    <Compile Include="..\HideAndSeek.Tests\**\*.cs" Exclude="..\HideAndSeek.Tests\bin\**\*;..\HideAndSeek.Tests\obj\**\*" Link="Tests\%(RecursiveDir)%(Filename)%(Extension)" />
+    <ProjectReference Include="..\HideAndSeek.Core\HideAndSeek.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -24,9 +22,6 @@
     <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
     <!-- Needed by some Core files -->
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
-    <!-- Allow compiling test sources inside this project (no test host/runner to avoid extra entry point) -->
-    <PackageReference Include="xunit" Version="2.7.0" />
-    <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
   </ItemGroup>
 
   <PropertyGroup>

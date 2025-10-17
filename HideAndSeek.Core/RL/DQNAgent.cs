@@ -150,6 +150,7 @@ namespace HideAndSeek.Core.RL
             UpdateTargetModel();
         }
 
+        [Obsolete("Use DQNAgent(int stateSize, int actionSize, DQNConfig, ...) to ensure hyperparameters come from configuration. This overload will be removed in a future release.")]
         public DQNAgent(
             int stateSize,
             int actionSize,
@@ -496,9 +497,20 @@ namespace HideAndSeek.Core.RL
                 Seed = GameConfig.Instance.Seed
             };
 
-            // Serialize compactly to reduce IO and memory footprint
-            var json = JsonConvert.SerializeObject(agentState, Formatting.Indented);
-            File.WriteAllText(statePath, json, System.Text.Encoding.UTF8);
+            // Serialize compactly to reduce IO and memory footprint without building a huge string in memory
+            var settings = new JsonSerializerSettings
+            {
+                Formatting = Formatting.None,
+                NullValueHandling = NullValueHandling.Ignore,
+                DefaultValueHandling = DefaultValueHandling.Ignore
+            };
+            var serializer = JsonSerializer.Create(settings);
+            using (var fs = File.Open(statePath, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var sw = new StreamWriter(fs, System.Text.Encoding.UTF8))
+            using (var jw = new JsonTextWriter(sw))
+            {
+                serializer.Serialize(jw, agentState);
+            }
             _log.LogDebug("Model and state saved to weights={WeightsPath}, state={StatePath}", weightsPath, statePath);
         }
 

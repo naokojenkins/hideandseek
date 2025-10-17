@@ -66,7 +66,7 @@ namespace HideAndSeek.Core.RaylibThreeD
                     bool isSeenByOpponentNow = hiders.Any(h => h.CanSee(s, World));
 
                     long a;
-                    if (isSeenByOpponentNow)
+                    if (isSeenByOpponentNow && Config.Seeker.ForceExploitWhenSeen)
                     {
                         // Временно обнуляем epsilon через публичный API, сохранив текущее значение
                         float epsBackup = _seekerAgent.Epsilon;
@@ -75,37 +75,40 @@ namespace HideAndSeek.Core.RaylibThreeD
                         // Базовое жадное действие от DQN
                         a = _seekerAgent.ChooseAction(seekerStatesBefore[s].ToArray(World.Size));
 
-                        // Эвристика «беги от ближайшего Hider»: поворот+движение, увеличивающие дистанцию
-                        try
+                        // Эвристика «беги от ближайшего Hider»: выравнивание и действие согласно предпочтению
+                        if (Config.Seeker.EnableFleeHeuristic)
                         {
-                            var nearest = GetNearestOpponent(s, hiders);
-                            var away = Vector3.Normalize(s.Position - nearest.Position);
-                            if (float.IsNaN(away.X) || float.IsNaN(away.Z)) away = new Vector3(0,0,1);
+                            try
+                            {
+                                var nearest = GetNearestOpponent(s, hiders);
+                                var away = Vector3.Normalize(s.Position - nearest.Position);
+                                if (float.IsNaN(away.X) || float.IsNaN(away.Z)) away = new Vector3(0,0,1);
 
-                            float desiredYaw = MathF.Atan2(away.X, away.Z) * (180f / MathF.PI);
-                            // Нормализуем углы в [-180,180]
-                            float curYaw = ((s.Direction % 360f) + 540f) % 360f - 180f;
-                            float diff = desiredYaw - curYaw;
-                            diff = ((diff + 540f) % 360f) - 180f;
+                                float desiredYaw = MathF.Atan2(away.X, away.Z) * (180f / MathF.PI);
+                                // Нормализуем углы в [-180,180]
+                                float curYaw = ((s.Direction % 360f) + 540f) % 360f - 180f;
+                                float diff = desiredYaw - curYaw;
+                                diff = ((diff + 540f) % 360f) - 180f;
 
-                            var act = Config.Actions;
-                            float alignDeg = Config.Seeker.AlignThresholdDegrees > 0f
-                                ? Config.Seeker.AlignThresholdDegrees
-                                : Config.Seeker.RotationStepDegrees * Config.Seeker.TurnAlignFactor;
-                            if (MathF.Abs(diff) < alignDeg)
-                            {
-                                a = act.Forward;
+                                var act = Config.Actions;
+                                float alignDeg = Config.Seeker.AlignThresholdDegrees > 0f
+                                    ? Config.Seeker.AlignThresholdDegrees
+                                    : Config.Seeker.RotationStepDegrees * Config.Seeker.TurnAlignFactor;
+                                if (MathF.Abs(diff) < alignDeg)
+                                {
+                                    a = act.Forward;
+                                }
+                                else if (diff > 0)
+                                {
+                                    a = Config.Seeker.PreferTurnAndMoveWhenAligning && act.ForwardRight >= 0 ? act.ForwardRight : act.TurnRight;
+                                }
+                                else
+                                {
+                                    a = Config.Seeker.PreferTurnAndMoveWhenAligning && act.ForwardLeft >= 0 ? act.ForwardLeft : act.TurnLeft;
+                                }
                             }
-                            else if (diff > 0)
-                            {
-                                a = act.ForwardRight >= 0 ? act.ForwardRight : act.TurnRight;
-                            }
-                            else
-                            {
-                                a = act.ForwardLeft >= 0 ? act.ForwardLeft : act.TurnLeft;
-                            }
+                            catch { /* fallback to DQN action */ }
                         }
-                        catch { /* fallback to DQN action */ }
 
                         // Восстановим исходный epsilon
                         try { _seekerAgent.SetEpsilon(epsBackup); } catch { }
@@ -144,36 +147,39 @@ namespace HideAndSeek.Core.RaylibThreeD
                         a = _hiderAgent.ChooseAction(hiderStatesBefore[h].ToArray(World.Size));
 
                         // Эвристика «беги от ближайшего Seeker» при видимости
-                        try
+                        if (Config.Hider.EnableFleeHeuristic)
                         {
-                            var visibleSeekers = seekers.Where(s => s.CanSee(h, World)).ToList();
-                            var threat = visibleSeekers.Count > 0 ? GetNearestOpponent(h, visibleSeekers) : GetNearestOpponent(h, seekers);
-                            var away = Vector3.Normalize(h.Position - threat.Position);
-                            if (float.IsNaN(away.X) || float.IsNaN(away.Z)) away = new Vector3(0,0,1);
+                            try
+                            {
+                                var visibleSeekers = seekers.Where(s => s.CanSee(h, World)).ToList();
+                                var threat = visibleSeekers.Count > 0 ? GetNearestOpponent(h, visibleSeekers) : GetNearestOpponent(h, seekers);
+                                var away = Vector3.Normalize(h.Position - threat.Position);
+                                if (float.IsNaN(away.X) || float.IsNaN(away.Z)) away = new Vector3(0,0,1);
 
-                            float desiredYaw = MathF.Atan2(away.X, away.Z) * (180f / MathF.PI);
-                            float curYaw = ((h.Direction % 360f) + 540f) % 360f - 180f;
-                            float diff = desiredYaw - curYaw;
-                            diff = ((diff + 540f) % 360f) - 180f;
+                                float desiredYaw = MathF.Atan2(away.X, away.Z) * (180f / MathF.PI);
+                                float curYaw = ((h.Direction % 360f) + 540f) % 360f - 180f;
+                                float diff = desiredYaw - curYaw;
+                                diff = ((diff + 540f) % 360f) - 180f;
 
-                            var act = Config.Actions;
-                            float alignDeg = Config.Hider.AlignThresholdDegrees > 0f
-                                ? Config.Hider.AlignThresholdDegrees
-                                : Config.Hider.RotationStepDegrees * Config.Hider.TurnAlignFactor;
-                            if (MathF.Abs(diff) < alignDeg)
-                            {
-                                a = act.Forward;
+                                var act = Config.Actions;
+                                float alignDeg = Config.Hider.AlignThresholdDegrees > 0f
+                                    ? Config.Hider.AlignThresholdDegrees
+                                    : Config.Hider.RotationStepDegrees * Config.Hider.TurnAlignFactor;
+                                if (MathF.Abs(diff) < alignDeg)
+                                {
+                                    a = act.Forward;
+                                }
+                                else if (diff > 0)
+                                {
+                                    a = Config.Hider.PreferTurnAndMoveWhenAligning && act.ForwardRight >= 0 ? act.ForwardRight : act.TurnRight;
+                                }
+                                else
+                                {
+                                    a = Config.Hider.PreferTurnAndMoveWhenAligning && act.ForwardLeft >= 0 ? act.ForwardLeft : act.TurnLeft;
+                                }
                             }
-                            else if (diff > 0)
-                            {
-                                a = act.ForwardRight >= 0 ? act.ForwardRight : act.TurnRight;
-                            }
-                            else
-                            {
-                                a = act.ForwardLeft >= 0 ? act.ForwardLeft : act.TurnLeft;
-                            }
+                            catch { /* fallback to DQN action */ }
                         }
-                        catch { /* fallback to DQN action */ }
 
                         // Восстановим исходный epsilon
                         try { _hiderAgent.SetEpsilon(epsBackup); } catch { }
@@ -231,7 +237,7 @@ namespace HideAndSeek.Core.RaylibThreeD
                             continue;
                         }
                         float d = Vector3.Distance(s.Position, n.Position);
-                        if (float.IsNaN(d) || float.IsInfinity(d) || d < 1e-5f)
+                        if (float.IsNaN(d) || float.IsInfinity(d) || d < Config.Physics.MinNeighborDistanceEps)
                         {
                             hadOverlaps = true;
                             try { LogNumericIssue("NeighborsFilter.Seeker", $"Too close/invalid distance: d={d} self={s.Position} other={n.Position}"); } catch { }
@@ -273,7 +279,7 @@ namespace HideAndSeek.Core.RaylibThreeD
                             continue;
                         }
                         float d = Vector3.Distance(h.Position, n.Position);
-                        if (float.IsNaN(d) || float.IsInfinity(d) || d < 1e-5f)
+                        if (float.IsNaN(d) || float.IsInfinity(d) || d < Config.Physics.MinNeighborDistanceEps)
                         {
                             hadOverlaps = true;
                             try { LogNumericIssue("NeighborsFilter.Hider", $"Too close/invalid distance: d={d} self={h.Position} other={n.Position}"); } catch { }

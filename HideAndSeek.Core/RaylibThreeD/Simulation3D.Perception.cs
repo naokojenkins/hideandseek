@@ -29,7 +29,7 @@ namespace HideAndSeek.Core.RaylibThreeD
             Vector3 toTarget = target.Position - observer.Position;
             float dist = toTarget.Length();
             if (dist > maxDist) return false;
-            if (dist < 1e-5f) return false;
+            if (dist < Config.Physics.MinNeighborDistanceEps) return false;
 
             float yawRad = observer.Direction * MathF.PI / 180f;
             var forward = new Vector3(MathF.Sin(yawRad), 0f, MathF.Cos(yawRad));

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Newtonsoft.Json;
 
 namespace HideAndSeek.Core.RL
 {
@@ -10,13 +11,17 @@ namespace HideAndSeek.Core.RL
         public int Steps { get; set; }
         public int StateSize { get; set; }  // для проверки совместимости состояния
         public int ActionSize { get; set; } // для проверки совместимости действий
+
+        // Буфер повторов может быть огромным. Никогда не сериализуем его в JSON чекпоинтов,
+        // чтобы избежать OOM и гигантских файлов. Он эфемерен и восстанавливается заново при запуске.
+        [JsonIgnore]
         public List<Experience> Buffer { get; set; } = new();
+
         // Не влияет на поведение при загрузке, только для информации
         public int Seed { get; set; }
 
-        // Консолидация per-agent состояния: вместо множества коллекций
-        // используем словарь по роли -> состояние шага агента в этой роли.
-        // Ключ роли произвольный (например, "self", "ally", "enemy" и т.д.).
+        // Вспомогательное пошаговое состояние для отладки/визуализации — также не требуется в чекпоинтах.
+        [JsonIgnore]
         public Dictionary<string, AgentStepState> StepByRole { get; set; } = new();
     }
 }

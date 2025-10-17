@@ -156,8 +156,9 @@ namespace ToolUse.Sim.Application
             {
                 try
                 {
-                    _seekerDqn.SetEpsilon(_config.DQN.EpsilonMin);
-                    _hiderDqn.SetEpsilon(_config.DQN.EpsilonMin);
+                    // Align eval epsilon with ModelConfig via effective mapping (avoids dependency on legacy DQN section)
+                    _seekerDqn.SetEpsilon(_config.Model.EpsilonMin);
+                    _hiderDqn.SetEpsilon(_config.Model.EpsilonMin);
                 }
                 catch { }
             }

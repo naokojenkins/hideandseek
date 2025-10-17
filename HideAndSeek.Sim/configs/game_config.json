@@ -12,7 +12,7 @@
     "InitialPlacementMaxAttempts": "Max attempts to place agents respecting separation constraints.",
     "TimeScale": "Simulation time scale multiplier (1.0 = real time; >1.0 speeds up)."
   },
-  "Version": 3,
+  "Version": 4,
   "Seed": 12345,
   "Training": {
     "__comments": {
@@ -99,6 +99,28 @@
     "CellSize": 1.0,
     "WallHeight": 2.0
   },
+  "Runtime": {
+    "__comments": {
+      "FpsVisual": "Target FPS when rendering visuals.",
+      "FpsHeadless": "Target FPS cap in headless mode (frame pacing)."
+    },
+    "FpsVisual": 40,
+    "FpsHeadless": 60
+  },
+  "Physics": {
+    "__comments": {
+      "MinNeighborDistanceEps": "Minimal distance epsilon to treat agents as non-overlapping."
+    },
+    "MinNeighborDistanceEps": 0.00001
+  },
+  "Logging": {
+    "__comments": {
+      "RetainedFileCountLimit": "How many rolling log files to keep (0 or negative = unlimited).",
+      "FlushToDiskIntervalSeconds": "Flush interval for log file sink in seconds."
+    },
+    "RetainedFileCountLimit": 7,
+    "FlushToDiskIntervalSeconds": 3
+  },
   "SessionDurationSeconds": 150.0,
   "FramesForCatch": 200,
   "ActionRepeat": 1,
@@ -134,24 +156,40 @@
       "VisibilityRewardScaleRL": "Scale factor for visibility rewards applied to RL.",
       "VisibilityPointsScaleHUD": "Scale for HUD visibility points (UI only).",
       "EnableHudVisibilityPoints": "Show visibility points on HUD for this role.",
-      "UsePotentialShaping": "Use potential-based shaping when configured for the Seeker."
+      "UsePotentialShaping": "Use potential-based shaping when configured for the Seeker.",
+      "ForceExploitWhenSeen": "If true, when Seeker is seen by Hider, force greedy action on that step.",
+      "EnableFleeHeuristic": "Enable 'run from threat' heuristic when under threat.",
+      "PreferTurnAndMoveWhenAligning": "Prefer ForwardLeft/ForwardRight over pure turns when aligning during flee.",
+      "AlignThresholdDegrees": "Explicit angular threshold for Forward vs Turn+Move during alignment (0=use TurnAlignFactor)."
     },
     "ApplyVisibilityRewardsToRL": false,
     "VisibilityRewardScaleRL": 1.0,
     "VisibilityPointsScaleHUD": 1.0,
     "EnableHudVisibilityPoints": true,
-    "UsePotentialShaping": true
+    "UsePotentialShaping": true,
+    "ForceExploitWhenSeen": true,
+    "EnableFleeHeuristic": true,
+    "PreferTurnAndMoveWhenAligning": true,
+    "AlignThresholdDegrees": 0.0
   },
   "Hider": {
     "__comments": {
       "ApplyVisibilityRewardsToRL": "If true, apply visibility rewards to RL training signal for the Hider.",
       "VisibilityRewardScaleRL": "Scale factor for visibility rewards applied to RL.",
       "VisibilityPointsScaleHUD": "Scale for HUD visibility points (UI only).",
-      "EnableHudVisibilityPoints": "Show visibility points on HUD for this role."
+      "EnableHudVisibilityPoints": "Show visibility points on HUD for this role.",
+      "ForceExploitWhenSeen": "If true, when Hider is seen by Seeker, force greedy action on that step.",
+      "EnableFleeHeuristic": "Enable 'run from threat' heuristic when under threat.",
+      "PreferTurnAndMoveWhenAligning": "Prefer ForwardLeft/ForwardRight over pure turns when aligning during flee.",
+      "AlignThresholdDegrees": "Explicit angular threshold for Forward vs Turn+Move during alignment (0=use TurnAlignFactor)."
     },
     "ApplyVisibilityRewardsToRL": true,
     "VisibilityRewardScaleRL": 1.0,
     "VisibilityPointsScaleHUD": 1.0,
-    "EnableHudVisibilityPoints": true
+    "EnableHudVisibilityPoints": true,
+    "ForceExploitWhenSeen": true,
+    "EnableFleeHeuristic": true,
+    "PreferTurnAndMoveWhenAligning": true,
+    "AlignThresholdDegrees": 0.0
   }
 }

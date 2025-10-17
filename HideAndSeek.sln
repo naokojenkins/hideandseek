@@ -5,6 +5,10 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HideAndSeek.Sim", "HideAndSeek.Sim\HideAndSeek.Sim.csproj", "{ABC435BC-D235-4706-848E-AEA7F3BC9A1E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HideAndSeek.Core", "HideAndSeek.Core\HideAndSeek.Core.csproj", "{D6E4A2B1-2F36-4A89-98B9-2F5B6E02C6A3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HideAndSeek.Tests", "HideAndSeek.Tests\HideAndSeek.Tests.csproj", "{7F3B2E9C-9F67-4E4A-9A2E-3C40CA5D5A10}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -18,5 +22,13 @@ Global
 		{ABC435BC-D235-4706-848E-AEA7F3BC9A1E}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{ABC435BC-D235-4706-848E-AEA7F3BC9A1E}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{ABC435BC-D235-4706-848E-AEA7F3BC9A1E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D6E4A2B1-2F36-4A89-98B9-2F5B6E02C6A3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D6E4A2B1-2F36-4A89-98B9-2F5B6E02C6A3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D6E4A2B1-2F36-4A89-98B9-2F5B6E02C6A3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D6E4A2B1-2F36-4A89-98B9-2F5B6E02C6A3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7F3B2E9C-9F67-4E4A-9A2E-3C40CA5D5A10}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7F3B2E9C-9F67-4E4A-9A2E-3C40CA5D5A10}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7F3B2E9C-9F67-4E4A-9A2E-3C40CA5D5A10}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7F3B2E9C-9F67-4E4A-9A2E-3C40CA5D5A10}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
