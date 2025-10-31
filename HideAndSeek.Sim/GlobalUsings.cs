@@ -1,10 +1,6 @@
-global using static HideAndSeek.Core.RL.DQNDefaults;
-
 global using System.Numerics;
 global using Raylib_cs;
 
 global using HideAndSeek.Core.Config;
-global using HideAndSeek.Core.IO;
 global using HideAndSeek.Core.RL;
-
-global using System.Text;
+global using HideAndSeek.Core.IO;
