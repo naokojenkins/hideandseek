@@ -5,6 +5,14 @@ using Newtonsoft.Json;
 namespace HideAndSeek.Core.Config
 {
     /// <summary>
+    /// Простая RGBA-структура для задания цветов через конфиг.
+    /// </summary>
+    public record ColorConfig(byte R, byte G, byte B, byte A = 255)
+    {
+        public Raylib_cs.Color ToRaylibColor() => new Raylib_cs.Color(R, G, B, A);
+    }
+
+    /// <summary>
     /// Главный конфиг всей симуляции: параметры мира, агентов, DQN и наград.
     /// Используйте GameConfig.Instance для доступа к единому объекту конфигурации во всём проекте!
     /// </summary>
@@ -428,6 +436,38 @@ namespace HideAndSeek.Core.Config
         public float CellSize { get; set; } = 1.0f;
         /// <summary> Высота стены. </summary>
         public float WallHeight { get; set; } = 2.0f;
+
+        // Генерация/детерминизм
+        /// <summary> Включать ли генерацию лабиринта (для больших миров). </summary>
+        public bool UseMaze { get; set; } = true;
+        /// <summary> Порог размера, начиная с которого применяется генерация лабиринта. </summary>
+        public int MazeThresholdSize { get; set; } = 12;
+        /// <summary> Seed мира (если null — недетерминированный, как раньше). </summary>
+        public int? Seed { get; set; } = null;
+        /// <summary> Тип генерации: "MazeDFS", "Empty", ... (на будущее). </summary>
+        public string GenerationType { get; set; } = "MazeDFS";
+
+        // Геометрические проверки
+        /// <summary> Кол-во периметр-сэмплов при проверке окружности на пересечение со стенами. </summary>
+        public int AreaFreePerimeterSamples { get; set; } = 24;
+        /// <summary> Эпсилон смещения точки по радиусу к центру (чтобы избегать граничных эффектов). </summary>
+        public float AreaFreeEdgeEpsilon { get; set; } = 0.999f;
+        /// <summary> Шаг трассировки луча видимости (для fallback-реализации). </summary>
+        public float LoSRaycastStep { get; set; } = 0.2f;
+        /// <summary> Множитель бокового оффсета для толщины луча от радиуса агента. </summary>
+        public float LoSRaycastSideOffsetFactor { get; set; } = 0.5f;
+
+        // Визуализация мира
+        public bool DrawGrid { get; set; } = true;
+        public float GridY { get; set; } = 0.01f;
+        public ColorConfig GridColor { get; set; } = new ColorConfig(60, 60, 60, 255);
+        public ColorConfig FloorColor { get; set; } = new ColorConfig(200, 200, 200, 255);
+        public ColorConfig WallColor { get; set; } = new ColorConfig(80, 80, 80, 255);
+        public ColorConfig WallWireColor { get; set; } = new ColorConfig(0, 0, 0, 255);
+        public bool DrawShadows { get; set; } = true;
+        public float ShadowScale { get; set; } = 1.1f;
+        public float ShadowHeight { get; set; } = 0.1f;
+        public float ShadowBrightness { get; set; } = 0.5f;
     }
 
     /// <summary>
@@ -523,6 +563,17 @@ namespace HideAndSeek.Core.Config
 
         /// <summary> Количество агентов данной роли. </summary>
         public int Count { get; set; } = 2;
+
+        // Визуализация и параметры чувствительности/семплинга обзора
+        /// <summary>
+        /// Цвет агента. Если не задан (null) — используются значения по умолчанию: 
+        /// Seeker: (0,121,241), Hider: (0,228,48).
+        /// </summary>
+        public ColorConfig? AgentColor { get; set; } = null;
+        public int VisionSegments { get; set; } = 60;
+        public float VisionRayStep { get; set; } = 0.2f;
+        public float MoveLookaheadFactor { get; set; } = 2.0f;
+        public float MoveLookaheadMin { get; set; } = 0.6f;
 
         // === Новые параметры для гибкой настройки поведения ===
         /// <summary> Множитель награды за близость к цели. </summary>

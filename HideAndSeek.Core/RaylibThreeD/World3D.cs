@@ -16,8 +16,8 @@ namespace HideAndSeek.Core.RaylibThreeD
         public Color WallColor { get; set; }
         // RoomSize removed: generation is now random without room partitioning
 
-        // Use non-deterministic RNG for world generation to get a new layout on every run/restart
-        private readonly Random _rng = new Random(unchecked(Environment.TickCount ^ Guid.NewGuid().GetHashCode()));
+        // RNG для генерации мира (детерминизм управляется через WorldConfig.Seed)
+        private readonly Random _rng;
 
         public World3D(int size)
         {
@@ -27,9 +27,15 @@ namespace HideAndSeek.Core.RaylibThreeD
             CellSize = config.CellSize;
             WallHeight = config.WallHeight;
 
-            // Цвета также берём из конфига, если добавлены:
-            FloorColor = new Color(200, 200, 200, 255); // По умолчанию
-            WallColor  = new Color(80, 80, 80, 255);    // По умолчанию
+            // RNG: если задан Seed — используем его, иначе недетерминированный
+            if (config.Seed.HasValue)
+                _rng = new Random(config.Seed.Value);
+            else
+                _rng = new Random(unchecked(Environment.TickCount ^ Guid.NewGuid().GetHashCode()));
+
+            // Цвета из конфига (с дефолтами, совпадающими с прежними)
+            FloorColor = (config.FloorColor ?? new ColorConfig(200, 200, 200, 255)).ToRaylibColor();
+            WallColor  = (config.WallColor  ?? new ColorConfig(80, 80, 80, 255)).ToRaylibColor();
 
             GenerateStaticGrid();
         }
@@ -54,18 +60,50 @@ namespace HideAndSeek.Core.RaylibThreeD
 
         private bool IsAreaFree(float centerX, float centerZ, float radius)
         {
-            int steps = 12;
+            // Fast reject: center cell must be empty and inside the grid
+            int centerGX = (int)MathF.Floor(centerX);
+            int centerGZ = (int)MathF.Floor(centerZ);
+            if (!IsInside(centerGX, centerGZ) || Grid[centerGX, centerGZ] == TileType.Wall)
+                return false;
+
+            // Robust continuous collision check against unit wall cells
+            // Iterate only over the neighborhood potentially intersecting the agent's disc
+            int minGX = Math.Max(0, (int)MathF.Floor(centerX - radius) - 1);
+            int maxGX = Math.Min(Size - 1, (int)MathF.Floor(centerX + radius) + 1);
+            int minGZ = Math.Max(0, (int)MathF.Floor(centerZ - radius) - 1);
+            int maxGZ = Math.Min(Size - 1, (int)MathF.Floor(centerZ + radius) + 1);
+
+            for (int gx = minGX; gx <= maxGX; gx++)
+            {
+                for (int gz = minGZ; gz <= maxGZ; gz++)
+                {
+                    if (Grid[gx, gz] != TileType.Wall) continue;
+
+                    // Axis-aligned unit square for the wall cell: [gx, gx+1] x [gz, gz+1]
+                    float nearestX = MathF.Max(gx, MathF.Min(centerX, gx + 1f));
+                    float nearestZ = MathF.Max(gz, MathF.Min(centerZ, gz + 1f));
+                    float dx = centerX - nearestX;
+                    float dz = centerZ - nearestZ;
+                    float distSq = dx * dx + dz * dz;
+                    if (distSq < radius * radius)
+                        return false;
+                }
+            }
+
+            // Optional perimeter sampling (extra safety for numeric quirks)
+            int steps = Math.Max(0, GameConfig.Instance.World.AreaFreePerimeterSamples);
             for (int i = 0; i < steps; i++)
             {
                 float angle = (float)(2 * Math.PI * i / steps);
-                float checkX = centerX + MathF.Cos(angle) * radius;
-                float checkZ = centerZ + MathF.Sin(angle) * radius;
-                int gx = Math.Clamp((int)Math.Floor(checkX), 0, Size - 1);
-                int gz = Math.Clamp((int)Math.Floor(checkZ), 0, Size - 1);
-
+                float eps = GameConfig.Instance.World.AreaFreeEdgeEpsilon;
+                float checkX = centerX + MathF.Cos(angle) * radius * eps;
+                float checkZ = centerZ + MathF.Sin(angle) * radius * eps;
+                int gx = Math.Clamp((int)MathF.Floor(checkX), 0, Size - 1);
+                int gz = Math.Clamp((int)MathF.Floor(checkZ), 0, Size - 1);
                 if (!IsInside(gx, gz) || Grid[gx, gz] == TileType.Wall)
                     return false;
             }
+
             return true;
         }
 
@@ -102,8 +140,11 @@ namespace HideAndSeek.Core.RaylibThreeD
             // => Вокруг любой стены можно обойти с любой стороны.
 
             // Для стабильности unit-тестов на маленьких мирах — не генерировать внутренние стены,
-            // чтобы поведение было детерминированным и не зависело от геометрии (Size <= 12).
-            if (Size > 12)
+            // чтобы поведение было детерминированным и не зависело от геометрии
+            // (порог задаётся через конфиг).
+            var wcfg = GameConfig.Instance.World;
+            bool useMaze = wcfg.UseMaze && Size > Math.Max(0, wcfg.MazeThresholdSize);
+            if (useMaze && string.Equals(wcfg.GenerationType, "MazeDFS", StringComparison.OrdinalIgnoreCase))
             {
                 // Цель: сгенерировать лабиринт в стиле «коридоры 1 клетки шириной»,
                 // где стены могут соприкасаться, образуя узоры лабиринта, включая Г-образные повороты,
@@ -264,11 +305,18 @@ namespace HideAndSeek.Core.RaylibThreeD
                 for (int z = 0; z < Size; z++)
                     if (Grid[x, z] == TileType.Empty)
                         emptyCount++;
-            Console.WriteLine($"[DEBUG] Мир {Size}x{Size} сгенерирован: {emptyCount} свободных клеток (случайная генерация стен)");
+            Console.WriteLine($"[DEBUG] Мир {Size}x{Size} сгенерирован: {emptyCount} свободных клеток (генератор={wcfg.GenerationType}, seed={(wcfg.Seed?.ToString() ?? "auto")})");
         }
 
         public void Draw(bool showShadows = true)
         {
+            var wcfg = GameConfig.Instance.World;
+            var wireColor = (wcfg.WallWireColor ?? new ColorConfig(0, 0, 0, 255)).ToRaylibColor();
+            bool drawShadows = showShadows && wcfg.DrawShadows;
+            float shadowScale = wcfg.ShadowScale;
+            float shadowHeight = wcfg.ShadowHeight;
+            float shadowBrightness = wcfg.ShadowBrightness;
+
             // Рисуем пол
             for (int x = 0; x < Size; x++)
             {
@@ -299,13 +347,13 @@ namespace HideAndSeek.Core.RaylibThreeD
                         Vector3 wallPosition = new Vector3(x + 0.5f, WallHeight / 2, z + 0.5f);
                         Vector3 wallSize = new Vector3(CellSize, WallHeight, CellSize);
                         Raylib.DrawCube(wallPosition, wallSize.X, wallSize.Y, wallSize.Z, WallColor);
-                        Raylib.DrawCubeWires(wallPosition, wallSize.X, wallSize.Y, wallSize.Z, new Color(0, 0, 0, 255));
-                        if (showShadows)
+                        Raylib.DrawCubeWires(wallPosition, wallSize.X, wallSize.Y, wallSize.Z, wireColor);
+                        if (drawShadows)
                         {
                             Raylib.DrawCube(
-                                new Vector3(x + 0.5f, -0.05f, z + 0.5f),
-                                CellSize * 1.1f, 0.1f, CellSize * 1.1f,
-                                Brightness(WallColor, 0.5f)
+                                new Vector3(x + 0.5f, -shadowHeight * 0.5f, z + 0.5f),
+                                CellSize * shadowScale, shadowHeight, CellSize * shadowScale,
+                                Brightness(WallColor, shadowBrightness)
                             );
                         }
                     }
@@ -315,82 +363,129 @@ namespace HideAndSeek.Core.RaylibThreeD
 
         public void DrawGrid()
         {
+            var wcfg = GameConfig.Instance.World;
+            if (!wcfg.DrawGrid) return;
+            float y = wcfg.GridY;
+            var gridColor = (wcfg.GridColor ?? new ColorConfig(60, 60, 60, 255)).ToRaylibColor();
             for (int x = 0; x <= Size; x++)
                 Raylib.DrawLine3D(
-                    new Vector3(x, 0.01f, 0),
-                    new Vector3(x, 0.01f, Size),
-                    new Color(60, 60, 60, 255));
+                    new Vector3(x, y, 0),
+                    new Vector3(x, y, Size),
+                    gridColor);
             for (int z = 0; z <= Size; z++)
                 Raylib.DrawLine3D(
-                    new Vector3(0, 0.01f, z),
-                    new Vector3(Size, 0.01f, z),
-                    new Color(60, 60, 60, 255));
+                    new Vector3(0, y, z),
+                    new Vector3(Size, y, z),
+                    gridColor);
         }
 
         public Vector3 GetRandomEmptyPosition(float heightOffset = 0f)
         {
-            var emptyPositions = new List<Vector2>();
+            // Reservoir sampling одной позиции без хранения всех вариантов
+            int count = 0;
+            int rx = -1, rz = -1;
             for (int x = 1; x < Size - 1; x++)
-                for (int z = 1; z < Size - 1; z++)
-                    if (Grid[x, z] == TileType.Empty)
-                        emptyPositions.Add(new Vector2(x, z));
+            for (int z = 1; z < Size - 1; z++)
+            {
+                if (Grid[x, z] == TileType.Empty)
+                {
+                    count++;
+                    if (_rng.Next(count) == 0) { rx = x; rz = z; }
+                }
+            }
 
-            if (emptyPositions.Count == 0)
+            if (count == 0 || rx < 0)
             {
                 Console.WriteLine("[ERROR] No empty positions found in world!");
                 return new Vector3(Size / 2f, heightOffset, Size / 2f);
             }
-
-            var randomPos = emptyPositions[_rng.Next(emptyPositions.Count)];
-            return new Vector3(randomPos.X + 0.5f, heightOffset, randomPos.Y + 0.5f);
+            return new Vector3(rx + 0.5f, heightOffset, rz + 0.5f);
         }
 
         public Vector3 GetRandomEmptyPositionFarFrom(Vector3 otherPosition, float minDistance, float heightOffset = 0f)
         {
-            var emptyPositions = new List<Vector2>();
+            // Reservoir sampling с фильтром по расстоянию
+            int count = 0;
+            int rx = -1, rz = -1;
             for (int x = 1; x < Size - 1; x++)
-                for (int z = 1; z < Size - 1; z++)
-                    if (Grid[x, z] == TileType.Empty)
-                    {
-                        var pos = new Vector3(x + 0.5f, heightOffset, z + 0.5f);
-                        if (Vector3.Distance(pos, otherPosition) >= minDistance)
-                            emptyPositions.Add(new Vector2(x, z));
-                    }
+            for (int z = 1; z < Size - 1; z++)
+            {
+                if (Grid[x, z] != TileType.Empty) continue;
+                var pos = new Vector3(x + 0.5f, heightOffset, z + 0.5f);
+                if (Vector3.Distance(pos, otherPosition) < minDistance) continue;
+                count++;
+                if (_rng.Next(count) == 0) { rx = x; rz = z; }
+            }
 
-            if (emptyPositions.Count == 0)
+            if (count == 0 || rx < 0)
             {
                 Console.WriteLine($"[WARNING] No empty positions found far enough ({minDistance}) from other position, using any empty position");
                 return GetRandomEmptyPosition(heightOffset);
             }
-
-            var randomPos = emptyPositions[_rng.Next(emptyPositions.Count)];
-            return new Vector3(randomPos.X + 0.5f, heightOffset, randomPos.Y + 0.5f);
+            return new Vector3(rx + 0.5f, heightOffset, rz + 0.5f);
         }
 
         public bool HasLineOfSight(Vector3 from, Vector3 to, float agentRadius = 0.3f)
         {
-            Vector3 direction = Vector3.Normalize(to - from);
-            float distance = Vector3.Distance(from, to);
-            float step = 0.2f;
+            var wcfg = GameConfig.Instance.World;
+            Vector3 dir = Vector3.Normalize(to - from);
+            float side = MathF.Max(0f, wcfg.LoSRaycastSideOffsetFactor) * agentRadius;
+            // оффсеты для толщины луча
+            Vector3 perp = new Vector3(-dir.Z, 0, dir.X);
+            var offsets = side > 0.0001f
+                ? new Vector3[] { Vector3.Zero, perp * side, -perp * side }
+                : new Vector3[] { Vector3.Zero };
 
-            Vector3 perpendicular = new Vector3(-direction.Z, 0, direction.X);
-            Vector3[] offsets = new[]
+            foreach (var off in offsets)
             {
-                Vector3.Zero,
-                perpendicular * agentRadius * 0.5f,
-                -perpendicular * agentRadius * 0.5f
-            };
+                if (!RaycastDdaClear(from + off, to + off))
+                    return false;
+            }
+            return true;
+        }
 
-            for (float t = 0; t < distance; t += step)
+        private bool RaycastDdaClear(Vector3 from, Vector3 to)
+        {
+            // 2D DDA по XZ-плоскости
+            float x0 = from.X, z0 = from.Z;
+            float x1 = to.X, z1 = to.Z;
+
+            int gx = Math.Clamp((int)MathF.Floor(x0), 0, Size - 1);
+            int gz = Math.Clamp((int)MathF.Floor(z0), 0, Size - 1);
+            int gx1 = Math.Clamp((int)MathF.Floor(x1), 0, Size - 1);
+            int gz1 = Math.Clamp((int)MathF.Floor(z1), 0, Size - 1);
+
+            float dx = x1 - x0;
+            float dz = z1 - z0;
+            float stepX = dx >= 0 ? 1 : -1;
+            float stepZ = dz >= 0 ? 1 : -1;
+
+            float tDeltaX = dx == 0 ? float.PositiveInfinity : MathF.Abs(1f / dx);
+            float tDeltaZ = dz == 0 ? float.PositiveInfinity : MathF.Abs(1f / dz);
+
+            float nextGridX = stepX > 0 ? (gx + 1) : gx; // ближайшая вертикальная грань
+            float nextGridZ = stepZ > 0 ? (gz + 1) : gz; // ближайшая горизонтальная грань
+            float tMaxX = dx == 0 ? float.PositiveInfinity : (nextGridX - x0) / dx;
+            float tMaxZ = dz == 0 ? float.PositiveInfinity : (nextGridZ - z0) / dz;
+
+            // проверяем стартовую клетку
+            if (IsBlocked(gx, gz)) return false;
+
+            int guard = Size * Size * 4; // страховка от бесконечного цикла
+            while ((gx != gx1 || gz != gz1) && guard-- > 0)
             {
-                foreach (var offset in offsets)
+                if (tMaxX < tMaxZ)
                 {
-                    Vector3 point = from + direction * t + offset;
-                    int x = Math.Clamp((int)MathF.Round(point.X), 0, Size - 1);
-                    int z = Math.Clamp((int)MathF.Round(point.Z), 0, Size - 1);
-                    if (IsBlocked(x, z))
-                        return false;
+                    gx += (int)stepX;
+                    tMaxX += tDeltaX;
                 }
+                else
+                {
+                    gz += (int)stepZ;
+                    tMaxZ += tDeltaZ;
+                }
+                if (!IsInside(gx, gz)) return false; // вышли за пределы — трактуем как блок
+                if (IsBlocked(gx, gz)) return false;
             }
             return true;
         }
@@ -403,5 +498,12 @@ namespace HideAndSeek.Core.RaylibThreeD
             byte a = color.A;
             return new Color(r, g, b, a);
         }
+
+        private bool IsInside(float x, float z)
+        {
+            return x >= 0 && z >= 0 && x < Size && z < Size;
+        }
+
+        private bool IsInside(int x, int z, int size) => x >= 0 && z >= 0 && x < size && z < size;
     }
 }

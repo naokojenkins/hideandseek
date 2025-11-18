@@ -72,9 +72,11 @@ namespace HideAndSeek.Core.RaylibThreeD
             VisionAngle = cfg.VisionAngle;
             Speed = cfg.Speed;
             AgentRadius = cfg.AgentRadius;
-            Color = isSeeker
-                ? new Color(0, 121, 241, 255)    // Можно вынести в GameConfig, если понадобится настройка
-                : new Color(0, 228, 48, 255);
+            // Цвет из конфига, с дефолтами как раньше
+            if (cfg.AgentColor != null)
+                Color = cfg.AgentColor.ToRaylibColor();
+            else
+                Color = isSeeker ? new Color(0, 121, 241, 255) : new Color(0, 228, 48, 255);
 
             _prevLogicYawDeg = NormalizeAngle(initialRotation);
 
@@ -126,7 +128,8 @@ namespace HideAndSeek.Core.RaylibThreeD
         public int UpdateVisualExploration(World3D world)
         {
             int newCellsExplored = 0;
-            int segments = 60;
+            var cfg = IsSeeker ? GameConfig.Instance.Seeker : GameConfig.Instance.Hider;
+            int segments = Math.Max(1, cfg.VisionSegments);
             float startAngle = Direction - VisionAngle / 2f;
             float endAngle = Direction + VisionAngle / 2f;
 
@@ -135,37 +138,32 @@ namespace HideAndSeek.Core.RaylibThreeD
                 float angle = startAngle + (endAngle - startAngle) * i / segments;
                 float radians = angle * MathF.PI / 180f;
                 Vector3 dir = new Vector3(MathF.Cos(radians), 0, MathF.Sin(radians));
-                float step = 0.2f;
+                Vector3 to = Position + dir * VisionRadius;
 
-                for (float t = step; t <= VisionRadius; t += step)
+                // DDA по сетке XZ
+                DdaTraverse(Position, to, world, (gx, gz, blocked) =>
                 {
-                    Vector3 point = Position + dir * t;
-                    int gridX = ToGridX(point.X, world.Size);
-                    int gridZ = ToGridZ(point.Z, world.Size);
-
-                    if (point.X < 0 || point.X >= world.Size || point.Z < 0 || point.Z >= world.Size)
-                        break;
-
-                    if (world.IsBlocked(gridX, gridZ))
+                    if (blocked)
                     {
-                        KnownWalls.Add((gridX, gridZ));
-                        break;
+                        KnownWalls.Add((gx, gz));
+                        return false; // прекратить этот луч
                     }
-
-                    if (!VisuallyExploredCells.Contains((gridX, gridZ)) && !ExploredCells.Contains((gridX, gridZ)))
+                    if (!VisuallyExploredCells.Contains((gx, gz)) && !ExploredCells.Contains((gx, gz)))
                     {
-                        VisuallyExploredCells.Add((gridX, gridZ));
+                        VisuallyExploredCells.Add((gx, gz));
                         newCellsExplored++;
                     }
-                }
+                    return true; // продолжаем
+                });
             }
             return newCellsExplored;
         }
 
         public bool MoveWithCollisionAvoidance(World3D world, float deltaTime, Agent3D other = null)
         {
-            // Дальность заглядывания вперёд: чуть больше шага
-            float lookahead = MathF.Max(Speed * deltaTime * 2f, 0.6f);
+            // Дальность заглядывания вперёд параметризуется конфигом
+            var cfg = IsSeeker ? GameConfig.Instance.Seeker : GameConfig.Instance.Hider;
+            float lookahead = MathF.Max(Speed * deltaTime * MathF.Max(0.1f, cfg.MoveLookaheadFactor), MathF.Max(0f, cfg.MoveLookaheadMin));
 
             // Выбираем лучший целевой угол с учётом карты стен и реальной проходимости
             float? bestAngle = GetBestDirection(world, lookahead);
@@ -291,6 +289,51 @@ namespace HideAndSeek.Core.RaylibThreeD
             }
 
             return true;
+        }
+
+        // === DDA-трассировка по сетке XZ: вызывает callback для каждой клетки вдоль луча ===
+        private void DdaTraverse(in Vector3 from, in Vector3 to, World3D world, Func<int,int,bool,bool> cellVisitor)
+        {
+            float x0 = from.X, z0 = from.Z;
+            float x1 = to.X,   z1 = to.Z;
+
+            int gx = Math.Clamp((int)MathF.Floor(x0), 0, world.Size - 1);
+            int gz = Math.Clamp((int)MathF.Floor(z0), 0, world.Size - 1);
+            int gx1 = Math.Clamp((int)MathF.Floor(x1), 0, world.Size - 1);
+            int gz1 = Math.Clamp((int)MathF.Floor(z1), 0, world.Size - 1);
+
+            float dx = x1 - x0;
+            float dz = z1 - z0;
+            int stepX = dx >= 0 ? 1 : -1;
+            int stepZ = dz >= 0 ? 1 : -1;
+
+            float tDeltaX = dx == 0 ? float.PositiveInfinity : MathF.Abs(1f / dx);
+            float tDeltaZ = dz == 0 ? float.PositiveInfinity : MathF.Abs(1f / dz);
+
+            float nextGridX = stepX > 0 ? (gx + 1) : gx;
+            float nextGridZ = stepZ > 0 ? (gz + 1) : gz;
+            float tMaxX = dx == 0 ? float.PositiveInfinity : (nextGridX - x0) / dx;
+            float tMaxZ = dz == 0 ? float.PositiveInfinity : (nextGridZ - z0) / dz;
+
+            int guard = world.Size * world.Size * 4;
+            while (guard-- > 0)
+            {
+                bool blocked = world.IsBlocked(gx, gz);
+                if (!cellVisitor(gx, gz, blocked)) break;
+                if (gx == gx1 && gz == gz1) break;
+
+                if (tMaxX < tMaxZ)
+                {
+                    gx += stepX;
+                    tMaxX += tDeltaX;
+                }
+                else
+                {
+                    gz += stepZ;
+                    tMaxZ += tDeltaZ;
+                }
+                if (!world.IsInside(gx, gz)) break;
+            }
         }
 
         // Вариант с учётом нескольких соседей: выбираем ближайшего для реакций уклонения/погони
