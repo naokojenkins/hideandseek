@@ -45,7 +45,7 @@ namespace ToolUse.Sim.Application
         private DateTime _lastAutosaveUtc = DateTime.UtcNow;
         private readonly object _saveLock = new object();
         private bool _isShuttingDown = false;
-        private float _timeScaleAccum = 0f;
+        // private float _timeScaleAccum = 0f; // removed: was unused and triggered CS0414
 
         public SimulationApp(bool useVisualization, IWindowRenderer? renderer = null, int screenW = 1024, int screenH = 768, int fps = 60, System.IServiceProvider? services = null)
         {
@@ -119,17 +119,22 @@ namespace ToolUse.Sim.Application
                 _seekerDqn = new DQNAgent(stateSize, actionSize, effective);
                 _hiderDqn  = new DQNAgent(stateSize, actionSize, effective);
             }
-            _hiderDqn.SetForceExploitWhenSeen(_config.Hider.ForceExploitWhenSeen);
-            _seekerDqn.SetForceExploitWhenSeen(_config.Seeker.ForceExploitWhenSeen);
+            if (_config.Hider != null)
+                _hiderDqn.SetForceExploitWhenSeen(_config.Hider.ForceExploitWhenSeen);
+            if (_config.Seeker != null)
+                _seekerDqn.SetForceExploitWhenSeen(_config.Seeker.ForceExploitWhenSeen);
 
             // Emit an immediate initial training snapshot so dashboard has data instantly
             try
             {
                 var mr = HideAndSeek.Core.IO.MetricsRecorder.Instance;
                 // Use current epsilons from agents and buffer counts (0 at start), emaLoss=0
-                float eps = _seekerDqn != null ? _seekerDqn.Epsilon : 0f;
-                // Fallback to config if not initialized
-                if (eps <= 0f) eps = _config.DQN.EpsilonStart;
+                float eps = _seekerDqn?.Epsilon ?? 0f;
+                // Fallback to config if not initialized; use Model-section value if available
+                if (eps <= 0f)
+                {
+                    try { eps = _config.Model?.EpsilonStart ?? eps; } catch { }
+                }
                 float beta = _config.ReplayBuffer.BetaStart;
                 int buf = 0;
                 mr.RecordTraining(0, eps, beta, buf, 0f, 0f, 0f);
@@ -140,16 +145,17 @@ namespace ToolUse.Sim.Application
             bool tryResume = _config?.Training?.ResumeFromLatest ?? true;
             if (tryResume)
             {
-                if (!HideAndSeek.Core.IO.CheckpointManager.LoadLatest(_seekerDqn, _hiderDqn))
+                if (_seekerDqn != null && _hiderDqn != null &&
+                    !HideAndSeek.Core.IO.CheckpointManager.LoadLatest(_seekerDqn, _hiderDqn))
                 {
-                    _seekerDqn.LoadAll(SeekerModelPath, SeekerStatePath);
-                    _hiderDqn.LoadAll(HiderModelPath, HiderStatePath);
+                    _seekerDqn?.LoadAll(SeekerModelPath, SeekerStatePath);
+                    _hiderDqn?.LoadAll(HiderModelPath, HiderStatePath);
                 }
             }
             else
             {
-                _seekerDqn.LoadAll(SeekerModelPath, SeekerStatePath);
-                _hiderDqn.LoadAll(HiderModelPath, HiderStatePath);
+                _seekerDqn?.LoadAll(SeekerModelPath, SeekerStatePath);
+                _hiderDqn?.LoadAll(HiderModelPath, HiderStatePath);
             }
 
             if (_evalMode)

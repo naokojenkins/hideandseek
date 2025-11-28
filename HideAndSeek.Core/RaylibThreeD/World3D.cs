@@ -171,6 +171,14 @@ namespace HideAndSeek.Core.RaylibThreeD
 
                 stack.Push((sx, sz));
                 Grid[sx, sz] = TileType.Empty;
+                // Начальную клетку сразу расширим до ширины 2 консистентной стороной,
+                // чтобы весь путь имел толщину 2. Раньше мы брали сторону по чётности индексов,
+                // что порождало «шахматные» узоры. Теперь фиксируем глобальный выбор стороны
+                // для горизонтальных и вертикальных шагов один раз на генерацию.
+                int sideZ = _rng.Next(2) == 0 ? -1 : 1; // для горизонтальных ходов расширяем вверх/вниз фиксировано
+                int sideX = _rng.Next(2) == 0 ? -1 : 1; // для вертикальных ходов расширяем влево/вправо фиксировано
+                // Ранее расширяли стартовую ячейку до ширины 2 сразу. Убираем это,
+                // чтобы сохранить больше стен на старте; ширину обеспечим пост‑этапом.
 
                 // карта посещения только для нечётных клеток
                 int cellsX = (Size - 1) / 2;
@@ -214,89 +222,321 @@ namespace HideAndSeek.Core.RaylibThreeD
                     // и саму клетку делаем пустой
                     Grid[choice.nx, choice.nz] = TileType.Empty;
 
+                    // Расширяем проход до толщины 2 клеток консистентной стороной
+                    // в зависимости от ориентации шага (горизонт/вертикаль).
+                    int dx2 = choice.nx - x;
+                    int dz2 = choice.nz - z;
+                    if (Math.Abs(dx2) == 2 && dz2 == 0)
+                    {
+                        // Ранее здесь расширяли проход до ширины 2 сразу (вдоль соседней полосы).
+                        // Отключаем это, чтобы на стадии DFS не разрежать стены — расширим позже
+                        // безопасным пост‑этапом WidenLinearCorridorsToWidth.
+                    }
+                    else if (Math.Abs(dz2) == 2 && dx2 == 0)
+                    {
+                        // Аналогично для вертикального шага— расширение отключено на стадии DFS.
+                    }
+
                     visited.Add((choice.nx, choice.nz));
                     stack.Push((choice.nx, choice.nz));
                 }
 
-                // 3) «Разряженность» лабиринта: добавим больше дополнительных проходов,
-                // чтобы увеличить число развилок и сократить количество длинных тупиков.
-                int extraPassages = Math.Max(2, Size / 2);
-                for (int i = 0; i < extraPassages; i++)
+                // 3) «Разряженность» лабиринта: добавим дополнительные проёмы между коридорами.
+                // ВАЖНО: величина ExtraPassagesScale теперь управляет долей УСПЕШНО открытых проёмов
+                // от текущего числа валидных кандидатов, а не просто числом попыток.
+                // Это делает параметр предсказуемым и заметным при изменении 0.25 -> 0.50 и т.д.
+                int totalInner = Math.Max(0, (Size - 2) * (Size - 2));
+                int innerWalls = 0;
+                for (int ix = 1; ix < Size - 1; ix++)
+                    for (int iz = 1; iz < Size - 1; iz++)
+                        if (Grid[ix, iz] == TileType.Wall) innerWalls++;
+
+                float targetMin = Math.Clamp(GameConfig.Instance.World.WallDensityTargetMin, 0f, 0.95f);
+
+                // ВАЖНО: не засоряем фильтр расстояния всеми пустотами коридоров.
+                // Для контроля плотности «проёмов» учитываем только проёмы, СОЗДАННЫЕ текущими этапами,
+                // а не естественные пустоты. Поэтому исходный набор оставляем пустым, а новые складываем сюда:
+                var openingsNew = new HashSet<(int x, int z, bool lr)>();
+
+                bool HasNearbyOpeningForCandidate(int wx, int wz, bool lrAxis, int spacing)
                 {
-                    // выбираем случайную внутреннюю стену, которая имеет пустоту по обе стороны по одной из осей
-                    int wx = _rng.Next(2, Size - 2);
-                    int wz = _rng.Next(2, Size - 2);
-                    if (Grid[wx, wz] != TileType.Wall) { i--; continue; }
-
-                    bool canOpen = false;
-                    if (wx % 2 == 1 && wz % 2 == 0)
+                    if (spacing <= 0) return false;
+                    // Проверяем близость только к проёмам той же ориентации (lrAxis)
+                    // и делаем осевой (1D по ортогонали) просмотр в пределах spacing.
+                    if (lrAxis)
                     {
-                        // вертикальная стенка между двумя клетками по Z
-                        if (Grid[wx, wz - 1] == TileType.Empty && Grid[wx, wz + 1] == TileType.Empty) canOpen = true;
+                        // Кандидат LR (между левым/правым). Смотрим вертикальные отклонения вокруг той же колонки wx.
+                        for (int dz = -spacing; dz <= spacing; dz++)
+                        {
+                            int z = wz + dz;
+                            if (z <= 1 || z >= Size - 1) continue;
+                            if (openingsNew.Contains((wx, z, true))) return true;
+                        }
                     }
-                    else if (wx % 2 == 0 && wz % 2 == 1)
+                    else
                     {
-                        // горизонтальная стенка между двумя клетками по X
-                        if (Grid[wx - 1, wz] == TileType.Empty && Grid[wx + 1, wz] == TileType.Empty) canOpen = true;
+                        // Кандидат UD (между верхом/низом). Сканируем горизонтально вокруг той же строки wz.
+                        for (int dx = -spacing; dx <= spacing; dx++)
+                        {
+                            int x = wx + dx;
+                            if (x <= 1 || x >= Size - 1) continue;
+                            if (openingsNew.Contains((x, wz, false))) return true;
+                        }
+                    }
+                    return false;
+                }
+
+                // Локальная функция: собрать кандидатов на открытие (стенка между двумя пустотами)
+                // Возвращает:
+                //  - list: отфильтрованный список кандидатов
+                //  - preFilterCount: сколько клеток-стен удовлетворяют условию «между пустотами» до учёта спейсинга
+                //  - afterSpacingCount: сколько осталось после фильтра по минимальной дистанции (spacing)
+                (List<(int x, int z, bool lr)> list, int preFilterCount, int afterSpacingCount, int effectiveSpacingOut) CollectOpeningCandidates()
+                {
+                    var list = new List<(int x, int z, bool lr)>();
+                    int pre = 0;
+                    int after = 0;
+
+                    // Адаптивное ослабление спейсинга при больших значениях ExtraPassagesScale:
+                    // если scale > 1, понижаем эффективный спейсинг на floor(scale-1), но не ниже 0.
+                    int effectiveSpacing = wcfg.JunctionMinSpacing;
+                    if (wcfg.EnableSpacingAwareCarving && wcfg.JunctionMinSpacing > 0)
+                    {
+                        float scale = MathF.Max(0f, wcfg.ExtraPassagesScale);
+                        int relax = (int)MathF.Floor(MathF.Max(0f, scale - 1f));
+                        effectiveSpacing = Math.Max(0, wcfg.JunctionMinSpacing - relax);
+                    }
+                    // Перебираем все внутренние клетки-стены (исключая только периметр 0 и Size-1),
+                    // чтобы кандидаты могли появляться и «посередине» длинных стен, и у внутреннего кольца.
+                    for (int wx = 1; wx < Size - 1; wx++)
+                    {
+                        for (int wz = 1; wz < Size - 1; wz++)
+                        {
+                            if (Grid[wx, wz] != TileType.Wall) continue;
+                            // Не ослабляем внутреннее «кольцо» у периметра: пропускаем кандидатов вплотную к рамке
+                            if (wx <= 2 || wz <= 2 || wx >= Size - 3 || wz >= Size - 3) continue;
+                            bool lr = Grid[wx - 1, wz] == TileType.Empty && Grid[wx + 1, wz] == TileType.Empty;
+                            bool ud = Grid[wx, wz - 1] == TileType.Empty && Grid[wx, wz + 1] == TileType.Empty;
+                            if (!(lr || ud)) continue;
+                            pre++;
+
+                            if (wcfg.EnableSpacingAwareCarving && effectiveSpacing > 0)
+                            {
+                                if (HasNearbyOpeningForCandidate(wx, wz, lr, effectiveSpacing)) continue;
+                            }
+
+                            list.Add((wx, wz, lr));
+                            after++;
+                        }
+                    }
+                    return (list, pre, after, effectiveSpacing);
+                }
+
+                var initialCandidates = CollectOpeningCandidates();
+                var allCandidates = initialCandidates.list;
+                int targetOpens = 0;
+                if (allCandidates.Count > 0)
+                {
+                    // Цель — открыть примерно scale * кол-во доступных кандидатов
+                    targetOpens = (int)MathF.Round(allCandidates.Count * MathF.Max(0f, wcfg.ExtraPassagesScale));
+                }
+
+                int opened = 0;
+                while (opened < targetOpens)
+                {
+                    var collected = CollectOpeningCandidates();
+                    var candidates = collected.list;
+                    if (candidates.Count == 0)
+                    {
+                        if (wcfg.DebugWorldGenLogs)
+                            Console.WriteLine("[WORLDGEN] extraPassages: нет кандидатов для дополнительных проёмов");
+                        break;
+                    }
+                    if (wcfg.DebugWorldGenLogs)
+                    {
+                        Console.WriteLine($"[WORLDGEN] extraPassages: preFilter={collected.preFilterCount}, afterSpacing={collected.afterSpacingCount}, candidates={candidates.Count}, targetOpens={targetOpens - opened}, effectiveSpacing={collected.effectiveSpacingOut}");
                     }
 
-                    if (canOpen)
+                    // Перемешаем и приоритизируем разрыв тупиков
+                    Shuffle(candidates);
+                    float bias = Math.Clamp(wcfg.JunctionBiasDeadEnds, 0f, 1f);
+                    candidates.Sort((a, b) =>
                     {
+                        int scoreA = DeadEndReliefScore(a.x, a.z);
+                        int scoreB = DeadEndReliefScore(b.x, b.z);
+                        float sa = scoreA * (1f + bias);
+                        float sb = scoreB * (1f + bias);
+                        return sb.CompareTo(sa);
+                    });
+
+                    // Анти-симметричный джиттер — перемешаем хвост
+                    if (_rng.NextDouble() < Math.Clamp(wcfg.AntiSymmetryJitter, 0f, 1f))
+                    {
+                        int cut = _rng.Next(0, candidates.Count);
+                        var tail = candidates.GetRange(cut, candidates.Count - cut);
+                        Shuffle(tail);
+                        for (int t = 0; t < tail.Count; t++) candidates[cut + t] = tail[t];
+                    }
+
+                    bool openedThisStep = false;
+                    foreach (var (wx, wz, lr) in candidates)
+                    {
+                        // Проверка целевой плотности — оцениваем В ПЕРЕД, без изменения счётчиков, если не открываем
+                        if (wcfg.AdaptiveDensityControl && totalInner > 0)
+                        {
+                            // Если требуется проём толщиной 2, возможно придётся вырезать 2 стены.
+                            int wallsToRemove = 1;
+                            if (Math.Clamp(wcfg.ExtraPassageWidth, 1, 2) >= 2)
+                            {
+                                // Оценим, есть ли рядом перпендикулярная стенка для расширения «шахты».
+                                if (lr)
+                                {
+                                    if (wz - 1 >= 1 && Grid[wx, wz - 1] == TileType.Wall) wallsToRemove = Math.Max(wallsToRemove, 2);
+                                    else if (wz + 1 <= Size - 2 && Grid[wx, wz + 1] == TileType.Wall) wallsToRemove = Math.Max(wallsToRemove, 2);
+                                }
+                                else // ud
+                                {
+                                    if (wx - 1 >= 1 && Grid[wx - 1, wz] == TileType.Wall) wallsToRemove = Math.Max(wallsToRemove, 2);
+                                    else if (wx + 1 <= Size - 2 && Grid[wx + 1, wz] == TileType.Wall) wallsToRemove = Math.Max(wallsToRemove, 2);
+                                }
+                            }
+
+                            float projectedDensity = (float)(innerWalls - wallsToRemove) / totalInner;
+                            bool useHard = wcfg.ExtraPassagesUseHardMin;
+                            float gate = useHard ? Math.Clamp(wcfg.WallDensityMin, 0f, 0.95f) : targetMin;
+                            if (projectedDensity < gate)
+                            {
+                                if (wcfg.DebugWorldGenLogs)
+                                    Console.WriteLine($"[WORLDGEN] extraPassages: стоп по плотности (proj={projectedDensity:P1} < gate={(useHard?"hardMin":"targetMin")}={gate:P1}), opened={opened}/{targetOpens}, candidates={candidates.Count}");
+                                openedThisStep = false; // ничего не открыли
+                                break; // выходим из foreach
+                            }
+                        }
+
+                        // Открываем выбранную стенку
                         Grid[wx, wz] = TileType.Empty;
+                        int removed = 1;
+                        // Добавим в набор новых проёмов (учитываем ориентацию кандидата)
+                        openingsNew.Add((wx, wz, lr));
+
+                        // Если задана ExtraPassageWidth>=2 — расширим проём на 1 по перпендикуляру,
+                        // чтобы сделать отверстие визуально заметным и устойчивым к последующим шагам.
+                        int desiredWidth = Math.Clamp(wcfg.ExtraPassageWidth, 1, 2);
+                        if (desiredWidth >= 2)
+                        {
+                            if (lr)
+                            {
+                                // проём между левым/правым — попробуем расширить вверх или вниз
+                                // детерминированно: выбираем сторону по чётности X+Z, затем fallback на другую при занятости
+                                bool carved = false;
+                                int[] dzs = ((wx + wz) & 1) == 0 ? new[] { -1, 1 } : new[] { 1, -1 };
+                                foreach (var dz in dzs)
+                                {
+                                    int z2 = wz + dz;
+                                    if (z2 >= 1 && z2 <= Size - 2 && Grid[wx, z2] == TileType.Wall)
+                                    {
+                                        Grid[wx, z2] = TileType.Empty;
+                                        removed++;
+                                        carved = true;
+                                        openingsNew.Add((wx, z2, lr));
+                                        break;
+                                    }
+                                }
+                                // если обе стороны уже пустые — ничего не делаем, «ширина 2» уже достигнута структурой
+                            }
+                            else // ud
+                            {
+                                // проём между верхом/низом — расширим влево или вправо
+                                bool carved = false;
+                                int[] dxs = ((wx + wz) & 1) == 0 ? new[] { -1, 1 } : new[] { 1, -1 };
+                                foreach (var dx in dxs)
+                                {
+                                    int x2 = wx + dx;
+                                    if (x2 >= 1 && x2 <= Size - 2 && Grid[x2, wz] == TileType.Wall)
+                                    {
+                                        Grid[x2, wz] = TileType.Empty;
+                                        removed++;
+                                        carved = true;
+                                        openingsNew.Add((x2, wz, lr));
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        innerWalls = Math.Max(0, innerWalls - removed);
+                        opened++;
+                        openedThisStep = true;
+                        break;
                     }
+
+                    // Если плотность не позволила ничего открыть — прекращаем весь этап
+                    if (!openedThisStep) break;
+                }
+
+                if (wcfg.DebugWorldGenLogs)
+                {
+                    Console.WriteLine($"[WORLDGEN] extraPassages: preFilter={initialCandidates.preFilterCount}, afterSpacing={initialCandidates.afterSpacingCount}, candidates={allCandidates.Count}, targetOpens={targetOpens}, opened={opened}");
                 }
 
                 // 4) Увеличим ширину коридоров случайным локальным расширением,
                 // избегая глобальной симметрии (никакой привязки к чётности индексов).
-                var widened = (TileType[,])Grid.Clone();
-                for (int x = 1; x < Size - 1; x++)
-                {
-                    for (int z = 1; z < Size - 1; z++)
-                    {
-                        if (Grid[x, z] != TileType.Empty) continue;
+                // РАНЕЕ: случайное локальное «расширение коридоров» приводило к фрагментации стен
+                // и появлению одиночных кубиков-стен. Чтобы стены преимущественно имели длину > 1,
+                // отключаем этот шаг. Достаточно последующего правила минимальной ширины проходов.
+                // (Блок оставлен как комментарий для возможной будущей доработки.)
+                // var widened = (TileType[,])Grid.Clone();
+                // ... (disabled)
+                // Array.Copy(widened, Grid, Grid.Length);
+            }
 
-                        // сохраняем текущую пустую клетку
-                        widened[x, z] = TileType.Empty;
+            // Снимок перед постобработкой (для возможного отката)
+            var snapshotBeforePost = (TileType[,])Grid.Clone();
 
-                        // С небольшой вероятностью расширяем в 1–2 случайных направления.
-                        // Это увеличивает расстояние между стенами, но не создаёт «шахматной» регулярности.
-                        if (_rng.NextDouble() < 0.35)
-                        {
-                            // случайная перестановка направлений
-                            var dirs = new (int dx, int dz)[] { (1,0), (-1,0), (0,1), (0,-1) };
-                            for (int k = 0; k < dirs.Length; k++)
-                            {
-                                int j = _rng.Next(k, dirs.Length);
-                                (dirs[k], dirs[j]) = (dirs[j], dirs[k]);
-                            }
+            // Глобальное правило: минимальная ширина прохода — minWidth (консервативный carve-only для устранения «мостиков»)
+            int minWidth = Math.Max(2, wcfg.MinPassageWidth);
+            EnforceMinPassageWidth(minWidth);
 
-                            int expansions = _rng.NextDouble() < 0.5 ? 1 : 2; // иногда расширяем два соседних тайла
-                            int done = 0;
-                            foreach (var (dx, dz) in dirs)
-                            {
-                                int nx = x + dx;
-                                int nz = z + dz;
-                                if (nx <= 0 || nz <= 0 || nx >= Size - 1 || nz >= Size - 1) continue;
-                                if (Grid[nx, nz] == TileType.Wall)
-                                {
-                                    widened[nx, nz] = TileType.Empty;
-                                    done++;
-                                    if (done >= expansions) break;
-                                }
-                            }
-                        }
-                    }
-                }
+            // Дополнительное выравнивание линейных коридоров: убираем остаточные «1‑клеточные» коридоры
+            // аккуратным чередующимся карвингом вдоль коридора, чтобы получить ширину >= minWidth
+            WidenLinearCorridorsToWidth(minWidth);
 
-                // Граница остаётся стеной согласно правилам
-                for (int i = 0; i < Size; i++)
-                {
-                    widened[i, 0] = TileType.Wall;
-                    widened[i, Size - 1] = TileType.Wall;
-                    widened[0, i] = TileType.Wall;
-                    widened[Size - 1, i] = TileType.Wall;
-                }
-                Array.Copy(widened, Grid, Grid.Length);
+            // Удалим только истинно одиночные стены (без 4‑соседей‑стен)
+            // Но если стен уже мало, пропускаем удаление одиночек, чтобы не разрежать карту ещё сильнее.
+            {
+                float densityBeforeSingles = ComputeInternalWallDensity();
+                // Доп. гистерезис: удаляем одиночки только если плотность заметно выше «жёсткого» минимума
+                // (например, на 4 п.п. и более). Это предотвращает ситуацию «и так пусто, а мы ещё и выкинули крохи стен».
+                float hardMinSingles = Math.Clamp(GameConfig.Instance.World.WallDensityMin, 0f, 0.95f);
+                if (densityBeforeSingles > hardMinSingles + 0.04f)
+                    RemoveIsolatedSingletonWalls();
+                else if (GameConfig.Instance.World.DebugWorldGenLogs)
+                    Console.WriteLine($"[WORLDGEN] Пропускаю RemoveIsolatedSingletonWalls(): density={densityBeforeSingles:P1} близко к порогу {hardMinSingles:P1}");
+            }
+
+            // Дополнительные перемычки между параллельными коридорами для повышения «связанности»
+            AddExtraJunctions();
+
+            // Защита по минимальной плотности стен во внутренней области.
+            // ВАЖНО: допускаем небольшое снижение ниже жёсткого минимума только для шагов,
+            // гарантирующих ширину проходов (EnforceMinPassageWidth/Widen*), которое мы уже
+            // учли через их собственный eps-бюджет. Поэтому финальная проверка допускает
+            // порог (hardMin - eps).
+            float density = ComputeInternalWallDensity();
+            float hardMin = Math.Clamp(wcfg.WallDensityMin, 0f, 0.95f);
+            float eps = Math.Clamp(wcfg.WidthGuaranteeHardMinEps, 0f, 0.2f);
+            float finalGate = MathF.Max(0f, hardMin - eps);
+            if (density < finalGate)
+            {
+                // Откатываем постобработку, чтобы не «обнулять» стены
+                Array.Copy(snapshotBeforePost, Grid, Grid.Length);
+                if (wcfg.DebugWorldGenLogs)
+                    Console.WriteLine($"[WORLDGEN] Откат постобработки: плотность стен {density:P1} ниже допускаемого порога {finalGate:P1} (hardMin={hardMin:P1}, eps={eps:P1})");
+
+                // Даже после отката гарантируем минимальную ширину коридоров безопасным выравниванием,
+                // которое почти не влияет на общую плотность стен
+                EnforceMinPassageWidth(minWidth);
+                WidenLinearCorridorsToWidth(minWidth);
             }
 
             // Для отладки: считаем число свободных клеток
@@ -305,7 +545,501 @@ namespace HideAndSeek.Core.RaylibThreeD
                 for (int z = 0; z < Size; z++)
                     if (Grid[x, z] == TileType.Empty)
                         emptyCount++;
-            Console.WriteLine($"[DEBUG] Мир {Size}x{Size} сгенерирован: {emptyCount} свободных клеток (генератор={wcfg.GenerationType}, seed={(wcfg.Seed?.ToString() ?? "auto")})");
+            if (wcfg.DebugWorldGenLogs)
+            {
+                Console.WriteLine($"[WORLDGEN] Мир {Size}x{Size}: пустых={emptyCount}, стен={Size*Size - emptyCount}, внутренняя плотность стен={ComputeInternalWallDensity():P1} (генератор={wcfg.GenerationType}, seed={(wcfg.Seed?.ToString() ?? "auto")})");
+            }
+        }
+
+        // Обеспечивает минимальную ширину прохода между стенами в minWidth клеток.
+        // Консервативная реализация для minWidth==2: «высекаем» только узкие перемычки (pinch points)
+        // вида Wall, имеющая по обе стороны по одной оси Empty (слева/справа или сверху/снизу),
+        // не трогая прочие стены. Это сохраняет структуру лабиринта и избегает тотального размывания.
+        private void EnforceMinPassageWidth(int minWidth)
+        {
+            if (minWidth <= 1 || Size <= 2) return;
+
+            // На текущей стадии поддерживаем правило только для ширины 2.
+            // Дополнительные ширины можно реализовать повторением «carve pass» по снапшоту исходной решётки.
+            var carved = (TileType[,])Grid.Clone();
+
+            // Адаптивный контроль: ограничим количество вырезаний, чтобы не просесть ниже целевой плотности
+            var wcfg = GameConfig.Instance.World;
+            int totalInner = Math.Max(0, (Size - 2) * (Size - 2));
+            int innerWalls = ComputeInternalWallCount();
+            // Для гарантирующих правил (минимальная ширина) используем ЖЁСТКИЙ нижний порог,
+            // иначе адаптивный target мог блокировать расширение коридоров до 2 клеток.
+            float hardMin = Math.Clamp(wcfg.WallDensityMin, 0f, 0.95f);
+            float eps = Math.Clamp(wcfg.WidthGuaranteeHardMinEps, 0f, 0.2f);
+            // Бюджет «эпсилон‑вырезаний»: сколько стен мы можем ещё снять, не опускаясь ниже (hardMin - eps)
+            int epsilonBudget = 0;
+            int minWallsAllowed = 0;
+            if (totalInner > 0)
+            {
+                minWallsAllowed = (int)MathF.Ceiling((hardMin - eps) * totalInner);
+                epsilonBudget = Math.Max(0, innerWalls - minWallsAllowed);
+            }
+            int epsUsed = 0;
+
+            // Важная защита: если и так мало стен, не делаем carve-only вырезания перемычек —
+            // это ещё сильнее разрежает карту. Дадим шанс этапу Widen* расширить узкие места
+            // за счёт пустот, а не за счёт удаления стен.
+            float densityBefore = totalInner > 0 ? (float)innerWalls / totalInner : 1f;
+            if (densityBefore <= hardMin + 0.06f)
+            {
+                if (wcfg.DebugWorldGenLogs)
+                    Console.WriteLine($"[WORLDGEN] EnforceMinPassageWidth: пропущен (density={densityBefore:P1} близко к порогу {hardMin:P1})");
+                return;
+            }
+
+            for (int x = 1; x < Size - 1; x++)
+            {
+                for (int z = 1; z < Size - 1; z++)
+                {
+                    if (Grid[x, z] != TileType.Wall) continue;
+
+                    bool leftEmpty  = Grid[x - 1, z] == TileType.Empty;
+                    bool rightEmpty = Grid[x + 1, z] == TileType.Empty;
+                    bool upEmpty    = Grid[x, z - 1] == TileType.Empty;
+                    bool downEmpty  = Grid[x, z + 1] == TileType.Empty;
+
+                    bool openX = leftEmpty && rightEmpty;   // зажат по X
+                    bool openZ = upEmpty && downEmpty;      // зажат по Z
+
+                    // Узкая перемычка только по одной оси (исключаем перекрёстки)
+                    if (openX ^ openZ)
+                    {
+                        // Ужесточённый предохранитель: по перпендикулярной оси оба соседа должны быть стенами,
+                        // чтобы вырезать только истинные «мостики» один-к-одному и не размывать площади.
+                        bool guard = openX
+                            ? (!upEmpty && !downEmpty)   // оба up/down — стены
+                            : (!leftEmpty && !rightEmpty); // оба left/right — стены
+
+                        // Дополнительный локальный предохранитель: вокруг по 3x3 должно быть достаточно стен
+                        bool localOk = !wcfg.AdaptiveDensityControl || CountWalls3x3(x, z) >= 4;
+
+                        if (guard && localOk)
+                        {
+                            if (wcfg.AdaptiveDensityControl && totalInner > 0)
+                            {
+                                int projected = innerWalls - 1;
+                                if (projected < minWallsAllowed)
+                                {
+                                    // Нельзя опускаться ниже (hardMin - eps)
+                                    x = Size - 2; // завершить внешние циклы
+                                    break;
+                                }
+                                float projectedDensity = (float)projected / totalInner;
+                                if (projectedDensity < hardMin)
+                                {
+                                    // Разрешаем «эпсилон» только при наличии бюджета
+                                    if (epsilonBudget <= 0)
+                                    {
+                                        // Бюджет исчерпан — прекращаем проход аккуратно
+                                        x = Size - 2; // завершить внешние циклы
+                                        break;
+                                    }
+                                    epsilonBudget--;
+                                    epsUsed++;
+                                    innerWalls = projected;
+                                }
+                                else
+                                {
+                                    innerWalls = projected;
+                                }
+                            }
+                            carved[x, z] = TileType.Empty;
+                        }
+                    }
+                }
+            }
+
+            // Гарантируем, что рамка остаётся стеной
+            for (int i = 0; i < Size; i++)
+            {
+                carved[i, 0] = TileType.Wall;
+                carved[i, Size - 1] = TileType.Wall;
+                carved[0, i] = TileType.Wall;
+                carved[Size - 1, i] = TileType.Wall;
+            }
+
+            Array.Copy(carved, Grid, Grid.Length);
+
+            if (wcfg.DebugWorldGenLogs && epsUsed > 0)
+            {
+                Console.WriteLine($"[WORLDGEN] EnforceMinPassageWidth: использован epsilon-бюджет {epsUsed} из первоначального {Math.Max(epsUsed, epsilonBudget + epsUsed)}");
+            }
+        }
+
+        // Выравнивает линейные коридоры шириной 1 до требуемой ширины (минимум 2),
+        // используя чередующийся карвинг соседних ячеек-стен вдоль направления коридора.
+        // Сохраняет периметр. Реализация ориентирована на minWidth==2, но повторяет проход для >2.
+        private void WidenLinearCorridorsToWidth(int minWidth)
+        {
+            int passes = Math.Max(0, minWidth - 1);
+            if (passes == 0 || Size <= 2) return;
+
+            for (int p = 0; p < passes; p++)
+            {
+                var widened = (TileType[,])Grid.Clone();
+                var wcfg = GameConfig.Instance.World;
+                int totalInner = Math.Max(0, (Size - 2) * (Size - 2));
+                int innerWalls = ComputeInternalWallCount();
+                // Для гарантии минимальной ширины используем жёсткий нижний порог + допустимый эпсилон
+                float hardMin = Math.Clamp(wcfg.WallDensityMin, 0f, 0.95f);
+                float eps = Math.Clamp(wcfg.WidthGuaranteeHardMinEps, 0f, 0.2f);
+                // Рассчитываем бюджет «эпсилон‑вырезаний» на этот проход
+                int epsilonBudget = 0;
+                int minWallsAllowed = 0;
+                if (totalInner > 0)
+                {
+                    minWallsAllowed = (int)MathF.Ceiling((hardMin - eps) * totalInner);
+                    epsilonBudget = Math.Max(0, innerWalls - minWallsAllowed);
+                }
+                int epsUsed = 0;
+                int abortsSuppressed = 0;
+                for (int x = 1; x < Size - 1; x++)
+                {
+                    for (int z = 1; z < Size - 1; z++)
+                    {
+                        if (Grid[x, z] != TileType.Empty) continue;
+
+                        bool leftEmpty  = Grid[x - 1, z] == TileType.Empty;
+                        bool rightEmpty = Grid[x + 1, z] == TileType.Empty;
+                        bool upWall     = Grid[x, z - 1] == TileType.Wall;
+                        bool downWall   = Grid[x, z + 1] == TileType.Wall;
+
+                        bool upEmpty    = Grid[x, z - 1] == TileType.Empty;
+                        bool downEmpty  = Grid[x, z + 1] == TileType.Empty;
+                        bool leftWall   = Grid[x - 1, z] == TileType.Wall;
+                        bool rightWall  = Grid[x + 1, z] == TileType.Wall;
+
+                        // Горизонтальный узкий коридор: слева и справа пусто, а сверху и снизу — стены (истинно линейный участок)
+                        if (leftEmpty && rightEmpty && upWall && downWall)
+                        {
+                            // Детеминированный выбор стороны по строке, чтобы расширять весь ряд одной стороной
+                            bool preferUp = (z & 1) == 0;
+                            int tx = x;
+                            int tz = preferUp ? z - 1 : z + 1;
+                            if (Grid[tx, tz] == TileType.Wall)
+                            {
+                                if (wcfg.AdaptiveDensityControl && totalInner > 0)
+                                {
+                                    int projected = innerWalls - 1;
+                                    if (projected < minWallsAllowed)
+                                    {
+                                        // нельзя опуститься ниже (hardMin - eps)
+                                        abortsSuppressed++;
+                                    }
+                                    else
+                                    {
+                                        float projectedDensity = (float)projected / totalInner;
+                                        if (projectedDensity < hardMin)
+                                        {
+                                            if (epsilonBudget <= 0)
+                                            {
+                                                // Бюджет исчерпан — учитываем как подавлённое прерывание без спама
+                                                abortsSuppressed++;
+                                            }
+                                            else
+                                            {
+                                                epsilonBudget--;
+                                                epsUsed++;
+                                                innerWalls = projected;
+                                                widened[tx, tz] = TileType.Empty;
+                                            }
+                                        }
+                                        else
+                                        {
+                                            innerWalls = projected;
+                                            widened[tx, tz] = TileType.Empty;
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    widened[tx, tz] = TileType.Empty;
+                                }
+                            }
+                        }
+
+                        // Вертикальный узкий коридор: сверху и снизу пусто, а слева и справа — стены
+                        if (upEmpty && downEmpty && leftWall && rightWall)
+                        {
+                            // Детеминированный выбор стороны по колонке
+                            bool preferLeft = (x & 1) == 0;
+                            int tx = preferLeft ? x - 1 : x + 1;
+                            int tz = z;
+                            if (Grid[tx, tz] == TileType.Wall)
+                            {
+                                if (wcfg.AdaptiveDensityControl && totalInner > 0)
+                                {
+                                    int projected = innerWalls - 1;
+                                    if (projected < minWallsAllowed)
+                                    {
+                                        abortsSuppressed++;
+                                    }
+                                    else
+                                    {
+                                        float projectedDensity = (float)projected / totalInner;
+                                        if (projectedDensity < hardMin)
+                                        {
+                                            if (epsilonBudget <= 0)
+                                            {
+                                                abortsSuppressed++;
+                                            }
+                                            else
+                                            {
+                                                epsilonBudget--;
+                                                epsUsed++;
+                                                innerWalls = projected;
+                                                widened[tx, tz] = TileType.Empty;
+                                            }
+                                        }
+                                        else
+                                        {
+                                            innerWalls = projected;
+                                            widened[tx, tz] = TileType.Empty;
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    widened[tx, tz] = TileType.Empty;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Периметр остаётся стеной
+                for (int i = 0; i < Size; i++)
+                {
+                    widened[i, 0] = TileType.Wall;
+                    widened[i, Size - 1] = TileType.Wall;
+                    widened[0, i] = TileType.Wall;
+                    widened[Size - 1, i] = TileType.Wall;
+                }
+
+                Array.Copy(widened, Grid, Grid.Length);
+
+                if (wcfg.DebugWorldGenLogs && (epsUsed > 0 || abortsSuppressed > 0))
+                {
+                    int initialBudget = epsUsed + epsilonBudget;
+                    Console.WriteLine($"[WORLDGEN] Widen pass#{p+1}: использован epsilon-бюджет {epsUsed}/{initialBudget}, подавлено прерываний: {abortsSuppressed}");
+                }
+            }
+        }
+
+        // Добавляет дополнительные проёмы между параллельными коридорами в внутренних стенах.
+        // Кандидаты — стены, у которых по одну ось по обе стороны пусто (|E W| или |N S|), без касания периметра.
+        private void AddExtraJunctions()
+        {
+            var wcfg = GameConfig.Instance.World;
+            float scale = Math.Clamp(wcfg.ExtraJunctionsScale, 0f, 1f);
+            if (scale <= 0f) return;
+
+            var candidates = new List<(int x, int z)>();
+            for (int x = 2; x < Size - 2; x++)
+            {
+                for (int z = 2; z < Size - 2; z++)
+                {
+                    if (Grid[x, z] != TileType.Wall) continue;
+                    bool lr = Grid[x - 1, z] == TileType.Empty && Grid[x + 1, z] == TileType.Empty;
+                    bool ud = Grid[x, z - 1] == TileType.Empty && Grid[x, z + 1] == TileType.Empty;
+                    if (!(lr || ud)) continue;
+                    if (wcfg.EnableSpacingAwareCarving && wcfg.JunctionMinSpacing > 0)
+                    {
+                        if (HasNearbyOpening(x, z, wcfg.JunctionMinSpacing)) continue;
+                    }
+                    candidates.Add((x, z));
+                }
+            }
+
+            if (candidates.Count == 0) return;
+
+            // Перемешаем кандидатов и приоритизируем «разрыв тупиков»
+            Shuffle(candidates);
+            float biasJ = Math.Clamp(wcfg.JunctionBiasDeadEnds, 0f, 1f);
+            candidates.Sort((a, b) =>
+            {
+                int scoreA = DeadEndReliefScore(a.x, a.z);
+                int scoreB = DeadEndReliefScore(b.x, b.z);
+                float sa = scoreA * (1f + biasJ);
+                float sb = scoreB * (1f + biasJ);
+                return sb.CompareTo(sa);
+            });
+            if (_rng.NextDouble() < Math.Clamp(wcfg.AntiSymmetryJitter, 0f, 1f))
+            {
+                int cut = _rng.Next(0, candidates.Count);
+                var tail = candidates.GetRange(cut, candidates.Count - cut);
+                Shuffle(tail);
+                for (int t = 0; t < tail.Count; t++) candidates[cut + t] = tail[t];
+            }
+
+            int openCount = Math.Clamp((int)MathF.Round(candidates.Count * scale), 0, candidates.Count);
+            int totalInner = Math.Max(0, (Size - 2) * (Size - 2));
+            int innerWalls = ComputeInternalWallCount();
+            float targetMin = Math.Clamp(wcfg.WallDensityTargetMin, 0f, 0.95f);
+            int opened = 0;
+            for (int i = 0; i < candidates.Count && opened < openCount; i++)
+            {
+                var (x, z) = candidates[i];
+                if (wcfg.AdaptiveDensityControl && totalInner > 0)
+                {
+                    int projected = innerWalls - 1;
+                    float projectedDensity = (float)projected / totalInner;
+                    if (projectedDensity < targetMin)
+                    {
+                        if (wcfg.DebugWorldGenLogs)
+                            Console.WriteLine($"[WORLDGEN] ExtraJunctions: остановлен на opened={opened}/{openCount} (projDensity={projectedDensity:P1} ниже targetMin={targetMin:P1})");
+                        break;
+                    }
+                    innerWalls = projected;
+                }
+                Grid[x, z] = TileType.Empty;
+                opened++;
+            }
+        }
+
+        // Проверка: рядом есть уже открытый «проём» (empty, который соединяет два коридора по одной оси)
+        private bool HasNearbyOpening(int cx, int cz, int spacing)
+        {
+            for (int d = -spacing; d <= spacing; d++)
+            {
+                int rem = spacing - Math.Abs(d);
+                for (int e = -rem; e <= rem; e++)
+                {
+                    int x = cx + d;
+                    int z = cz + e;
+                    if (x <= 1 || z <= 1 || x >= Size - 1 || z >= Size - 1) continue;
+                    if (Grid[x, z] != TileType.Empty) continue;
+                    if (IsOpeningEmpty(x, z)) return true;
+                }
+            }
+            return false;
+        }
+
+        // Пустая клетка считается «проёмом» если по одной из осей у неё по обе стороны пустота
+        private bool IsOpeningEmpty(int x, int z)
+        {
+            bool lr = Grid[x - 1, z] == TileType.Empty && Grid[x + 1, z] == TileType.Empty;
+            bool ud = Grid[x, z - 1] == TileType.Empty && Grid[x, z + 1] == TileType.Empty;
+            return lr || ud;
+        }
+
+        // Оценка «разрывает ли кандидат тупик»: считаем степени соседних пустых клеток и стимулируем degree<=1
+        private int DeadEndReliefScore(int wx, int wz)
+        {
+            int score = 0;
+            // Если слева/справа пусто — посмотрим их степени
+            if (wx > 1 && wx < Size - 1)
+            {
+                if (Grid[wx - 1, wz] == TileType.Empty) score += (DegreeEmpty(wx - 1, wz) <= 1 ? 2 : 0);
+                if (Grid[wx + 1, wz] == TileType.Empty) score += (DegreeEmpty(wx + 1, wz) <= 1 ? 2 : 0);
+            }
+            // Если сверху/снизу пусто — посмотрим их степени
+            if (wz > 1 && wz < Size - 1)
+            {
+                if (Grid[wx, wz - 1] == TileType.Empty) score += (DegreeEmpty(wx, wz - 1) <= 1 ? 2 : 0);
+                if (Grid[wx, wz + 1] == TileType.Empty) score += (DegreeEmpty(wx, wz + 1) <= 1 ? 2 : 0);
+            }
+            return score;
+        }
+
+        // Степень пустой клетки по 4‑соседям
+        private int DegreeEmpty(int x, int z)
+        {
+            int d = 0;
+            if (Grid[x + 1, z] == TileType.Empty) d++;
+            if (Grid[x - 1, z] == TileType.Empty) d++;
+            if (Grid[x, z + 1] == TileType.Empty) d++;
+            if (Grid[x, z - 1] == TileType.Empty) d++;
+            return d;
+        }
+
+        // Перемешивание списка (Fisher–Yates)
+        private void Shuffle<T>(IList<T> list)
+        {
+            for (int i = 0; i < list.Count; i++)
+            {
+                int j = _rng.Next(i, list.Count);
+                (list[i], list[j]) = (list[j], list[i]);
+            }
+        }
+
+        // Подсчёт плотности стен во внутренней области (без периметра)
+        private float ComputeInternalWallDensity()
+        {
+            if (Size <= 2) return 1f; // тривиальная решётка — считаем «всё стены»
+            int count = 0;
+            int total = (Size - 2) * (Size - 2);
+            for (int x = 1; x < Size - 1; x++)
+                for (int z = 1; z < Size - 1; z++)
+                    if (Grid[x, z] == TileType.Wall) count++;
+            return total > 0 ? (float)count / total : 1f;
+        }
+
+        // Быстрый подсчёт числа внутренних стен (без периметра)
+        private int ComputeInternalWallCount()
+        {
+            if (Size <= 2) return (Size * Size);
+            int count = 0;
+            for (int x = 1; x < Size - 1; x++)
+                for (int z = 1; z < Size - 1; z++)
+                    if (Grid[x, z] == TileType.Wall) count++;
+            return count;
+        }
+
+        // Подсчёт числа стен в окрестности 3x3 вокруг клетки (включая центр)
+        private int CountWalls3x3(int cx, int cz)
+        {
+            int cnt = 0;
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                for (int dz = -1; dz <= 1; dz++)
+                {
+                    int x = cx + dx;
+                    int z = cz + dz;
+                    if (x <= 0 || z <= 0 || x >= Size - 1 || z >= Size - 1) continue; // игнорируем периметр
+                    if (Grid[x, z] == TileType.Wall) cnt++;
+                }
+            }
+            return cnt;
+        }
+
+        // Удаляет единичные внутренние клетки-стены, у которых нет 4‑соседей‑стен.
+        // Периметр не трогаем.
+        private void RemoveIsolatedSingletonWalls()
+        {
+            var cleaned = (TileType[,])Grid.Clone();
+            for (int x = 1; x < Size - 1; x++)
+            {
+                for (int z = 1; z < Size - 1; z++)
+                {
+                    if (Grid[x, z] != TileType.Wall) continue;
+
+                    int neighborWalls = 0;
+                    if (Grid[x + 1, z] == TileType.Wall) neighborWalls++;
+                    if (Grid[x - 1, z] == TileType.Wall) neighborWalls++;
+                    if (Grid[x, z + 1] == TileType.Wall) neighborWalls++;
+                    if (Grid[x, z - 1] == TileType.Wall) neighborWalls++;
+
+                    if (neighborWalls == 0)
+                        cleaned[x, z] = TileType.Empty;
+                }
+            }
+
+            // Периметр оставляем стеной
+            for (int i = 0; i < Size; i++)
+            {
+                cleaned[i, 0] = TileType.Wall;
+                cleaned[i, Size - 1] = TileType.Wall;
+                cleaned[0, i] = TileType.Wall;
+                cleaned[Size - 1, i] = TileType.Wall;
+            }
+
+            Array.Copy(cleaned, Grid, Grid.Length);
         }
 
         public void Draw(bool showShadows = true)

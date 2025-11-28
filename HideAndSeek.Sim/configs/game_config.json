@@ -95,9 +95,20 @@
       "CellSize": "Meters per grid cell.",
       "WallHeight": "Height of walls in meters (for 3D rendering/visibility)."
     },
-    "GridSize": 20,
+    "GridSize": 21,
     "CellSize": 1.0,
-    "WallHeight": 2.0
+    "WallHeight": 2.0,
+    "MinPassageWidth": 2,
+    "EnableSpacingAwareCarving": true,
+    "ExtraPassagesScale": 0.56,
+    "ExtraJunctionsScale": 0.40,
+    "JunctionMinSpacing": 2,
+    "JunctionBiasDeadEnds": 0.32,
+    "AntiSymmetryJitter": 0.15,
+    "AdaptiveDensityControl": true,
+    "WallDensityTargetMin": 0.28,
+    "WallDensityMin": 0.28,
+    "DebugWorldGenLogs": true
   },
   "Runtime": {
     "__comments": {
